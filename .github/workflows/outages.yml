@@ -6,10 +6,12 @@ name: Refresh outage data
 #
 # The branch is force-pushed as a single commit each run, so it never grows.
 # GitHub's cron is best-effort: expect runs every 5-15 minutes, not exactly 5.
+# Offset from :00 because top-of-the-hour schedules are the most delayed or
+# dropped. A brand-new schedule can also take an hour or more to start firing.
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '2-59/5 * * * *'
   workflow_dispatch:
 
 permissions:
