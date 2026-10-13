@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=2">
 </head>
 <body>
   <canvas id="globe" aria-label="Globe showing current Internet outages"></canvas>
@@ -40,6 +40,12 @@
     <ol class="list" id="list"></ol>
   </aside>
 
+  <nav class="zoomctl" aria-label="Globe zoom">
+    <button id="zoomIn" aria-label="Zoom in"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+    <button id="zoomOut" aria-label="Zoom out"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+    <button id="zoomReset" aria-label="Reset view"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.2 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.2-3.8-8.5s1.2-6.1 3.8-8.5Z"/></svg></button>
+  </nav>
+
   <section class="card" id="card" hidden>
     <div class="card-head">
       <div class="card-icon" id="cardIcon"></div>
@@ -71,6 +77,6 @@
   <script src="vendor/d3-array.min.js"></script>
   <script src="vendor/d3-geo.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=2"></script>
 </body>
 </html>

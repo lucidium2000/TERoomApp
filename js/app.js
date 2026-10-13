@@ -41,6 +41,8 @@
   const COLORS = { network: '#f15e22', application: '#16bdeb' };
   const RGB = { network: '241,94,34', application: '22,189,235' };
   const RAD = Math.PI / 180;
+  const ZOOM_MIN = 0.6, ZOOM_MAX = 8;
+  const SPIN_RESUME_MS = 12000;   // leave the globe where the user put it for a while
 
   // Friendly labels + match terms for the "Your services" strip.
   const WATCH_PRESETS = {
@@ -243,7 +245,8 @@
         if (o.active || isSel) {
           const period = isSel ? 1600 : 2400;
           for (let i = 0; i < 2; i++) {
-            const t = ((now + i * period / 2 + (loc.lon * 37 | 0)) % period) / period;
+            // Positive modulo: a negative longitude offset must not give a negative radius.
+            const t = ((((now + i * period / 2 + (loc.lon * 37 | 0)) % period) + period) % period) / period;
             ctx.strokeStyle = `rgba(${RGB[o.kind]},${((1 - t) * 0.7 * dim).toFixed(3)})`;
             ctx.lineWidth = 2 * k;
             ctx.beginPath(); ctx.arc(p[0], p[1], r + t * 26 * k, 0, 2 * Math.PI); ctx.stroke();
@@ -319,7 +322,7 @@
         view.lat = clampLat(view.lat + S.vel.lat * dt);
         const decay = Math.pow(0.94, dt / 16);
         S.vel.lon *= decay; S.vel.lat *= decay;
-      } else if (!S.selected && now - S.lastInput > 3000) {
+      } else if (!S.selected && now - S.lastInput > SPIN_RESUME_MS) {
         view.lon = wrapLon(view.lon + (CFG.spinDegPerS * dt) / 1000);
         view.lat += (18 - view.lat) * 0.0006 * dt / 16;      // drift back to a pleasant tilt
         view.zoom += (1 - view.zoom) * 0.002 * dt / 16;
@@ -568,7 +571,7 @@
   // ── Input ────────────────────────────────────────────────────────────────
   const now = () => performance.now();
   const pts = new Map();
-  let pinch = 0, down = null;
+  let pinch = 0, down = null, mid = null, lastTap = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     userInput();
@@ -578,6 +581,7 @@
     if (pts.size === 2) {
       const [a, b] = [...pts.values()];
       pinch = Math.hypot(a.x - b.x, a.y - b.y); down = null; S.dragging = false;
+      mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       return;
     }
     down = { x: e.clientX, y: e.clientY, t: now(), moved: false, lx: e.clientX, ly: e.clientY, lt: now() };
@@ -591,24 +595,55 @@
     if (pts.size >= 2) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinch > 0) view.zoom = Math.max(0.6, Math.min(6, view.zoom * (d / pinch)));
+      if (pinch > 0) view.zoom = clampZoom(view.zoom * (d / pinch));
       pinch = d;
+      // Moving both fingers together turns the globe too.
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (mid) rotateByPixels(m.x - mid.x, m.y - mid.y);
+      mid = m;
       return;
     }
     if (!down) return;
-    const R = layout().base * view.zoom;
-    const degPerPx = 180 / (Math.PI * R);
     const dx = e.clientX - down.lx, dy = e.clientY - down.ly, dt = Math.max(1, now() - down.lt);
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) down.moved = true;
-    view.lon = wrapLon(view.lon - dx * degPerPx);
-    view.lat = clampLat(view.lat + dy * degPerPx);
+    const degPerPx = rotateByPixels(dx, dy);
     S.vel.lon = (-dx * degPerPx) / dt; S.vel.lat = (dy * degPerPx) / dt;
     down.lx = e.clientX; down.ly = e.clientY; down.lt = now();
   });
 
+  function clampZoom(z) { return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); }
+
+  /** Drag the surface under the finger: degrees per pixel shrink as you zoom in. */
+  function rotateByPixels(dx, dy) {
+    const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
+    view.lon = wrapLon(view.lon - dx * degPerPx);
+    view.lat = clampLat(view.lat + dy * degPerPx);
+    return degPerPx;
+  }
+
+  /** Animated zoom, optionally re-centring on a lon/lat. Reuses the flight path. */
+  function zoomTo(z, centre) {
+    const from = [view.lon, view.lat];
+    const to = centre ? [centre[0], clampLat(centre[1])] : from;
+    S.flight = { interp: d3.geoInterpolate(from, to), z0: view.zoom, z1: clampZoom(z), lift: 0, t0: now(), dur: 650 };
+    S.vel.lon = S.vel.lat = 0;
+  }
+
   function endPointer(e) {
     pts.delete(e.pointerId);
-    if (pts.size < 2) pinch = 0;
+    if (pts.size < 2) { pinch = 0; mid = null; }
+    // Double tap: zoom in on that spot.
+    if (down && !down.moved && e.type === 'pointerup') {
+      const t = now();
+      if (lastTap && t - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+        lastTap = null;
+        const ll = projection.invert([e.clientX, e.clientY]);
+        zoomTo(view.zoom * 1.8, ll && d3.geoDistance(ll, [view.lon, view.lat]) < Math.PI / 2 ? ll : null);
+        down = null; S.dragging = false;
+        return;
+      }
+      lastTap = { t, x: e.clientX, y: e.clientY };
+    }
     if (down && !down.moved && e.type === 'pointerup') {
       // Tap: pick the nearest marker, else clear the selection.
       let best = null, bd = Infinity;
@@ -626,8 +661,15 @@
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault(); userInput(); S.flight = null;
-    view.zoom = Math.max(0.6, Math.min(6, view.zoom * Math.exp(-e.deltaY * 0.0015)));
+    view.zoom = clampZoom(view.zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.006 : 0.0015)));
   }, { passive: false });
+
+  // On-screen zoom controls - pinch isn't obvious to everyone on a room device.
+  document.getElementById('zoomIn').addEventListener('click', () => { userInput(); zoomTo(view.zoom * 1.6); });
+  document.getElementById('zoomOut').addEventListener('click', () => { userInput(); zoomTo(view.zoom / 1.6); });
+  document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(1, [view.lon, 18]); });
+  // Stop the browser itself from zooming the page on a pinch (Safari/WebKit gesture events).
+  ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 
   el.list.addEventListener('click', (e) => {
     const row = e.target.closest('.row');
@@ -667,12 +709,17 @@
   // ── Main loop ────────────────────────────────────────────────────────────
   let last = now();
   function frame(t) {
-    const dt = Math.min(64, t - last); last = t;
-    step(t, dt);
-    ctx.setTransform(CFG.dpr, 0, 0, CFG.dpr, 0, 0);
-    drawSky();
-    drawGlobe(t, layout());
+    // Schedule first: one bad frame must never stop the globe (and with it, all input).
     requestAnimationFrame(frame);
+    const dt = Math.min(64, t - last); last = t;
+    try {
+      step(t, dt);
+      ctx.setTransform(CFG.dpr, 0, 0, CFG.dpr, 0, 0);
+      drawSky();
+      drawGlobe(t, layout());
+    } catch (e) {
+      if (!frame.warned) { frame.warned = true; console.error('[globe] frame error', e); }
+    }
   }
 
   // Refresh relative times without refetching.
