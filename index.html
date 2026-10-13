@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Internet Outage Globe</title>
+  <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
+  <meta name="theme-color" content="#05070d">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <canvas id="globe" aria-label="Globe showing current Internet outages"></canvas>
+
+  <header class="brand">
+    <img class="brand-logo" src="assets/te-logo.png" alt="ThousandEyes">
+    <div class="brand-text">
+      <h1>Internet Outages <span class="live"><i></i>LIVE</span></h1>
+      <p class="sub">Internet Insights &middot; last 24 hours &middot; <span id="updated">loading&hellip;</span></p>
+    </div>
+  </header>
+
+  <aside class="panel" id="panel">
+    <div class="stats">
+      <div class="stat"><b id="statActive">–</b><span>Active now</span></div>
+      <div class="stat net"><b id="statNet">–</b><span>Network</span></div>
+      <div class="stat app"><b id="statApp">–</b><span>Application</span></div>
+      <div class="stat"><b id="statLoc">–</b><span>Locations</span></div>
+    </div>
+
+    <section class="watch">
+      <h2>Your services</h2>
+      <div class="watch-list" id="watch"></div>
+    </section>
+
+    <div class="chips" role="tablist">
+      <button class="chip on" data-filter="all">All</button>
+      <button class="chip" data-filter="network">Network</button>
+      <button class="chip" data-filter="application">Apps</button>
+    </div>
+    <ol class="list" id="list"></ol>
+  </aside>
+
+  <section class="card" id="card" hidden>
+    <div class="card-head">
+      <div class="card-icon" id="cardIcon"></div>
+      <div class="card-title">
+        <div class="card-kind" id="cardKind"></div>
+        <h3 id="cardName"></h3>
+      </div>
+      <button class="card-close" id="cardClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="card-metrics" id="cardMetrics"></div>
+    <ul class="card-locs" id="cardLocs"></ul>
+    <div class="card-progress"><i id="cardProgress"></i></div>
+  </section>
+
+  <footer class="timeline">
+    <button class="tour" id="tourBtn" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+      <span>Tour</span>
+    </button>
+    <div class="tl-chart">
+      <svg id="timeline" preserveAspectRatio="none"></svg>
+      <div class="tl-axis"><span>24h ago</span><span>12h</span><span>now</span></div>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" hidden></div>
+  <div class="error" id="error" hidden></div>
+
+  <script src="vendor/d3-array.min.js"></script>
+  <script src="vendor/d3-geo.min.js"></script>
+  <script src="vendor/topojson-client.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
