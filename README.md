@@ -5,7 +5,7 @@ A full-screen, touch-friendly globe of live Internet outages from **ThousandEyes
 - **Globe:** shaded ocean, navy land, live day/night terminator, panning starfield, atmosphere glow.
 - **Network outages** (ISPs, clouds, CDNs) are shown in TE orange. **Application outages** (SaaS) are shown in TE cyan. Active outages pulse.
 - **Tap an outage** on the globe or in the list. The globe flies there, links the affected locations with great-circle arcs and labels the cities.
-- **Tour mode** starts after 30 s idle. It cycles through active and recent outages, which suits a lobby screen or a device sitting idle between meetings.
+- **Tour mode** runs from launch. Touch stops it, and it resumes after 30 s idle. It cycles through active and recent outages, which suits a lobby screen or a device sitting idle between meetings.
 - **"Your services"** shows at a glance whether Webex, Zoom, Microsoft 365, Google or AWS had outages, so people can tell "is it me or the internet?"
 - **24-hour timeline** of outage starts. New outages that arrive on a refresh get a toast and a fly-to.
 
@@ -61,7 +61,7 @@ xConfiguration Standby Signage Url: "https://<you>.github.io/<repo>/?signage=1"
 
 | Param | Default | |
 |---|---|---|
-| `tour` | auto | `1` starts touring immediately, `0` disables the idle tour |
+| `tour` | on | tours from launch and resumes after `idle`; `0` disables it |
 | `idle` | `30` | seconds without touch before the tour starts |
 | `dwell` | `10` | seconds per outage on tour |
 | `spin` | `3` | idle rotation, degrees/second |

@@ -7,7 +7,7 @@
  * URL parameters (all optional):
  *   data=<url>      outages.json to load (default: this repo's `data` branch)
  *   refresh=<sec>   reload interval, default 300
- *   tour=0|1        0 disables the idle tour, 1 starts it immediately
+ *   tour=0          disable the tour (default: tours on load, and again after idle)
  *   idle=<sec>      seconds without touch before the tour starts, default 30
  *   dwell=<sec>     seconds per outage on tour, default 10
  *   spin=<deg/s>    idle rotation speed, default 3
@@ -736,6 +736,7 @@
     try { await loadWorld(); } catch (e) { console.error('world map failed', e); }
     await refresh();
     setInterval(refresh, CFG.refreshMs);
-    if (CFG.tour === '1' || CFG.signage) { S.lastInput = -Infinity; }
+    // Tour runs from launch unless explicitly disabled with tour=0.
+    if (CFG.tour !== '0' || CFG.signage) { S.lastInput = -Infinity; }
   })();
 })();
