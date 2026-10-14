@@ -1152,7 +1152,7 @@
       if (state === 'hold') {
         gestureEl.className = 'gesture show';
         gestureRing.style.strokeDashoffset = String(100 - progress * 100);
-        gestureLabel.textContent = window.Glass.armed ? 'Hold to pause' : 'Hold to start';
+        gestureLabel.textContent = 'Hold to start';
       } else if (state === 'cancel') {
         gestureEl.className = 'gesture';
       } else {

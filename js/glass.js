@@ -452,10 +452,10 @@
   // matter. Open hand ~1.9, fist ~1.0; hysteresis between FIST_ON and FIST_OFF.
   // One fist = 'pan' (the globe follows the fist). Two fists = 'zoom' (their
   // spacing zooms, their midpoint still pans). A grab starts once a fist has
-  // been held HOLD_MS, and lets go once no fist has been seen for GAP_MS
-  // (i.e. the hand has opened). Switching between one and two fists mid-grab
-  // needs DEBOUNCE results.
-  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, GAP_MS: 250, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250 };
+  // been held HOLD_MS. It lets go after OPEN_MS of an open hand, or LOST_MS of
+  // no hand at all (a hand the camera loses for a moment shouldn't drop the
+  // globe). Switching between one and two fists mid-grab needs DEBOUNCE results.
+  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250 };
   const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
     pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
   function releaseGrab(now, latch) {
@@ -480,8 +480,8 @@
 
     if (!mode) {
       grab.pendMode = null; grab.pendN = 0;
-      if (now - grab.lastSeen > GRAB.GAP_MS) grab.latched = false;   // hand opened: may grab again
-      if (grab.on && now - grab.lastSeen > GRAB.GAP_MS) releaseGrab(now, false);
+      const openHand = grab.curls.some((c) => c > GRAB.FIST_OFF);
+      if (grab.on && now - grab.lastSeen > (openHand ? GRAB.OPEN_MS : GRAB.LOST_MS)) releaseGrab(now, false);
       return;
     }
     if (grab.latched) { grab.lastSeen = now; return; }
@@ -515,10 +515,10 @@
   }
 
   // ── Palm hold: arm / pause fist gestures ─────────────────────────────────
-  // One open hand, fingers up, held roughly still for HOLD_MS toggles fist
-  // gestures on ("Ready") and off ("Paused"). After a toggle the hand must go
-  // away (LATCH) before another hold can count, so it can't flip-flop.
-  const PALM = { OPEN: 1.6, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350 };
+  // One open hand, fingers up, held roughly still for HOLD_MS turns fist
+  // gestures on ("Ready"). They pause by themselves once no hand has been seen
+  // for IDLE_MS - an open palm while Ready just lets go of the globe.
+  const PALM = { OPEN: 1.6, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 5000 };
   const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
   let armed = false, onGesture = () => {};
 
@@ -530,6 +530,15 @@
   function updatePalmHold(palms, now, aspect) {
     const withLm = palms.filter((p) => p.lm);
     const open = withLm.filter((p) => curl(p.lm, aspect) > PALM.OPEN && upright(p.lm, aspect));
+    if (armed) {
+      if (hold.active) { hold.active = false; hold.progress = 0; onGesture('cancel', 0); }
+      if (now - lastHandSeen > PALM.IDLE_MS) {
+        armed = false; hold.latched = false;
+        if (grab.on) releaseGrab(now, false);
+        onGesture('paused', 1);
+      }
+      return;
+    }
     if (open.length === 1 && !grab.on) {
       const p = open[0];
       hold.lastSeen = now;
@@ -541,10 +550,9 @@
       hold.progress = Math.min(1, (now - hold.t0) / PALM.HOLD_MS);
       onGesture('hold', hold.progress);
       if (hold.progress >= 1) {
-        armed = !armed;
+        armed = true;
         hold.active = false; hold.latched = true; hold.progress = 0;
-        if (!armed && grab.on) { grab.on = false; grab.mode = null; grab.endT = now; onGrab('end', { ratio: grab.ratio }); }
-        onGesture(armed ? 'armed' : 'paused', 1);
+        onGesture('armed', 1);
       }
     } else if (now - hold.lastSeen > PALM.GAP_MS) {
       if (hold.active) { hold.active = false; hold.progress = 0; onGesture('cancel', 0); }
@@ -856,7 +864,7 @@
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
       g.fillStyle = armed ? '#34d399' : '#fbbf24';
-      g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 0.5s = ready)', 8, H + 88);
+      g.fillText(armed ? `gestures: READY (pauses after ${PALM.IDLE_MS / 1000}s with no hands)` : 'gestures: paused (palm 0.5s = ready)', 8, H + 88);
       if (hold.active) { line(5, `palm hold ${Math.round(hold.progress * 100)}%`, '#34d399'); return; }
       if (!grab.on && grab.pendMode && !grab.latched) { line(5, `fist hold ${Math.min(100, Math.round((performance.now() - grab.pendT0) / GRAB.HOLD_MS * 100))}%`, '#f43f5e'); return; }
       if (grab.on) { line(5, grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate', '#f43f5e'); return; }
