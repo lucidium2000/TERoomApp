@@ -568,7 +568,7 @@
     }
     const n = perfFrames, f = (k) => ((perfAcc[k] || 0) / n).toFixed(1);
     const G = window.Glass;
-    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | ${glr ? 'webgl' : '2d' + (S.glOff ? ' [gl off: ' + S.glOff + ']' : '')} `
+    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${window.Glass && window.Glass.on ? '30 cam' : frameCap}) | ${glr ? 'webgl' : '2d' + (S.glOff ? ' [gl off: ' + S.glOff + ']' : '')} `
       + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) rescales ${S.rescales} | work ${f('total')}ms: `
       + (glr ? `gl ${f('gl')} markers ${f('markers')}` : `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`)
       + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | lines ${S.segments || '-'} | lod ${glr.info.lod} aniso ${glr.info.aniso}` : '')
@@ -1283,7 +1283,10 @@
   function frame(t) {
     // Schedule first: one bad frame must never stop the globe (and with it, all input).
     requestAnimationFrame(frame);
-    if (frameCap === 30 && t - lastDraw < 1000 / 30 - 4) return;
+    // While the camera is on, render at 30: the globe shares the GPU with the
+    // hand/face models, and a slow-turning globe looks nearly the same at 30.
+    const cap = window.Glass && window.Glass.on ? 30 : frameCap;
+    if (cap === 30 && t - lastDraw < 1000 / 30 - 4) return;
     lastDraw = t;
     adaptScale(t);   // before drawing: a resized (wiped) canvas is redrawn this same frame
     const dt = Math.min(64, t - last); last = t;

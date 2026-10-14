@@ -70,6 +70,9 @@
   let handLm = null, lastSwipeAny = -Infinity, lastPalms = [], lastHandSeen = -Infinity;
   let debug = null, debugWanted = qs.get('camdebug') === '1', frameN = 0, resN = 0, resT0 = 0;
   const SWIPE_ON = qs.get('swipe') !== '0';
+  // With hands on, faces are only looked for on every FACE_EVERY-th frame:
+  // head position is heavily smoothed, and the hand model gets the rest.
+  const FACE_EVERY = Math.max(1, parseInt(qs.get('faceevery'), 10) || 4);
 
   const G = {
     on: false, mode: null, pose, stats,
@@ -266,6 +269,7 @@
           stats.where = 'worker/' + m.delegate.toLowerCase();
           stats.hands = !!m.hands;
           stats.handDelegate = m.handDelegate || null;
+          stats.workerGL = m.gl || '?';
           w.onmessage = onWorkerMessage;
           resolve(w);
         } else if (m.type === 'error') { clearTimeout(to); reject(new Error(m.message)); }
@@ -348,7 +352,7 @@
       busy = true; lastSend = now;
       // With hands on, faces are only looked for on every other frame: head
       // position is heavily smoothed anyway, and the hand gets the full rate.
-      const withFace = !handSwipe || (++frameN % 2 === 0);
+      const withFace = !handSwipe || (++frameN % FACE_EVERY === 0);
       const vw = video.videoWidth, vh = video.videoHeight;
       const bmpOpts = vw > SMALL_W + 16 ? { resizeWidth: SMALL_W, resizeHeight: Math.round((SMALL_W * vh) / vw), resizeQuality: 'low' } : undefined;
       createImageBitmap(video, bmpOpts).then((bitmap) => {
@@ -364,7 +368,7 @@
     lastSend = now;
     countRate(now);
     let hit = null, palms = null;
-    const withFace = !handLm || (++frameN % 2 === 0);
+    const withFace = !handLm || (++frameN % FACE_EVERY === 0);
     try {
       if (detector) {
         const t0 = performance.now();
@@ -623,6 +627,12 @@
 
   /** Every hand result, from whichever engine, comes through here. */
   function processHands(palms, now, aspect) {
+    // Debug (option 5): palm velocity from the hand model, same units as motion.
+    if (palms.length && lastPalms.length) {
+      const dt = Math.max(1, now - (processHands.t || now)) / 1000;
+      stats.handVel = { x: -(palms[0].x - lastPalms[0].x) / dt, y: (palms[0].y - lastPalms[0].y) / dt };
+    } else stats.handVel = null;
+    processHands.t = now;
     lastPalms = palms;
     if (palms.length) lastHandSeen = now;
     updatePalmHold(palms, now, aspect || 0.5625);
@@ -636,6 +646,20 @@
     }
     if (debug) debug(palms);
   }
+
+  /** Debug (option 4): what this browser offers for acceleration. */
+  function platformInfo() {
+    const ua = navigator.userAgent;
+    const info = { roomos: /RoomOS|Cisco|Webex/i.test(ua), webgpu: !!navigator.gpu, webnn: !!navigator.ml, gl2: 'none' };
+    try {
+      const g = document.createElement('canvas').getContext('webgl2');
+      if (g) { const d = g.getExtension('WEBGL_debug_renderer_info'); info.gl2 = String(d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER)); }
+    } catch (_) { info.gl2 = 'error'; }
+    const m = ua.match(/Chrome\/([\d.]+)/);
+    info.chrome = m ? m[1].split('.')[0] : '?';
+    return info;
+  }
+  let platform = null;
 
   /** Both detectors report here; one swipe can't be counted twice. */
   function emitSwipe(dir, source) {
@@ -734,7 +758,7 @@
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const g = c.getContext('2d', { willReadFrequently: true });
     let prev = null, hist = [], quietUntil = 0, lastDir = null, lastT = 0;
-    const diag = { travel: 0, mass: 0, why: 'warming up' };
+    const diag = { travel: 0, mass: 0, why: 'warming up', vx: 0, vy: 0, hz: 0 };
     const fn = (vid, now) => {
       g.drawImage(vid, 0, 0, W, H);
       const px = g.getImageData(0, 0, W, H).data;
@@ -744,13 +768,28 @@
       let sum = 0;
       for (let i = 0; i < N; i++) sum += Math.abs(cur[i] - prev[i]);
       const thr = Math.max(18, (sum / N) * 2.5);
-      let sx = 0, n = 0;
+      let sx = 0, sy = 0, n = 0;
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         const i = y * W + x;
-        if (Math.abs(cur[i] - prev[i]) > thr) { sx += x; n++; }
+        if (Math.abs(cur[i] - prev[i]) > thr) { sx += x; sy += y; n++; }
       }
       prev = cur;
       diag.mass = n / N;
+      // Debug (option 5): motion centroid and its velocity, viewer's frame
+      // (+x = their right), frame-widths per second - what a motion-driven
+      // drag would see at this detector's ~16 Hz.
+      if (n / N >= MOTION.MIN_MASS) {
+        const cx = sx / n / W, cy = sy / n / H;
+        if (diag.cx !== undefined && diag.t) {
+          const dt = Math.max(1, now - diag.t) / 1000;
+          diag.vx += ((-(cx - diag.cx) / dt) - diag.vx) * 0.5;
+          diag.vy += (((cy - diag.cy) / dt) - diag.vy) * 0.5;
+        }
+        diag.cx = cx; diag.cy = cy; diag.t = now;
+      } else { diag.vx *= 0.6; diag.vy *= 0.6; diag.cx = undefined; }
+      diag.n = (diag.n || 0) + 1;
+      if (!diag.t0) diag.t0 = now;
+      if (now - diag.t0 >= 1000) { diag.hz = Math.round((diag.n * 1000) / (now - diag.t0)); diag.n = 0; diag.t0 = now; }
       if (n / N > 0.5) { hist = []; diag.why = 'whole-image change (skipped)'; return null; }
       if (now < quietUntil) { hist = []; diag.why = 'cooldown'; return null; }
       if (n / N >= MOTION.MIN_MASS) hist.push({ t: now, x: sx / n / W });
@@ -852,7 +891,8 @@
   const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
     [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]];
   function makeDebugView() {
-    const W = 400, H = 300, TXT = 112;
+    const W = 400, H = 300, TXT = 166;
+    platform = platform || platformInfo();
     const c = document.createElement('canvas');
     c.width = W; c.height = H + TXT;
     c.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:98;border-radius:12px;'
@@ -901,6 +941,13 @@
         g.beginPath(); g.moveTo(X(palms[0].x), Y(palms[0].y)); g.lineTo(X(palms[1].x), Y(palms[1].y)); g.stroke();
         g.setLineDash([]);
       }
+      // Motion centroid (option 5): cyan dot with its velocity arrow.
+      if (swipe && swipe.diag && swipe.diag.cx !== undefined) {
+        const md0 = swipe.diag, mx = X(md0.cx), my = Y(md0.cy);
+        g.strokeStyle = '#22d3ee'; g.fillStyle = '#22d3ee'; g.lineWidth = 2;
+        g.beginPath(); g.arc(mx, my, 5, 0, 7); g.fill();
+        g.beginPath(); g.moveTo(mx, my); g.lineTo(mx + md0.vx * W * 0.25, my + md0.vy * H * 0.25); g.stroke();
+      }
       // Text panel.
       const d = handSwipe ? handSwipe.diag : null, md = swipe ? swipe.diag : null;
       g.fillStyle = '#0b1220'; g.fillRect(0, H, W, TXT);
@@ -922,6 +969,15 @@
         g.fillText(`travel ${md.travel.toFixed(2)}/${MOTION.TRAVEL}`, 70, H + 70);
         g.fillStyle = '#9fe'; g.fillText(`${md.why}`.slice(0, 26), 200, H + 70);
       }
+      // Option 5: hand-model vs motion velocity (frame-widths/s) and rates.
+      const hv = stats.handVel;
+      g.fillStyle = '#22d3ee';
+      g.fillText(`vel motion ${md ? md.vx.toFixed(2) + ',' + md.vy.toFixed(2) + ' @' + (md.hz || 0) + 'Hz' : '-'}  hand ${hv ? hv.x.toFixed(2) + ',' + hv.y.toFixed(2) : '-'} @${hz}Hz`, 8, H + 124);
+      // Option 4: platform acceleration.
+      const p4 = platform;
+      g.fillStyle = '#c4b5fd';
+      g.fillText(`roomos:${p4.roomos ? 'y' : 'n'} chrome ${p4.chrome} webgpu:${p4.webgpu ? 'y' : 'n'} webnn:${p4.webnn ? 'y' : 'n'}`, 8, H + 142);
+      g.fillText(`gl main: ${p4.gl2.slice(0, 26)} | wrk: ${(stats.workerGL || '-').slice(0, 20)}`, 8, H + 160);
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
       g.fillStyle = armed ? '#34d399' : '#fbbf24';

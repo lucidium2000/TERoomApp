@@ -57,7 +57,13 @@ async function init(base, want, wantHands) {
       hands = h.task; handsOk = true; handDelegate = h.delegate;
     } catch (e) { /* face tracking still works without hands */ }
   }
-  return { delegate: f.delegate, hands: handsOk, handDelegate };
+  // What the worker's "GPU" really is (a software renderer shows up here).
+  let gl = 'none';
+  try {
+    const g = new OffscreenCanvas(1, 1).getContext('webgl2') || new OffscreenCanvas(1, 1).getContext('webgl');
+    if (g) { const d = g.getExtension('WEBGL_debug_renderer_info'); gl = String(d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER)); }
+  } catch (e) { gl = 'error'; }
+  return { delegate: f.delegate, hands: handsOk, handDelegate, gl };
 }
 
 self.onmessage = async (ev) => {
@@ -65,7 +71,7 @@ self.onmessage = async (ev) => {
   if (m.type === 'init') {
     try {
       const r = await init(m.base, m.delegate, m.hands);
-      self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands, handDelegate: r.handDelegate });
+      self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands, handDelegate: r.handDelegate, gl: r.gl });
     } catch (e) {
       self.postMessage({ type: 'error', message: String((e && e.message) || e) });
     }
