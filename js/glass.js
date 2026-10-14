@@ -51,13 +51,23 @@
   const BUDGET = 0.3;              // main-thread fallback: spend at most ~30% of time detecting
   const MAX_INTERVAL_MS = 250;     // ...but never track slower than 4 Hz
   const WARMUP_FRAMES = 3;         // first GPU runs compile shaders: don't let them skew timing
-  const GAIN_XY = 0.6;             // head offset from centre -> -1..1 (lower = needs more movement)
-  const DEADZONE_XY = 0.1;         // "play": small head movements are ignored entirely
-  const DEADZONE_Z = 0.15;         // ...and small leans
-  const SMOOTH_XY = 0.09;          // per-frame easing toward the measured position
-  const SMOOTH_Z = 0.05;           // distance is noisier than position: ease harder
-  const LOST_AFTER_MS = 1500;      // no subject for this long: drift back to centre
-  const RECALIBRATE_AFTER_MS = 4000;  // gone this long: treat the next face as a new viewer
+  // ── Head tracking: a soft, smooth parallax ───────────────────────────────
+  // Face samples are sparse (faces share the model time with hands), so the
+  // pose is never set directly: it is a critically damped spring pulled toward
+  // a target, which makes every movement ease in and out with no jumps.
+  //   - The viewer's resting position slowly becomes "centre" (NEUTRAL_TAU), so
+  //     sitting off to one side doesn't leave the view permanently skewed.
+  //   - A soft knee (no hard deadzone edge) ignores tiny movements and eases
+  //     into larger ones; tanh saturation means it never hits a hard limit.
+  const HEAD = {
+    GAIN: 2.5,          // neutral-relative offset (frame = +-1) -> pose before shaping
+    KNEE: 0.06,         // soft deadzone width, in pose units
+    NEUTRAL_TAU: 10,    // seconds for the resting position to become centre
+    SPRING_HZ: 0.9,     // spring frequency: lower = softer and slower
+    SPRING_Z_HZ: 0.5,
+    LOST_MS: 1500,      // no face this long: glide back to centre
+    RESET_MS: 4000,     // gone this long: the next face is a new viewer (re-centre)
+  };
 
   const pose = { x: 0, y: 0, z: 0, seen: false };
   const target = { x: 0, y: 0, z: 0 };
@@ -171,7 +181,7 @@
 
     if (!G.on) { teardown(); return; }
     onState(G.mode);
-    calib = null; nDetect = 0; stats.ms = 0; recent = []; lastSize = 0; faceBox = null;
+    calib = null; nDetect = 0; stats.ms = 0; recent = []; lastSize = 0; faceBox = null; neutral = null; lastMeasureT = 0;
     // Two swipe detectors: hand landmarks (precise, but only as fast as the
     // model runs) and a cheap motion sweep at ~16 Hz that covers for a slow model.
     handSwipe = SWIPE_ON && stats.hands ? makeHandSwipeDetector() : null;
@@ -755,23 +765,41 @@
     if (now - rateT0 >= 1000) { stats.hz = Math.round((rateN * 1000) / (now - rateT0)); rateN = 0; rateT0 = now; }
   }
 
+  let neutral = null, lastMeasureT = 0;
+  const vel = { x: 0, y: 0, z: 0 };
+
+  /** Soft knee around zero, then a soft ceiling: smooth everywhere. */
+  function shape(v) {
+    const k = HEAD.KNEE;
+    return Math.tanh(v - k * Math.tanh(v / k));
+  }
+
   function measure(hit) {
     const now = performance.now();
     if (hit) {
-      if (now - lastSeen > RECALIBRATE_AFTER_MS) { calib = null; recent = []; }   // a new (or returning) viewer
+      if (now - lastSeen > HEAD.RESET_MS) { calib = null; recent = []; neutral = null; }   // a new (or returning) viewer
       lastSeen = now;
       faceBox = hit.size ? { cx: hit.cx, cy: hit.cy, size: hit.size } : null;
-      // Median of the last three detections: one bad frame can't make it jump.
+      // Median of the last three detections: one bad frame can't pull it.
       recent.push(hit); if (recent.length > 3) recent.shift();
       const med = (k) => recent.map((h) => h[k]).sort((a, b) => a - b)[Math.floor(recent.length / 2)];
       hit = { cx: med('cx'), cy: med('cy'), size: med('size') };
       lastSize = hit.size;
+      // Face position in the viewer's frame (+x = their right, +y = up), -1..1.
       // The camera faces the viewer, so their right is the image's left: mirror x.
-      target.x = clamp((0.5 - hit.cx) * GAIN_XY, -1, 1);
-      target.y = clamp((0.5 - hit.cy) * GAIN_XY, -1, 1);
+      const fx = (0.5 - hit.cx) * 2, fy = (0.5 - hit.cy) * 2;
+      const dt = Math.min(1, (now - (lastMeasureT || now)) / 1000);
+      lastMeasureT = now;
+      if (!neutral) neutral = { x: fx, y: fy };
+      else {
+        const a = 1 - Math.exp(-dt / HEAD.NEUTRAL_TAU);
+        neutral.x += (fx - neutral.x) * a; neutral.y += (fy - neutral.y) * a;
+      }
+      target.x = shape((fx - neutral.x) * HEAD.GAIN);
+      target.y = shape((fy - neutral.y) * HEAD.GAIN);
       if (hit.size) {
-        // Distance: calibrate on the first ~half second of sightings, then
-        // compare. log2 makes "twice as close" and "twice as far" symmetric.
+        // Distance (only used if lean-to-zoom is turned on): calibrate on the
+        // first sightings, then compare. log2 keeps closer/further symmetric.
         if (!calib || calib.n !== undefined) {
           calib = calib || { n: 0, sum: 0 };
           calib.n++; calib.sum += hit.size;
@@ -781,23 +809,32 @@
           target.z = clamp(Math.log2(hit.size / calib.size), -1, 1.2);
         }
       }
-    } else if (now - lastSeen > LOST_AFTER_MS) {
+    } else if (now - lastSeen > HEAD.LOST_MS) {
       target.x = target.y = target.z = 0;
     }
-    pose.seen = now - lastSeen < LOST_AFTER_MS;
+    pose.seen = now - lastSeen < HEAD.LOST_MS;
   }
 
+  /** Critically damped springs toward the target, integrated per frame. */
   function smoothLoop() {
     cancelAnimationFrame(raf);
+    let last = performance.now();
+    const spring = (axis, hz, dt) => {
+      const w = 2 * Math.PI * hz;
+      vel[axis] += (w * w * (target[axis] - pose[axis]) - 2 * w * vel[axis]) * dt;
+      pose[axis] += vel[axis] * dt;
+    };
     const tick = () => {
-      // Small deadzones so a seated, still viewer doesn't make the globe shimmer.
-      const dz = (v, d) => (Math.abs(v) < d ? 0 : v - Math.sign(v) * d);
-      pose.x += (dz(target.x, DEADZONE_XY) - pose.x) * SMOOTH_XY;
-      pose.y += (dz(target.y, DEADZONE_XY) - pose.y) * SMOOTH_XY;
-      pose.z += (dz(target.z, DEADZONE_Z) - pose.z) * SMOOTH_Z;
-      const settled = Math.abs(pose.x) + Math.abs(pose.y) + Math.abs(pose.z) < 0.002;
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      spring('x', HEAD.SPRING_HZ, dt);
+      spring('y', HEAD.SPRING_HZ, dt);
+      spring('z', HEAD.SPRING_Z_HZ, dt);
+      const settled = Math.abs(pose.x) + Math.abs(pose.y) + Math.abs(pose.z)
+        + Math.abs(vel.x) + Math.abs(vel.y) + Math.abs(vel.z) < 0.002;
       if (G.on || !settled) raf = requestAnimationFrame(tick);
-      else { pose.x = pose.y = pose.z = 0; pose.seen = false; }
+      else { pose.x = pose.y = pose.z = 0; vel.x = vel.y = vel.z = 0; pose.seen = false; }
     };
     raf = requestAnimationFrame(tick);
   }

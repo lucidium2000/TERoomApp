@@ -25,7 +25,7 @@
  *   depth=<n>       Glass mode: how far behind the screen the globe sits, in screen
  *                   widths (default 0.6) - deeper = stronger parallax
  *   eye=<n>         assumed viewing distance in screen widths (default 1.0)
- *   eyerange=<n>    how far the virtual eye moves per unit of head movement (default 1.2)
+ *   parallax=<n>    strength of the head-tracked parallax (default 1; 0 = off)
  *   swipe=0         disable the experimental arm-swipe gesture in Glass mode
  *   glass=1         start Glass mode (camera parallax) on load, if the device allows it
  */
@@ -211,7 +211,9 @@
   // How far each depth layer slides, as a fraction of the viewport, when the
   // viewer is at the edge of the tracked range. The UI is the "glass" and never
   // moves; the stars are farthest away, so they move most.
-  const PARALLAX = { stars: 0.06, globe: 0.028, lon: 14, lat: 9 };
+  // 2D-renderer fallback: gentle slide-and-turn, scaled by ?parallax=.
+  const PARALLAX_K = Math.max(0, num('parallax', 1));
+  const PARALLAX = { stars: 0.02 * PARALLAX_K, globe: 0.01 * PARALLAX_K, lon: 4 * PARALLAX_K, lat: 3 * PARALLAX_K };
   // Lean-to-zoom: pose.z is log2(distance ratio), so twice as close -> 2^0.85 = 1.8x.
   // Off by default: zoom is two-fist grab (pull apart / push together).
   // ?leanzoom=0.85 brings back lean-to-zoom.
@@ -302,7 +304,9 @@
   // floating callout) goes through `proj`, so it lines up with whichever globe
   // is underneath: d3's orthographic for the 2D renderer, or the WebGL
   // renderer's off-axis perspective camera.
-  const SCENE = { depth: num('depth', 0.6), eye: num('eye', 1.0), range: num('eyerange', 1.2) };
+  // eyeX / eyeY: how far the virtual eye moves at full head offset, as a share
+  // of the screen. Small on purpose - a soft sense of depth, not a swing.
+  const SCENE = { depth: num('depth', 0.6), eye: num('eye', 1.0), eyeX: 0.1 * PARALLAX_K, eyeY: 0.07 * PARALLAX_K };
   let cam = null;   // perspective camera for this frame (WebGL), else null
   const proj = {
     point(lon, lat, v) {
@@ -362,7 +366,7 @@
     return {
       Rw, D,
       C: [L.cx, L.cy, zf + Rw],
-      E: [L.cx + P.x * S.w * SCENE.range, L.cy - P.y * S.h * SCENE.range, -D],
+      E: [L.cx + P.x * S.w * SCENE.eyeX, L.cy - P.y * S.h * SCENE.eyeY, -D],
       e: [-sl, cl, 0], n: [-sf * cl, -sf * sl, cf], c: [cf * cl, cf * sl, sf],
     };
   }
