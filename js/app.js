@@ -72,9 +72,39 @@
   // canvas on top then only carries markers, arcs and labels. Without WebGL the
   // 2D canvas draws everything and is opaque, so the browser skips blending it.
   const glCanvas = $('gl');
-  const glr = qs.get('renderer') !== '2d' && window.createGlobeGL ? window.createGlobeGL(glCanvas) : null;
-  if (!glr) glCanvas.remove();
+  let glr = null;
+  try { glr = qs.get('renderer') !== '2d' && window.createGlobeGL ? window.createGlobeGL(glCanvas) : null; } catch (e) { reportError(e, 'WebGL init'); }
+  if (!glr) glCanvas.style.display = 'none';
+  // Opaque when 2D draws everything (the browser skips blending). If WebGL is
+  // dropped later the 2D path paints an opaque sky itself, so it still works.
   const ctx = canvas.getContext('2d', { alpha: !!glr });
+
+  /** Any WebGL failure, at any point, falls back to the 2D renderer for good. */
+  function disableGL(why, e) {
+    if (!glr) return;
+    console.warn('[globe] WebGL disabled:', why, e || '');
+    glr = null;
+    glCanvas.style.display = 'none';
+    S.glOff = why;
+  }
+  function glTry(what, fn) {
+    if (!glr) return;
+    try { fn(); } catch (e) { disableGL(what, e); }
+  }
+  glCanvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); disableGL('context lost'); });
+
+  /** Surface unexpected errors on screen - room devices have no console. */
+  function reportError(e, where) {
+    const msg = (where ? where + ': ' : '') + ((e && (e.message || e.reason && e.reason.message)) || String(e));
+    console.error('[globe]', msg, e);
+    const box = document.getElementById('error');
+    if (!box) return;
+    box.hidden = false;
+    box.dataset.diag = '1';
+    box.textContent = 'Error - ' + msg.slice(0, 300);
+  }
+  window.addEventListener('error', (e) => reportError(e.error || e.message, 'error'));
+  window.addEventListener('unhandledrejection', (e) => reportError(e.reason, 'promise'));
   const el = {
     updated: $('updated'), list: $('list'), watch: $('watch'),
     statActive: $('statActive'), statNet: $('statNet'), statApp: $('statApp'), statLoc: $('statLoc'),
@@ -265,7 +295,7 @@
     canvas.width = Math.round(S.w * S.pr); canvas.height = Math.round(S.h * S.pr);
     S.stars = buildStars(S.w, S.h);
     sphereSprite = null;
-    if (glr) { glr.resize(canvas.width, canvas.height); glr.setStars(S.stars); }
+    glTry('resize', () => { glr.resize(canvas.width, canvas.height); glr.setStars(S.stars); });
     invalidateLayout(true);
   }
 
@@ -304,10 +334,12 @@
     if (glr) {
       const sun = subsolar(Date.now());
       const so = starOffset();
-      glr.render({
+      glTry('render', () => glr.render({
         cx: L.cx * S.pr, cy: L.cy * S.pr, R: R * S.pr, lon: cLon, lat: cLat,
         sun: unitVec(sun.lon, sun.lat), starX: -so.x * S.pr, starY: -so.y * S.pr, px: S.pr,
-      });
+      }));
+    }
+    if (glr) {
       ctx.clearRect(0, 0, S.w, S.h);
       perfMark('gl');
       drawOutages(now, R);
@@ -450,7 +482,7 @@
     }
     const n = perfFrames, f = (k) => ((perfAcc[k] || 0) / n).toFixed(1);
     const G = window.Glass;
-    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | ${glr ? 'webgl' : '2d'} `
+    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | ${glr ? 'webgl' : '2d' + (S.glOff ? ' [gl off: ' + S.glOff + ']' : '')} `
       + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) | work ${f('total')}ms: `
       + (glr ? `gl ${f('gl')} markers ${f('markers')}` : `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`)
       + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | deriv ${glr.info.deriv}` : '')
@@ -731,7 +763,7 @@
   async function refresh() {
     try {
       ingest(await loadData());
-      el.error.hidden = true;
+      if (!el.error.dataset.diag) el.error.hidden = true;
     } catch (e) {
       console.error(e);
       if (!S.data) { el.error.textContent = 'Could not load outage data. Retrying…'; el.error.hidden = false; }
@@ -742,9 +774,7 @@
     const world = await (await fetch(`vendor/countries-${CFG.detail}.json`)).json();
     S.land = topojson.feature(world, world.objects.land);
     S.borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
-    if (glr) {
-      try { S.texW = glr.setLand(S.land, S.borders, num('tex', 4096)); } catch (e) { console.error('[globe] land texture failed', e); }
-    }
+
   }
 
   // ── Input ────────────────────────────────────────────────────────────────
@@ -1016,7 +1046,7 @@
       step(t, dt);
       easeLayout(dt);
       ctx.setTransform(S.pr, 0, 0, S.pr, 0, 0);
-      if (!glr) drawSky();
+      if (!glr) drawSky();   // (also covers WebGL having been dropped mid-run)
       perfMark('sky');
       drawGlobe(t, layout());
       updateFloat();
@@ -1058,10 +1088,15 @@
   }, 60000);
 
   (async function start() {
-    resize();
+    // Each step is independent: a globe/GPU problem must never block the data.
+    try { resize(); } catch (e) { reportError(e, 'resize'); }
     requestAnimationFrame(frame);
-    try { await loadWorld(); } catch (e) { console.error('world map failed', e); }
-    await refresh();
+    const data = refresh();
+    try { await loadWorld(); } catch (e) { reportError(e, 'world map'); }
+    await data;
+    // The land texture is the slowest one-off step, so it comes after the data
+    // is on screen. Until then the WebGL globe shows ocean only.
+    if (S.land) setTimeout(() => glTry('land texture', () => { S.texW = glr.setLand(S.land, S.borders, num('tex', 4096)); }), 50);
     setInterval(refresh, CFG.refreshMs);
     // Tour runs from launch unless explicitly disabled with tour=0.
     if (CFG.tour !== '0' || CFG.signage) { S.lastInput = -Infinity; }
