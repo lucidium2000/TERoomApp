@@ -14,6 +14,9 @@
  *   watch=a,b,c     service keywords for "Your services", default webex,zoom,microsoft,google,amazon
  *   detail=50m      higher-resolution coastlines (heavier on the device)
  *   dpr=<n>         cap the render pixel ratio, default 1.5
+ *   renderer=2d     force the Canvas 2D renderer (default: WebGL when available)
+ *   scale=<0.4-1>   fix the render resolution scale (default: adapts to keep >= ~25 fps)
+ *   tex=<px>        WebGL land texture width, default 4096
  *   kiosk=1         hide the cursor
  *   signage=1       non-interactive digital signage: tour always on, no controls
  *   mode=free       clean globe: no panels; a floating callout appears at the outage
@@ -65,8 +68,13 @@
   // ── DOM ──────────────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const canvas = $('globe');
-  // Opaque canvas: the browser can skip blending it with the page behind.
-  const ctx = canvas.getContext('2d', { alpha: false });
+  // The globe itself is drawn by WebGL where available (js/glglobe.js); the 2D
+  // canvas on top then only carries markers, arcs and labels. Without WebGL the
+  // 2D canvas draws everything and is opaque, so the browser skips blending it.
+  const glCanvas = $('gl');
+  const glr = qs.get('renderer') !== '2d' && window.createGlobeGL ? window.createGlobeGL(glCanvas) : null;
+  if (!glr) glCanvas.remove();
+  const ctx = canvas.getContext('2d', { alpha: !!glr });
   const el = {
     updated: $('updated'), list: $('list'), watch: $('watch'),
     statActive: $('statActive'), statNet: $('statNet'), statApp: $('statApp'), statLoc: $('statLoc'),
@@ -78,7 +86,11 @@
 
   // ── State ────────────────────────────────────────────────────────────────
   const view = { lon: -40, lat: 22, zoom: 1 };       // centre of the visible face
+  // Render resolution scale: 1 = full device resolution. Lowered automatically
+  // if the device can't keep up (see adaptScale), or fixed with ?scale=.
+  const FIXED_SCALE = qs.has('scale') ? Math.max(0.4, Math.min(1, num('scale', 1))) : 0;
   const S = {
+    scale: FIXED_SCALE || 1, pr: CFG.dpr * (FIXED_SCALE || 1),
     data: null, outages: [], drawOrder: [], free: false, seen: new Set(), filter: 'all',
     selected: null, hits: [],
     lastInput: performance.now(), dragging: false, vel: { lon: 0, lat: 0 },
@@ -137,10 +149,10 @@
   // ── Starfield (built once per viewport, then just panned) ────────────────
   function buildStars(w, h) {
     const c = document.createElement('canvas');
-    c.width = Math.round(w * CFG.dpr); c.height = Math.round(h * CFG.dpr);
+    c.width = Math.round(w * S.pr); c.height = Math.round(h * S.pr);
     const g = c.getContext('2d', { alpha: false });
     g.fillStyle = '#05070d'; g.fillRect(0, 0, c.width, c.height);
-    g.scale(CFG.dpr, CFG.dpr);
+    g.scale(S.pr, S.pr);
     let seed = 0x9e3779b9;
     const rnd = () => {   // mulberry32 - deterministic, so stars don't reshuffle on resize
       seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
@@ -183,7 +195,7 @@
    *  without visible loss, so it's only rebuilt when R changes by >20%. */
   let sphereSprite = null;
   function getSphereSprite(R) {
-    const want = R * CFG.dpr;
+    const want = R * S.pr;
     if (sphereSprite && want / sphereSprite.r > 0.83 && want / sphereSprite.r < 1.2) return sphereSprite;
     const r = Math.max(16, want), half = r * 1.24;
     const c = offscreen(half * 2, half * 2), g = c.getContext('2d');
@@ -249,9 +261,20 @@
   // ── Rendering ────────────────────────────────────────────────────────────
   function resize() {
     S.w = window.innerWidth; S.h = window.innerHeight;
-    canvas.width = Math.round(S.w * CFG.dpr); canvas.height = Math.round(S.h * CFG.dpr);
+    S.pr = CFG.dpr * S.scale;
+    canvas.width = Math.round(S.w * S.pr); canvas.height = Math.round(S.h * S.pr);
     S.stars = buildStars(S.w, S.h);
+    sphereSprite = null;
+    if (glr) { glr.resize(canvas.width, canvas.height); glr.setStars(S.stars); }
     invalidateLayout(true);
+  }
+
+  function starOffset() {
+    const P = pose();
+    return {
+      x: -(view.lon / 360) * S.w * 0.5 - P.x * S.w * PARALLAX.stars,
+      y: (view.lat / 90) * S.h * 0.175 + P.y * S.h * PARALLAX.stars,
+    };
   }
 
   function drawSky() {
@@ -259,9 +282,9 @@
     // The sky drifts as the globe turns - half a screen per full revolution.
     // Plus the opposite-direction parallax shift when Glass mode is tracking.
     // The star tile is opaque (space colour baked in), so no clear is needed.
-    const P = pose();
-    let ox = (-(view.lon / 360) * w * 0.5 - P.x * w * PARALLAX.stars) % w; if (ox > 0) ox -= w;
-    let oy = ((view.lat / 90) * h * 0.175 + P.y * h * PARALLAX.stars) % h; if (oy > 0) oy -= h;
+    const o = starOffset();
+    let ox = o.x % w; if (ox > 0) ox -= w;
+    let oy = o.y % h; if (oy > 0) oy -= h;
     for (let x = ox; x < w; x += w) for (let y = oy; y < h; y += h) ctx.drawImage(S.stars, x, y, w, h);
   }
 
@@ -278,10 +301,24 @@
     viewVec = unitVec(cLon, cLat);
     S.R = R;
 
+    if (glr) {
+      const sun = subsolar(Date.now());
+      const so = starOffset();
+      glr.render({
+        cx: L.cx * S.pr, cy: L.cy * S.pr, R: R * S.pr, lon: cLon, lat: cLat,
+        sun: unitVec(sun.lon, sun.lat), starX: -so.x * S.pr, starY: -so.y * S.pr, px: S.pr,
+      });
+      ctx.clearRect(0, 0, S.w, S.h);
+      perfMark('gl');
+      drawOutages(now, R);
+      perfMark('markers');
+      return;
+    }
+
     // Halo + ocean (cached sprite).
     const sp = getSphereSprite(R);
-    const k = R / (sp.r / CFG.dpr);
-    const hs = (sp.half / CFG.dpr) * k;
+    const k = R / (sp.r / S.pr);
+    const hs = (sp.half / S.pr) * k;
     ctx.drawImage(sp.canvas, L.cx - hs, L.cy - hs, hs * 2, hs * 2);
 
     perfMark('sphere');
@@ -413,8 +450,10 @@
     }
     const n = perfFrames, f = (k) => ((perfAcc[k] || 0) / n).toFixed(1);
     const G = window.Glass;
-    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | work ${f('total')}ms: `
-      + `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`
+    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | ${glr ? 'webgl' : '2d'} `
+      + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) | work ${f('total')}ms: `
+      + (glr ? `gl ${f('gl')} markers ${f('markers')}` : `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`)
+      + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | deriv ${glr.info.deriv}` : '')
       + (G && G.on ? `\nglass ${G.stats.where} ${G.stats.hz}Hz detect ${G.stats.ms.toFixed(1)}ms z ${G.pose.z.toFixed(2)}` : '');
     for (const key in perfAcc) perfAcc[key] = 0;
     perfFrames = 0; perfLast = t;
@@ -703,6 +742,9 @@
     const world = await (await fetch(`vendor/countries-${CFG.detail}.json`)).json();
     S.land = topojson.feature(world, world.objects.land);
     S.borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
+    if (glr) {
+      try { S.texW = glr.setLand(S.land, S.borders, num('tex', 4096)); } catch (e) { console.error('[globe] land texture failed', e); }
+    }
   }
 
   // ── Input ────────────────────────────────────────────────────────────────
@@ -973,8 +1015,8 @@
     try {
       step(t, dt);
       easeLayout(dt);
-      ctx.setTransform(CFG.dpr, 0, 0, CFG.dpr, 0, 0);
-      drawSky();
+      ctx.setTransform(S.pr, 0, 0, S.pr, 0, 0);
+      if (!glr) drawSky();
       perfMark('sky');
       drawGlobe(t, layout());
       updateFloat();
@@ -988,7 +1030,23 @@
       if (frameCap === 60 && workAvg > 13) frameCap = 30;
       else if (frameCap === 30 && workAvg < 7) frameCap = 60;
     }
+    adaptScale(t);
     perfFrame(t, work);
+  }
+
+  // Dynamic resolution: measure the real frame interval (which includes the
+  // browser's own raster/composite time, not just our JS) and step the render
+  // scale down if the device can't hold ~25 fps, back up when it has headroom.
+  let intervalAvg = 16, lastFrameT = 0, scaleCheckT = 0;
+  function adaptScale(t) {
+    if (lastFrameT) intervalAvg += (Math.min(500, t - lastFrameT) - intervalAvg) * 0.1;
+    lastFrameT = t;
+    if (FIXED_SCALE || t - scaleCheckT < 2500) return;
+    scaleCheckT = t;
+    let next = S.scale;
+    if (intervalAvg > 40 && S.scale > 0.5) next = Math.max(0.5, S.scale * 0.8);
+    else if (intervalAvg < 24 && S.scale < 1) next = Math.min(1, S.scale * 1.15);
+    if (Math.abs(next - S.scale) > 0.01) { S.scale = next; resize(); }
   }
 
   // Refresh relative times without refetching.

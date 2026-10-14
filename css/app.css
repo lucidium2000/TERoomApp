@@ -28,6 +28,7 @@ html, body {
 }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 
+#gl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; pointer-events: none; }
 #globe {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
   display: block; touch-action: none; cursor: grab;

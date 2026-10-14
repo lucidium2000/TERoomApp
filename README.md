@@ -86,6 +86,9 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `leanzoom` | `0.85` | Glass mode lean-to-zoom strength; `0` turns it off |
 | `glassdelegate` | auto | `cpu` forces CPU face detection if the GPU path misbehaves |
 | `maxfps` | `60` | `30` locks rendering at 30 fps (it already drops to 30 on its own if frames run long) |
+| `renderer` | auto | `2d` forces the Canvas 2D renderer (WebGL is used when available) |
+| `scale` | auto | fix the render resolution (`0.4`–`1`); by default it drops automatically if the device can't hold ~25 fps |
+| `tex` | `4096` | WebGL land texture width; `8192` is sharper when zoomed in but uses about 4x the GPU memory |
 | `perf` | off | `1` shows frame timing and Glass tracking stats |
 | `signage` | off | `1` for non-interactive signage |
 | `kiosk` | off | `1` hides the cursor |
