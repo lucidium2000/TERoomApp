@@ -74,8 +74,10 @@
     /** Called with ('starting' | 'face' | 'motion' | 'off' | 'error', detail). */
     onState(fn) { onState = fn; },
     onSwipe(fn) { onSwipe = fn; },
-    /** fn(state: 'start' | 'move' | 'end', ratio): two fists, ratio = current
-     *  distance between them / distance when the grab began. */
+    /** fn(state: 'start' | 'mode' | 'move' | 'end', info): info.mode is 'pan'
+     *  (one fist) or 'zoom' (two); info.dx/dy are the grab point's movement
+     *  since the last update (0..1 frame units, viewer's view, +x = their
+     *  right, +y = down); info.ratio is fist spacing / spacing at grab start. */
     onGrab(fn) { onGrab = fn; },
     get grabbing() { return grab.on; },
     start, stop,
@@ -268,7 +270,7 @@
     clearTimeout(liteTimer); liteTimer = 0;
     if (liteDet) { try { liteDet.dispose(); } catch (_) { /* */ } liteDet = null; }
     motion = null; swipe = null; handSwipe = null; G.mode = null; busy = false;
-    if (grab.on) { grab.on = false; grab.endT = performance.now(); onGrab('end', grab.ratio); }
+    if (grab.on) { grab.on = false; grab.mode = null; grab.endT = performance.now(); onGrab('end', { ratio: grab.ratio }); }
     if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
     // smoothLoop keeps easing pose back to zero, then ends.
@@ -440,12 +442,15 @@
     });
   }
 
-  // ── Two-fist grab-to-zoom ────────────────────────────────────────────────
+  // ── Fist grab: drag to rotate, two fists to zoom ────────────────────────
   // A fist: fingertips curled in near the wrist. Measured against the hand's
   // own size (wrist -> middle knuckle), so distance from the camera doesn't
   // matter. Open hand ~1.9, fist ~1.0; hysteresis between FIST_ON and FIST_OFF.
-  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, GAP_MS: 400, AFTER_MS: 900 };
-  const grab = { on: false, d0: 0, ratio: 1, lastBoth: 0, endT: -Infinity, curls: [] };
+  // One fist = 'pan' (the globe follows the fist). Two fists = 'zoom' (their
+  // spacing zooms, their midpoint still pans). A grab only starts after the
+  // same fist count is seen on DEBOUNCE consecutive results.
+  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, GAP_MS: 400, AFTER_MS: 900, DEBOUNCE: 2 };
+  const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0 };
   let onGrab = () => {};
 
   function curl(lm, aspect) {
@@ -459,22 +464,37 @@
     grab.curls = withLm.map((p) => curl(p.lm, aspect));
     const thr = grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON;
     const fists = withLm.filter((p, i) => grab.curls[i] < thr);
-    if (fists.length >= 2) {
-      // The two fists furthest apart (normally the only two).
-      const a = fists[0], b = fists[1];
-      const dist = Math.hypot(a.x - b.x, (a.y - b.y) * aspect);
-      grab.lastBoth = now;
-      if (!grab.on) {
-        grab.on = true; grab.d0 = Math.max(0.05, dist); grab.ratio = 1;
-        onGrab('start', 1);
-      } else {
-        grab.ratio = dist / grab.d0;
-        onGrab('move', grab.ratio);
+    const mode = fists.length >= 2 ? 'zoom' : fists.length === 1 ? 'pan' : null;
+
+    if (!mode) {
+      grab.pendMode = null; grab.pendN = 0;
+      if (grab.on && now - grab.lastSeen > GRAB.GAP_MS) {
+        grab.on = false; grab.mode = null; grab.endT = now;
+        onGrab('end', { ratio: grab.ratio });
       }
-    } else if (grab.on && now - grab.lastBoth > GRAB.GAP_MS) {
-      grab.on = false; grab.endT = now;
-      onGrab('end', grab.ratio);
+      return;
     }
+    // Debounce: the same fist count on consecutive results before it counts.
+    if (mode !== grab.mode) {
+      grab.pendN = grab.pendMode === mode ? grab.pendN + 1 : 1;
+      grab.pendMode = mode;
+      if (grab.pendN < GRAB.DEBOUNCE) { if (grab.on) grab.lastSeen = now; return; }
+    }
+    grab.lastSeen = now;
+    const pt = mode === 'zoom' ? { x: (fists[0].x + fists[1].x) / 2, y: (fists[0].y + fists[1].y) / 2 } : fists[0];
+    const dist = mode === 'zoom' ? Math.hypot(fists[0].x - fists[1].x, (fists[0].y - fists[1].y) * aspect) : 0;
+    if (!grab.on || grab.mode !== mode) {
+      const first = !grab.on;
+      grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y;
+      if (mode === 'zoom') { grab.d0 = Math.max(0.05, dist); grab.ratio = 1; }
+      onGrab(first ? 'start' : 'mode', { mode, ratio: 1 });
+      return;
+    }
+    // Deltas from the viewer's point of view: the camera faces them, so mirror x.
+    const dx = -(pt.x - grab.px), dy = pt.y - grab.py;
+    grab.px = pt.x; grab.py = pt.y;
+    if (mode === 'zoom') grab.ratio = dist / grab.d0;
+    onGrab('move', { mode, ratio: grab.ratio, dx, dy });
   }
 
   /** Every hand result, from whichever engine, comes through here. */
@@ -777,7 +797,7 @@
       }
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
-      if (grab.on) { line(5, `GRAB  zoom x${grab.ratio.toFixed(2)}`, '#f43f5e'); return; }
+      if (grab.on) { line(5, grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate', '#f43f5e'); return; }
       line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
     };
     view.remove = () => c.remove();

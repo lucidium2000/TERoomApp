@@ -608,6 +608,11 @@
 
   function step(now, dt) {
     if (S.grabTarget) view.zoom += (S.grabTarget - view.zoom) * (1 - Math.pow(0.8, dt / 16));
+    if (S.pan && (Math.abs(S.pan.x) > 0.05 || Math.abs(S.pan.y) > 0.05)) {
+      const f = 1 - Math.pow(0.75, dt / 16);
+      rotateByPixels(S.pan.x * f, S.pan.y * f);
+      S.pan.x -= S.pan.x * f; S.pan.y -= S.pan.y * f;
+    }
     if (S.spin) {
       const sp = S.spin, t = Math.min(1, (now - sp.t0) / sp.dur);
       view.lon = wrapLon(sp.from + sp.total * (1 - Math.pow(1 - t, 4)));
@@ -1097,24 +1102,45 @@
     });
     // Air swipe: spin the world three full turns in the swipe's direction,
     // launched hard and coasting to a stop exactly where it started.
-    // Two fists: grab the globe; pull apart to zoom in, push together to zoom
-    // out. The zoom eases toward the target so it glides at the hand-model rate.
-    let grabZoom0 = 1;
-    window.Glass.onGrab((state, ratio) => {
-      if (state === 'start') {
-        grabZoom0 = view.zoom;
-        S.flight = null; S.spin = null; S.vel.lon = S.vel.lat = 0;
-        userInput();
-        S.grabTarget = view.zoom;
-        grabHint.className = 'grab-hint show';
+    // Fist grab. One fist: the globe follows it, like dragging with a finger.
+    // Two fists: their spacing zooms (apart = in) and their midpoint still
+    // turns the globe. Hand results arrive at ~10-15 Hz, so movement is queued
+    // and eased in per frame; letting go flings with the fist's last velocity.
+    const GRAB_PAN = num('grabpan', 1.6);   // screen widths of drag per frame-width of fist travel
+    let grabZoom0 = 1, grabT = 0;
+    window.Glass.onGrab((state, info) => {
+      const now = performance.now();
+      if (state === 'start' || state === 'mode') {
+        if (state === 'start') {
+          S.flight = null; S.spin = null; S.vel.lon = S.vel.lat = 0;
+          userInput();
+          S.pan = { x: 0, y: 0 }; S.grabVel = { x: 0, y: 0 };
+          S.dragging = true;
+        }
+        grabZoom0 = S.grabTarget || view.zoom;
+        S.grabTarget = info.mode === 'zoom' ? grabZoom0 : null;
+        grabT = now;
       } else if (state === 'move') {
-        S.lastInput = performance.now();
-        S.grabTarget = clampZoom(grabZoom0 * Math.pow(ratio, 1.4));
+        S.lastInput = now;
+        const px = info.dx * S.w * GRAB_PAN, py = info.dy * S.w * GRAB_PAN;
+        S.pan.x += px; S.pan.y += py;
+        const dt = Math.max(16, now - grabT); grabT = now;
+        S.grabVel.x += (px / dt - S.grabVel.x) * 0.5;   // px per ms, smoothed
+        S.grabVel.y += (py / dt - S.grabVel.y) * 0.5;
+        if (info.mode === 'zoom') S.grabTarget = clampZoom(grabZoom0 * Math.pow(info.ratio, 1.4));
       } else {
+        // Let go: whatever is still queued plays out, then inertia takes over.
+        S.dragging = false;
         S.grabTarget = null;
-        grabHint.className = 'grab-hint';
+        const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
+        S.vel.lon = -S.grabVel.x * degPerPx;
+        S.vel.lat = S.grabVel.y * degPerPx;
       }
-      grabHint.textContent = `\u270A \u270A  \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`;
+      const grabbing = state !== 'end';
+      grabHint.className = grabbing ? 'grab-hint show' : 'grab-hint';
+      grabHint.textContent = info.mode === 'zoom' || (state === 'move' && info.mode === 'zoom')
+        ? `\u270A \u270A  \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`
+        : '\u270A  drag';
     });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);

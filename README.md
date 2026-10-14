@@ -72,7 +72,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 - **Hand model.** On the main-thread path (the one a Desk Pro uses), hands are tracked by TF.js MediaPipe Hands **lite**. It runs on WebGL1, its models are about half the size, and it runs asynchronously, so most of its time is GPU work in the background. `hands=mediapipe` switches back to the MediaPipe Tasks full model for comparison, and `handbudget=` (0.1 to 1, default 0.6) sets how hard the lite model is driven.
 - **Two swipe detectors.** Alongside the hand model, a cheap motion-sweep detector runs at about 16 Hz. It only acts when someone's face is in view and the hand model is missing or running below 8 frames per second.
 - **Steady by design.** Small head movements are ignored, and tracking is smoothed and filtered, so the globe doesn't jitter.
-- **Two-fist zoom.** Make a fist with both hands to grab the globe. Pull your fists apart to zoom in and push them together to zoom out; open a hand to let go. Swipes are ignored while you grab and for a moment after. Head tracking only moves the view by direction. Lean-to-zoom is off by default and can be turned back on with `leanzoom=0.85`.
+- **Fist grab.** Close one hand into a fist to grab the globe and drag it around; open it to let go and it keeps spinning with your hand's momentum. With both hands in fists, pull them apart to zoom in, push them together to zoom out, and move them together to turn the globe. `grabpan=` sets how far the globe turns per hand movement (default `1.6`). Swipes are ignored while you grab and for a moment after. Head tracking only moves the view by direction. Lean-to-zoom is off by default and can be turned back on with `leanzoom=0.85`.
 - **Performance.** Detection runs in a Web Worker, on the GPU where available, so it never blocks rendering. It processes one frame at a time at up to about 20 Hz and is smoothed, so the parallax trails your movement slightly. If the worker can't start, detection runs on the main thread, limited to about 30% of the frame budget.
 
 ## URL options
@@ -89,6 +89,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `dpr` | `1.5` | render pixel-ratio cap; lower it if a device struggles |
 | `glass` | off | `1` starts Glass mode on load (the device must allow camera access) |
 | `zoom` | `1.2` | resting zoom level |
+| `grabpan` | `1.6` | how far a fist grab turns the globe per unit of hand travel |
 | `swipe` | on | `0` disables the Glass mode air swipe |
 | `hands` | `lite` | hand model on the main-thread path: `lite` (TF.js) or `mediapipe` |
 | `handbudget` | `0.6` | how hard the lite hand model is driven (`1` = back to back) |
