@@ -505,7 +505,7 @@
   // One open hand, fingers up, held roughly still for HOLD_MS toggles fist
   // gestures on ("Ready") and off ("Paused"). After a toggle the hand must go
   // away (LATCH) before another hold can count, so it can't flip-flop.
-  const PALM = { OPEN: 1.6, HOLD_MS: 2000, DRIFT: 0.09, GAP_MS: 350 };
+  const PALM = { OPEN: 1.6, HOLD_MS: 1000, DRIFT: 0.09, GAP_MS: 350 };
   const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
   let armed = false, onGesture = () => {};
 
@@ -843,7 +843,7 @@
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
       g.fillStyle = armed ? '#34d399' : '#fbbf24';
-      g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 2s = ready)', 8, H + 88);
+      g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 1s = ready)', 8, H + 88);
       if (hold.active) { line(5, `palm hold ${Math.round(hold.progress * 100)}%`, '#34d399'); return; }
       if (grab.on) { line(5, grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate', '#f43f5e'); return; }
       line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
