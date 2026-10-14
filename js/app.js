@@ -1133,8 +1133,11 @@
         S.dragging = false;
         S.grabTarget = null;
         const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
-        S.vel.lon = -S.grabVel.x * degPerPx;
-        S.vel.lat = S.grabVel.y * degPerPx;
+        // Cap the fling: a last-moment glitch mustn't send the globe spinning.
+        const sp = Math.hypot(S.grabVel.x, S.grabVel.y), MAX = 1.2;   // px per ms
+        const k = sp > MAX ? MAX / sp : 1;
+        S.vel.lon = -S.grabVel.x * k * degPerPx;
+        S.vel.lat = S.grabVel.y * k * degPerPx;
       }
       const grabbing = state !== 'end';
       grabHint.className = grabbing ? 'grab-hint show' : 'grab-hint';

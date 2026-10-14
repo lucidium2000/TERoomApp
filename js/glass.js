@@ -455,7 +455,11 @@
   // been held HOLD_MS. It lets go after OPEN_MS of an open hand, or LOST_MS of
   // no hand at all (a hand the camera loses for a moment shouldn't drop the
   // globe). Switching between one and two fists mid-grab needs DEBOUNCE results.
-  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250 };
+  // MAX_SPEED / MAX_STEP / MAX_ZOOM_STEP: anything faster than a deliberate
+  // drag or pull (tracking glitches, a misread hand, someone passing through)
+  // is ignored - the grab re-anchors there instead of jumping the globe.
+  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250,
+    MAX_SPEED: 1.5, MAX_STEP: 0.2, MAX_ZOOM_STEP: 0.35 };
   const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
     pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
   function releaseGrab(now, latch) {
@@ -502,15 +506,29 @@
     const dist = mode === 'zoom' ? Math.hypot(fists[0].x - fists[1].x, (fists[0].y - fists[1].y) * aspect) : 0;
     if (!grab.on || grab.mode !== mode) {
       const first = !grab.on;
-      grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y; grab.lastAction = now;
+      grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y; grab.lastAction = now; grab.lastT = now; grab.rejected = 0;
       if (mode === 'zoom') { grab.d0 = Math.max(0.05, dist); grab.ratio = 1; grab.lastRatio = 1; }
       onGrab(first ? 'start' : 'mode', { mode, ratio: 1 });
       return;
     }
     // Deltas from the viewer's point of view: the camera faces them, so mirror x.
-    const dx = -(pt.x - grab.px), dy = pt.y - grab.py;
-    grab.px = pt.x; grab.py = pt.y;
-    if (mode === 'zoom') grab.ratio = dist / grab.d0;
+    let dx = -(pt.x - grab.px), dy = pt.y - grab.py;
+    const dt = Math.max(1, now - (grab.lastT || now)) / 1000;
+    grab.px = pt.x; grab.py = pt.y; grab.lastT = now;
+    const step = Math.hypot(dx, dy);
+    if (step > GRAB.MAX_STEP || step / dt > GRAB.MAX_SPEED) {
+      grab.rejected = (grab.rejected || 0) + 1;
+      dx = 0; dy = 0;                       // too fast to be a drag: re-anchor, don't move
+    }
+    if (mode === 'zoom') {
+      const r = dist / grab.d0;
+      if (Math.abs(r / grab.ratio - 1) > GRAB.MAX_ZOOM_STEP) {
+        grab.rejected = (grab.rejected || 0) + 1;
+        grab.d0 = dist / grab.ratio;        // keep the current zoom; carry on from here
+      } else {
+        grab.ratio = r;
+      }
+    }
     onGrab('move', { mode, ratio: grab.ratio, dx, dy });
   }
 
@@ -867,7 +885,7 @@
       g.fillText(armed ? `gestures: READY (pauses after ${PALM.IDLE_MS / 1000}s with no hands)` : 'gestures: paused (palm 0.5s = ready)', 8, H + 88);
       if (hold.active) { line(5, `palm hold ${Math.round(hold.progress * 100)}%`, '#34d399'); return; }
       if (!grab.on && grab.pendMode && !grab.latched) { line(5, `fist hold ${Math.min(100, Math.round((performance.now() - grab.pendT0) / GRAB.HOLD_MS * 100))}%`, '#f43f5e'); return; }
-      if (grab.on) { line(5, grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate', '#f43f5e'); return; }
+      if (grab.on) { line(5, (grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate') + (grab.rejected ? `  [${grab.rejected} fast ignored]` : ''), '#f43f5e'); return; }
       line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
     };
     view.remove = () => c.remove();
