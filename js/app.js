@@ -797,8 +797,9 @@
   }
 
   let toastTimer = 0;
-  function toast(msg) {
+  function toast(msg, kind) {
     el.toast.textContent = msg; el.toast.hidden = false;
+    el.toast.classList.toggle('info', kind === 'info');
     el.toast.style.animation = 'none'; void el.toast.offsetWidth; el.toast.style.animation = '';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.toast.hidden = true; }, 6000);
@@ -1096,7 +1097,7 @@
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
-      if (state === 'face') toast('Glass mode on. Hold an open palm up for half a second to enable fist gestures');
+      if (state === 'face') toast('Gestures Enabled', 'info');
       else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
       else if (state === 'error') toast(detail);
     });

@@ -195,6 +195,7 @@ body.signage .zoomctl { display: none; }
   padding: .7em 1.3em; border-radius: 99px; box-shadow: 0 10px 40px rgba(241, 94, 34, .45);
   animation: rise .4s ease-out;
 }
+.toast.info { background: rgba(22, 189, 235, .95); box-shadow: 0 10px 40px rgba(22, 189, 235, .45); }
 .error {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
   background: var(--glass); border: 1px solid rgba(244, 63, 94, .5); color: var(--ink);
