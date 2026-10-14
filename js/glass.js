@@ -39,7 +39,9 @@
   const TF_BASE = new URL('../vendor/tfjs/', document.currentScript.src).href;
   // Hand model on the main-thread path: 'lite' = TF.js MediaPipe Hands lite
   // (WebGL1-capable, smaller/faster), 'mediapipe' = MediaPipe Tasks full model.
-  const HAND_ENGINE = (qs.get('hands') || 'lite').toLowerCase();
+  // Default 'mediapipe': the TF.js lite model locked up a Desk Pro (blocking
+  // GPU readback on the main thread). Opt in with ?hands=lite.
+  const HAND_ENGINE = (qs.get('hands') || 'mediapipe').toLowerCase();
   // Share of wall time the lite loop may occupy (much of it is async GPU wait). 1 = back to back.
   const LITE_BUDGET = Math.max(0.1, Math.min(1, parseFloat(qs.get('handbudget')) || 0.6));
   // Carry glass.js's ?v= onto the worker, so a cached old worker is never paired with new code.
@@ -230,12 +232,14 @@
    *  it reports GPU and runs at ~1 frame/s). So don't trust the label - measure.
    *  A few seconds in, if hands run below MIN_WORKER_HZ, move detection to the
    *  main thread with the lite model. */
-  const MIN_WORKER_HZ = parseFloat(qs.get('minworkerhz')) || 6;
+  // Off by default (0) until the main-thread fallback is proven safe on the
+  // device; ?minworkerhz=6 turns the measured switch on.
+  const MIN_WORKER_HZ = parseFloat(qs.get('minworkerhz')) || 0;
   let workerCheck = 0;
   function scheduleWorkerCheck(delegate) {
     clearTimeout(workerCheck);
     workerCheck = setTimeout(async () => {
-      if (!G.on || !worker || !SWIPE_ON || qs.get('glassworker') === '1') return;
+      if (!G.on || !worker || !SWIPE_ON || !MIN_WORKER_HZ || qs.get('glassworker') === '1') return;
       const hz = stats.handHz || 0;
       if (hz >= MIN_WORKER_HZ) return;
       console.info(`[glass] worker hands at ${hz}/s - switching to main-thread detection`);
