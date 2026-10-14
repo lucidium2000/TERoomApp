@@ -513,7 +513,12 @@
   // is ignored - the grab re-anchors there instead of jumping the globe.
   // HOLD_DRIFT: the fist must stay this still (frame units) while engaging,
   // or the HOLD_MS timer restarts - a fist passing through doesn't grab.
-  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250, HOLD_DRIFT: 0.06,
+  // FIST_ON / FIST_OFF: curl thresholds (closed enough to grab / open enough to
+  // let go). Kept close together so a half-opened hand doesn't keep holding.
+  // UPRIGHT_DEG: only fists held upright count (wrist below the knuckles, hand
+  // within this angle of vertical) - a hand tilting or turning as it opens
+  // stops counting at once.
+  const GRAB = { FIST_ON: 1.2, FIST_OFF: 1.35, UPRIGHT_DEG: 40, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250, HOLD_DRIFT: 0.06,
     MAX_SPEED: 1.5, MAX_STEP: 0.2, MAX_ZOOM_STEP: 0.35 };
   const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
     pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
@@ -530,16 +535,25 @@
     return (d(8, 0) + d(12, 0) + d(16, 0) + d(20, 0)) / 4 / size;
   }
 
+  /** Is the hand upright? Wrist below the middle knuckle, and the wrist ->
+   *  knuckle direction within UPRIGHT_DEG of straight up. */
+  function fistUpright(lm, aspect) {
+    const dx = lm[9][0] - lm[0][0], dy = (lm[0][1] - lm[9][1]) * aspect;   // dy > 0: knuckle above wrist
+    return dy > 0 && Math.atan2(Math.abs(dx), dy) * 180 / Math.PI < GRAB.UPRIGHT_DEG;
+  }
+
   function updateGrab(palms, now, aspect) {
     const withLm = palms.filter((p) => p.lm);
     grab.curls = withLm.map((p) => curl(p.lm, aspect));
+    grab.upright = withLm.map((p) => fistUpright(p.lm, aspect));
     const thr = grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON;
-    const fists = withLm.filter((p, i) => grab.curls[i] < thr);
+    const fists = withLm.filter((p, i) => grab.curls[i] < thr && grab.upright[i]);
     const mode = fists.length >= 2 ? 'zoom' : fists.length === 1 ? 'pan' : null;
 
     if (!mode) {
       grab.pendMode = null; grab.pendN = 0;
-      const openHand = grab.curls.some((c) => c > GRAB.FIST_OFF);
+      // Seen but not an upright fist (opened, or turned/tilted): fast release.
+      const openHand = grab.curls.length > 0;
       if (grab.on && now - grab.lastSeen > (openHand ? GRAB.OPEN_MS : GRAB.LOST_MS)) releaseGrab(now, false);
       return;
     }
@@ -943,7 +957,7 @@
         }
       }
       palms.forEach((p, i) => {
-        const fist = grab.curls[i] !== undefined && grab.curls[i] < (grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON);
+        const fist = grab.curls[i] !== undefined && grab.curls[i] < (grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON) && (grab.upright || [])[i];
         g.fillStyle = fist ? '#f43f5e' : '#fff';
         g.beginPath(); g.arc(X(p.x), Y(p.y), fist ? 9 : 6, 0, 7); g.fill();
       });
@@ -966,7 +980,7 @@
       const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
       const hz = stats.handHz || 0;
       line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${(stats.handMs || stats.ms).toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}@${stats.camHz || '?'}fps`, hz < 8 ? '#fbbf24' : '#9fe');
-      line(1, `hands ${palms.length}  curl ${grab.curls.map((c) => c.toFixed(2)).join(' ') || '-'} (fist<${GRAB.FIST_ON})  face ${faceBox && pose.seen ? 'y' : 'n'}`);
+      line(1, `hands ${palms.length}  curl ${grab.curls.map((c, i) => c.toFixed(2) + ((grab.upright || [])[i] ? '\u2191' : '\u2715')).join(' ') || '-'} (fist<${GRAB.FIST_ON} \u2191)  face ${faceBox && pose.seen ? 'y' : 'n'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
         g.fillStyle = '#9fe'; g.fillText('hand:', 8, H + 52);
