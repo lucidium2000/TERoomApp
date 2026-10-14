@@ -68,7 +68,8 @@
     on:       () => { tone(660, 0.09, { vol: 0.5 }); tone(990, 0.12, { vol: 0.5, delay: 0.07 }); },
     off:      () => { tone(880, 0.09, { vol: 0.45 }); tone(587, 0.12, { vol: 0.45, delay: 0.07 }); },
     toggle:   () => { tone(740, 0.06, { vol: 0.4, type: 'triangle' }); tone(988, 0.07, { vol: 0.35, type: 'triangle', delay: 0.05 }); },
-    select:   () => tone(420, 0.22, { to: 760, vol: 0.45, type: 'triangle', attack: 0.02 }),
+    // Subtle: a short, quiet sine with only a small upward lift.
+    select:   () => tone(620, 0.12, { to: 740, vol: 0.16, attack: 0.015 }),
     alert:    () => { tone(1760, 0.4, { vol: 0.4 }); tone(1318, 0.55, { vol: 0.4, delay: 0.22 }); },
     camOn:    () => { tone(523, 0.1, { vol: 0.45 }); tone(784, 0.1, { vol: 0.45, delay: 0.08 }); tone(1046, 0.16, { vol: 0.4, delay: 0.16 }); },
     camOff:   () => { tone(784, 0.1, { vol: 0.4 }); tone(523, 0.16, { vol: 0.4, delay: 0.08 }); },
