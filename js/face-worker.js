@@ -4,10 +4,13 @@
  * module workers don't allow. Its CommonJS build is loaded with a tiny shim.
  *
  * in:  { type: 'init', base, delegate, hands }    -> { type: 'ready', delegate, hands } | { type: 'error', message }
- *      { type: 'frame', bitmap, ts }  (transfer)  -> { type: 'result', box | null, hands: [{x, y}], ms, w, h }
+ *      { type: 'frame', bitmap, ts, face } (transfer) -> { type: 'result', box | null | undefined, hands, ms, w, h }
  *
- * hands[] are palm centres (mean of the wrist and the four knuckles) in 0..1
- * image coordinates - steadier than the wrist alone during a fast swipe.
+ * hands[] are { x, y, score, lm } - x/y the palm centre (mean of the wrist and
+ * the four knuckles, steadier than the wrist alone during a fast swipe), lm the
+ * 21 landmarks for the debug view, all in 0..1 image coordinates.
+ * `face: false` skips face detection on that frame (box comes back undefined),
+ * so hand tracking can run at the full rate.
  */
 /* global importScripts */
 'use strict';
@@ -72,7 +75,7 @@ self.onmessage = async (ev) => {
     const bmp = m.bitmap;
     let box = null, palms = [], ms = 0;
     const t0 = performance.now();
-    try {
+    if (m.face !== false) try {
       const res = face.detectForVideo(bmp, m.ts);
       // "Main object" = the largest face, i.e. whoever is closest.
       for (const d of res.detections || []) {
@@ -83,17 +86,18 @@ self.onmessage = async (ev) => {
     if (hands) {
       try {
         const res = hands.detectForVideo(bmp, m.ts);
-        for (const lm of res.landmarks || []) {
+        (res.landmarks || []).forEach((lm, k) => {
           const ids = [0, 5, 9, 13, 17];
           let x = 0, y = 0;
           for (const i of ids) { x += lm[i].x; y += lm[i].y; }
-          palms.push({ x: x / ids.length, y: y / ids.length });
-        }
+          const hd = res.handedness && res.handedness[k] && res.handedness[k][0];
+          palms.push({ x: x / ids.length, y: y / ids.length, score: hd ? hd.score : 0, lm: lm.map((q) => [q.x, q.y]) });
+        });
       } catch (e) { /* drop */ }
     }
     ms = performance.now() - t0;
     const w = bmp.width, h = bmp.height;
     bmp.close();
-    self.postMessage({ type: 'result', box, hands: palms, ms, w, h });
+    self.postMessage({ type: 'result', box: m.face === false ? undefined : box, hands: palms, ms, w, h });
   }
 };

@@ -36,7 +36,8 @@
 
   const qs = new URLSearchParams(location.search);
   const MP_BASE = new URL('../vendor/mediapipe/', document.currentScript.src).href;
-  const WORKER_URL = new URL('face-worker.js', document.currentScript.src).href;
+  // Carry glass.js's ?v= onto the worker, so a cached old worker is never paired with new code.
+  const WORKER_URL = new URL('face-worker.js' + new URL(document.currentScript.src).search, document.currentScript.src).href;
   const MIN_INTERVAL_MS = 50;      // never ask for more than ~20 Hz
   const BUDGET = 0.3;              // main-thread fallback: spend at most ~30% of time detecting
   const MAX_INTERVAL_MS = 250;     // ...but never track slower than 4 Hz
@@ -57,7 +58,7 @@
   let calib = null;    // { n, sum } while calibrating, then { size }
   let busy = false, lastSend = 0, rateT0 = 0, rateN = 0, nDetect = 0;
   let recent = [], lastSize = 0, faceBox = null, swipe = null, handSwipe = null, onSwipe = () => {}, lastSwipeSample = 0;
-  let debug = null;
+  let debug = null, debugWanted = qs.get('camdebug') === '1', frameN = 0, resN = 0, resT0 = 0;
   const SWIPE_ON = qs.get('swipe') !== '0';
 
   const G = {
@@ -66,6 +67,14 @@
     onState(fn) { onState = fn; },
     onSwipe(fn) { onSwipe = fn; },
     start, stop,
+    /** Show/hide the camera debug view (starts Glass mode if needed). */
+    setDebug(on) {
+      debugWanted = on;
+      if (!on && debug) { debug.remove(); debug = null; }
+      if (on && G.on && G.mode && !debug) debug = makeDebugView();
+      if (on && !G.on) start();
+    },
+    get debug() { return debugWanted; },
     /** Make the current distance the new zero (called when the user zooms by hand). */
     recalibrate() {
       if (lastSize) calib = { size: lastSize };
@@ -150,7 +159,7 @@
     handSwipe = SWIPE_ON && stats.hands ? makeHandSwipeDetector() : null;
     swipe = SWIPE_ON && !handSwipe ? makeSwipeDetector() : null;
     stats.swipe = handSwipe ? 'hands' : swipe ? 'motion' : 'off';
-    debug = qs.get('camdebug') === '1' ? makeDebugView() : null;
+    debug = debugWanted ? makeDebugView() : null;
     rateT0 = performance.now(); rateN = 0;
     loop();
     smoothLoop();
@@ -181,7 +190,10 @@
     busy = false;
     recordMs(m.ms);
     const b = m.box;
-    measure(b ? { cx: (b.originX + b.width / 2) / m.w, cy: (b.originY + b.height / 2) / m.h, size: b.width / m.w } : null);
+    if (b !== undefined) measure(b ? { cx: (b.originX + b.width / 2) / m.w, cy: (b.originY + b.height / 2) / m.h, size: b.width / m.w } : null);
+    const now = performance.now();
+    resN++;
+    if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
     if (handSwipe) {
       const dir = handSwipe(m.hands || [], performance.now());
       if (dir) onSwipe(dir);
@@ -236,9 +248,12 @@
     if (worker) {
       if (busy) return;   // one frame in flight at a time
       busy = true; lastSend = now;
+      // With hands on, faces are only looked for on every other frame: head
+      // position is heavily smoothed anyway, and the hand gets the full rate.
+      const withFace = !handSwipe || (++frameN % 2 === 0);
       createImageBitmap(video).then((bitmap) => {
         if (!worker) { bitmap.close(); return; }
-        worker.postMessage({ type: 'frame', bitmap, ts: now }, [bitmap]);
+        worker.postMessage({ type: 'frame', bitmap, ts: now, face: withFace }, [bitmap]);
       }).catch(() => { busy = false; });
       countRate(now);
       return;
@@ -395,38 +410,41 @@
   }
 
   /** Air swipe from tracked palms. Each palm is linked to the nearest recent
-   *  track; a track fires when, within the last ~0.45 s, it moved >= 18% of the
-   *  frame width, at >= 0.9 frame-widths/s, and at least 1.5x more sideways
-   *  than vertically. A fast-moving track that vanishes (motion blur, or the
-   *  hand leaving the frame) also fires if it had already covered 12%. */
+   *  track; a track fires when, within the last ~0.6 s, it moved >= 15% of the
+   *  frame width, at >= 0.6 frame-widths/s, and at least 1.5x more sideways
+   *  than vertically. A track that vanishes mid-move (motion blur, or the hand
+   *  leaving the frame) also fires if it had already covered 10%.
+   *  The return stroke is handled by REVERSE_MS, not by speed. */
+  const SWIPE = { WINDOW_MS: 600, LINK: 0.3, GAP_MS: 400, TRAVEL: 0.15, LOST_TRAVEL: 0.1, SPEED: 0.6, RATIO: 1.5, COOLDOWN_MS: 900, REVERSE_MS: 1500 };
   function makeHandSwipeDetector() {
-    // SPEED in frame-widths/s: a deliberate swipe is well over 1; bringing the
-    // hand back afterwards, or gesturing while talking, is usually under 0.6.
-    const WINDOW_MS = 450, LINK = 0.3, GAP_MS = 350, TRAVEL = 0.18, LOST_TRAVEL = 0.12,
-      SPEED = 0.9, COOLDOWN_MS = 900, REVERSE_MS = 1600;
-    // After a swipe, the same direction re-arms after COOLDOWN_MS; the opposite
-    // direction - which is usually just the hand coming back - after REVERSE_MS.
+    const C = SWIPE;
     let tracks = [], quietUntil = 0, lastDir = null, lastFireT = 0;
+    const diag = { dx: 0, dy: 0, speed: 0, n: 0, why: 'no hand', fired: null, firedT: 0 };
     const judge = (pts, travel) => {
-      if (pts.length < 2) return null;
+      if (pts.length < 2) { diag.why = 'tracking'; return null; }
       const a = pts[0], b = pts[pts.length - 1];
       const dx = b.x - a.x, dy = b.y - a.y, dt = Math.max(1, b.t - a.t) / 1000;
-      if (Math.abs(dx) < travel || Math.abs(dx) < 1.5 * Math.abs(dy) || Math.abs(dx) / dt < SPEED) return null;
+      Object.assign(diag, { dx, dy, speed: Math.abs(dx) / dt, n: pts.length });
+      if (Math.abs(dx) < travel) { diag.why = 'too short'; return null; }
+      if (Math.abs(dx) < C.RATIO * Math.abs(dy)) { diag.why = 'too vertical'; return null; }
+      if (Math.abs(dx) / dt < C.SPEED) { diag.why = 'too slow'; return null; }
       // Image x grows toward the viewer's LEFT (the camera faces them).
       return dx > 0 ? 'left' : 'right';
     };
     const fire = (dir, now) => {
-      if (lastDir && dir !== lastDir && now - lastFireT < REVERSE_MS) { tracks = []; return null; }
-      tracks = []; quietUntil = now + COOLDOWN_MS; lastDir = dir; lastFireT = now;
+      tracks = [];
+      if (lastDir && dir !== lastDir && now - lastFireT < C.REVERSE_MS) { diag.why = 'return stroke (ignored)'; return null; }
+      quietUntil = now + C.COOLDOWN_MS; lastDir = dir; lastFireT = now;
+      diag.why = 'SWIPE ' + dir; diag.fired = dir; diag.firedT = now;
       return dir;
     };
     const fn = (palms, now) => {
       // Cooldown: record nothing, so the rest of the same sweep can't fire again.
-      if (now < quietUntil) { tracks = []; return null; }
+      if (now < quietUntil) { tracks = []; diag.why = 'cooldown'; return null; }
       // Link palms to tracks (greedy nearest).
       const used = new Set();
       for (const p of palms) {
-        let best = null, bd = LINK;
+        let best = null, bd = C.LINK;
         for (const tr of tracks) {
           if (used.has(tr)) continue;
           const last = tr.pts[tr.pts.length - 1];
@@ -436,59 +454,91 @@
         if (best) { best.pts.push({ x: p.x, y: p.y, t: now }); used.add(best); }
         else { const tr = { pts: [{ x: p.x, y: p.y, t: now }] }; tracks.push(tr); used.add(tr); }
       }
-      for (const tr of tracks) tr.pts = tr.pts.filter((q) => now - q.t <= WINDOW_MS);
+      if (!palms.length && !tracks.length) diag.why = 'no hand';
+      for (const tr of tracks) tr.pts = tr.pts.filter((q) => now - q.t <= C.WINDOW_MS);
       for (const tr of tracks) {
-        const lost = !used.has(tr);
-        if (lost) {
-          // Only judge a lost track once, right after it disappears.
-          if (tr.judgedLost || !tr.pts.length || now - tr.pts[tr.pts.length - 1].t > GAP_MS) continue;
+        if (!used.has(tr)) {
+          // Lost: judge once, right after it disappears.
+          if (tr.judgedLost || !tr.pts.length || now - tr.pts[tr.pts.length - 1].t > C.GAP_MS) continue;
           tr.judgedLost = true;
-          const dir = judge(tr.pts, LOST_TRAVEL);
+          const dir = judge(tr.pts, C.LOST_TRAVEL);
           if (dir) return fire(dir, now);
         } else {
-          const dir = judge(tr.pts, TRAVEL);
+          const dir = judge(tr.pts, C.TRAVEL);
           if (dir) return fire(dir, now);
         }
       }
-      tracks = tracks.filter((tr) => tr.pts.length && now - tr.pts[tr.pts.length - 1].t <= GAP_MS);
+      tracks = tracks.filter((tr) => tr.pts.length && now - tr.pts[tr.pts.length - 1].t <= C.GAP_MS);
       return null;
     };
     fn.tracks = () => tracks;
+    fn.diag = diag;
     return fn;
   }
 
-  /** ?camdebug=1: a small mirrored camera preview with the face box, palms and
-   *  swipe tracks, for tuning on the device. */
+  /** Camera debug view (hold the camera button, or ?camdebug=1): mirrored
+   *  preview with the face box, every hand's 21-point skeleton, swipe trails,
+   *  and live numbers against the swipe thresholds. */
+  const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]];
   function makeDebugView() {
+    const W = 400, H = 300, TXT = 92;
     const c = document.createElement('canvas');
-    c.width = 240; c.height = 180;
-    c.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:98;border-radius:10px;'
-      + 'border:1px solid rgba(255,255,255,.3);pointer-events:none;background:#000';
+    c.width = W; c.height = H + TXT;
+    c.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:98;border-radius:12px;'
+      + 'border:1px solid rgba(255,255,255,.35);pointer-events:none;background:#000;width:400px;height:' + (H + TXT) + 'px';
     document.body.appendChild(c);
     const g = c.getContext('2d');
+    const X = (x) => (1 - x) * W, Y = (y) => y * H;   // mirrored, like a selfie view
     const view = (palms) => {
       if (!video) return;
-      g.save(); g.translate(240, 0); g.scale(-1, 1);          // mirror, like a selfie view
-      g.drawImage(video, 0, 0, 240, 180);
+      g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(video, 0, 0, W, H); g.restore();
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 0, W, H);
+      // Swipe travel guides: the distance a hand has to cover.
+      g.strokeStyle = 'rgba(255,255,255,.25)'; g.setLineDash([4, 6]);
+      g.beginPath(); g.moveTo(W * (0.5 - SWIPE.TRAVEL / 2), H - 8); g.lineTo(W * (0.5 + SWIPE.TRAVEL / 2), H - 8); g.stroke();
+      g.setLineDash([]);
       if (faceBox) {
-        const s = faceBox.size * 240;
+        const s = faceBox.size * W;
         g.strokeStyle = '#16bdeb'; g.lineWidth = 2;
-        g.strokeRect(faceBox.cx * 240 - s / 2, faceBox.cy * 180 - s / 2, s, s);
+        g.strokeRect(X(faceBox.cx) - s / 2, Y(faceBox.cy) - s / 2, s, s);
       }
       if (handSwipe) {
-        g.strokeStyle = '#f15e22'; g.lineWidth = 2;
+        g.strokeStyle = '#f15e22'; g.lineWidth = 3;
         for (const tr of handSwipe.tracks()) {
           g.beginPath();
-          tr.pts.forEach((q, i) => (i ? g.lineTo(q.x * 240, q.y * 180) : g.moveTo(q.x * 240, q.y * 180)));
+          tr.pts.forEach((q, i) => (i ? g.lineTo(X(q.x), Y(q.y)) : g.moveTo(X(q.x), Y(q.y))));
           g.stroke();
         }
       }
-      g.fillStyle = '#fff';
-      for (const p of palms) { g.beginPath(); g.arc(p.x * 240, p.y * 180, 5, 0, 7); g.fill(); }
-      g.restore();
-      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, 0, 240, 16);
-      g.fillStyle = '#9fe'; g.font = '11px ui-monospace,monospace';
-      g.fillText(`${stats.where} swipe:${stats.swipe} hands:${palms.length}`, 4, 12);
+      for (const p of palms) {
+        if (p.lm) {
+          g.strokeStyle = 'rgba(52,211,153,.9)'; g.lineWidth = 2;
+          g.beginPath();
+          for (const [a, b] of BONES) { g.moveTo(X(p.lm[a][0]), Y(p.lm[a][1])); g.lineTo(X(p.lm[b][0]), Y(p.lm[b][1])); }
+          g.stroke();
+          g.fillStyle = '#34d399';
+          for (const q of p.lm) { g.beginPath(); g.arc(X(q[0]), Y(q[1]), 2.2, 0, 7); g.fill(); }
+        }
+        g.fillStyle = '#fff'; g.beginPath(); g.arc(X(p.x), Y(p.y), 6, 0, 7); g.fill();
+      }
+      // Text panel.
+      const d = handSwipe ? handSwipe.diag : null;
+      g.fillStyle = '#0b1220'; g.fillRect(0, H, W, TXT);
+      g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = '#9fe';
+      const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 17); };
+      line(0, `${stats.where}  swipe:${stats.swipe}  frames ${stats.handHz || 0}/s  detect ${stats.ms.toFixed(0)}ms`);
+      line(1, `hands ${palms.length}${palms.map((p) => ` (${p.score.toFixed(2)})`).join('')}   face ${faceBox ? 'yes' : 'no'}`);
+      if (d) {
+        const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
+        g.fillStyle = ok(Math.abs(d.dx), SWIPE.TRAVEL);
+        g.fillText(`travel ${Math.abs(d.dx).toFixed(2)}/${SWIPE.TRAVEL}`, 8, H + 50);
+        g.fillStyle = ok(d.speed, SWIPE.SPEED);
+        g.fillText(`speed ${d.speed.toFixed(2)}/${SWIPE.SPEED}`, 150, H + 50);
+        g.fillStyle = '#9fe'; g.fillText(`pts ${d.n}`, 290, H + 50);
+        const recent = d.fired && performance.now() - d.firedT < 1500;
+        line(3, recent ? `>>> SWIPE ${d.fired.toUpperCase()} <<<` : `status: ${d.why}`, recent ? '#f15e22' : '#e6edf7');
+      }
     };
     view.remove = () => c.remove();
     return view;

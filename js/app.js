@@ -1097,8 +1097,24 @@
       showSwipe(dir);
       spinTurns(dir === 'left' ? 3 : -3);   // swipe left = surface moves left = east comes round
     });
+    // Tap: camera on/off. Press and hold (~0.6 s): camera debug view on/off
+    // (turning the camera on too if needed) - for tuning on the device itself.
+    let holdTimer = 0, held = false;
+    glassBtn.addEventListener('pointerdown', () => {
+      held = false;
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        held = true;
+        const on = !window.Glass.debug;
+        window.Glass.setDebug(on);
+        toast(on ? 'Camera debug view on (hold again to hide)' : 'Camera debug view off');
+      }, 600);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => glassBtn.addEventListener(t, () => clearTimeout(holdTimer)));
+    glassBtn.addEventListener('contextmenu', (e) => e.preventDefault());   // touch long-press menu
     glassBtn.addEventListener('click', () => {
       userInput();
+      if (held) { held = false; return; }   // that was a hold, not a tap
       if (window.Glass.on) window.Glass.stop(); else window.Glass.start();
     });
   } else {
