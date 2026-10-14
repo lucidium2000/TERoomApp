@@ -1071,7 +1071,6 @@
   const camChip = document.getElementById('camChip');
 
   const swipeEl = document.getElementById('swipeHint');
-  const grabHint = document.getElementById('grabHint');
   let swipeTimer = 0;
   function showSwipe(dir) {
     swipeEl.textContent = dir === 'left' ? '\u2190' : '\u2192';
@@ -1096,6 +1095,7 @@
       glassBtn.classList.toggle('busy', state === 'starting');
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
+      setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
       if (state === 'face') toast('Glass mode on. Hold an open palm up for half a second to enable fist gestures');
       else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
       else if (state === 'error') toast(detail);
@@ -1139,38 +1139,31 @@
         S.vel.lon = -S.grabVel.x * k * degPerPx;
         S.vel.lat = S.grabVel.y * k * degPerPx;
       }
-      const grabbing = state !== 'end';
-      grabHint.className = grabbing ? 'grab-hint show' : 'grab-hint';
-      grabHint.textContent = info.mode === 'zoom' || (state === 'move' && info.mode === 'zoom')
-        ? `\u270A \u270A  \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`
-        : '\u270A  drag';
+      if (state === 'end') setHud(window.Glass.armed ? 'ready' : 'dormant');
+      else setHud(info.mode === 'zoom' ? 'zoom' : 'drag');
     });
-    // Palm hold: arm / pause the fist gestures.
+    // Gesture mini-HUD (top centre): one badge that tells the whole story.
+    //   dormant - camera on, gestures paused: grey hand, "Ready"
+    //   hold    - palm being held: the ring fills
+    //   ready   - armed: green hand, "Ready"
+    //   drag / zoom - a fist grab in progress
     const gestureEl = document.getElementById('gesture');
     const gestureRing = document.getElementById('gestureRing');
     const gestureLabel = document.getElementById('gestureLabel');
-    let gestureTimer = 0;
+    function setHud(state, progress) {
+      if (state === 'off') { gestureEl.className = 'gesture'; return; }
+      const cls = { dormant: 'dormant', hold: 'dormant holding', ready: 'ready', drag: 'ready active', zoom: 'ready active' }[state];
+      gestureEl.className = 'gesture show ' + cls;
+      gestureRing.style.strokeDashoffset = String(state === 'dormant' ? 100 : state === 'hold' ? 100 - (progress || 0) * 100 : 0);
+      gestureLabel.textContent = state === 'drag' ? 'Drag'
+        : state === 'zoom' ? `Zoom \u00D7${(S.grabTarget || view.zoom).toFixed(1)}` : 'Ready';
+    }
     window.Glass.onGesture((state, progress) => {
-      clearTimeout(gestureTimer);
-      if (state === 'hold') {
-        gestureEl.className = 'gesture show';
-        gestureRing.style.strokeDashoffset = String(100 - progress * 100);
-        gestureLabel.textContent = 'Hold to start';
-      } else if (state === 'cancel') {
-        gestureEl.className = 'gesture';
-      } else if (state === 'armed') {
-        gestureEl.className = 'gesture show ready';
-        gestureRing.style.strokeDashoffset = '0';
-        gestureLabel.textContent = 'Ready';
-        camChip.classList.add('armed');
-        camChip.lastChild.textContent = 'CAMERA \u00B7 GESTURES';
-        gestureTimer = setTimeout(() => { gestureEl.className = 'gesture ready'; }, 1600);
-      } else {
-        // Paused (no hands for a moment): silent - only the camera chip changes back.
-        gestureEl.className = 'gesture';
-        camChip.classList.remove('armed');
-        camChip.lastChild.textContent = 'CAMERA';
-      }
+      if (state === 'hold') setHud('hold', progress);
+      else if (state === 'armed') setHud('ready');
+      else setHud('dormant');   // cancel / paused
+      camChip.classList.toggle('armed', state === 'armed');
+      if (state === 'armed' || state === 'paused') camChip.lastChild.textContent = state === 'armed' ? 'CAMERA \u00B7 GESTURES' : 'CAMERA';
     });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);

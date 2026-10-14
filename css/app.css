@@ -326,14 +326,6 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
   .card .card-locs { border-left: 0; padding: .6em 0 0; columns: 1; }
 }
 
-/* Two-fist grab: a pill showing the zoom while you hold. */
-.grab-hint {
-  position: fixed; left: 50%; top: calc(var(--gutter) + 4.5em); transform: translateX(-50%) scale(.9);
-  padding: .5em 1.2em; border-radius: 99px; font-size: 1.3em; font-weight: 700; letter-spacing: .04em;
-  color: #fff; background: rgba(244, 63, 94, .85); box-shadow: 0 8px 30px rgba(244, 63, 94, .45);
-  opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
-}
-.grab-hint.show { opacity: 1; transform: translateX(-50%) scale(1); }
 
 /* Palm-hold gesture arming: hand silhouette, a ring that fills over 2 s,
    then "Ready" (green) or "Paused" (amber). */
@@ -358,3 +350,10 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .gesture.ready svg { width: 50px; height: 50px; filter: drop-shadow(0 0 10px rgba(52, 211, 153, .7)); }
 .gesture.paused { color: var(--warn); }
 .cam-chip.armed { border-color: rgba(52, 211, 153, .7); color: #c7f9e4; }
+
+/* Gesture mini-HUD states. */
+.gesture.dormant { color: #7c8aa3; }
+.gesture.dormant .g-hand { opacity: .55; }
+.gesture.dormant .g-label { opacity: .7; }
+.gesture.holding .g-ring { stroke: var(--ok); }
+.gesture.active .g-label { letter-spacing: .04em; }
