@@ -705,7 +705,7 @@
     const had = S.selected;
     S.selected = o;
     if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
-    sfx(fromTour ? 'tour' : 'select');
+    if (!fromTour) sfx('select');   // tour steps are silent
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
 

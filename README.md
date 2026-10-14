@@ -60,7 +60,7 @@ xConfiguration Standby Signage Url: "https://<you>.github.io/<repo>/?signage=1"
 
 ## Sounds
 
-Short, soft interface sounds are synthesized in the browser (no audio files) for button taps, selecting and touring outages, new-outage alerts, camera on/off, and each gesture: ready, grab and let go, pinch, swipe, and opening and closing the guide. Browsers only allow sound after the first touch, so an untouched signage screen stays silent. `sound=0` mutes everything and `volume=` (0–2) scales it.
+Short, soft interface sounds are synthesized in the browser (no audio files) for button taps, selecting outages (tour steps are silent), new-outage alerts, camera on/off, and each gesture: ready, grab and let go, pinch, swipe, and opening and closing the guide. Browsers only allow sound after the first touch, so an untouched signage screen stays silent. `sound=0` mutes everything and `volume=` (0–2) scales it.
 
 ## Glass mode (experimental)
 
