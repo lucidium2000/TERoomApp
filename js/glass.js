@@ -287,7 +287,9 @@
       // With hands on, faces are only looked for on every other frame: head
       // position is heavily smoothed anyway, and the hand gets the full rate.
       const withFace = !handSwipe || (++frameN % 2 === 0);
-      createImageBitmap(video).then((bitmap) => {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const bmpOpts = vw > SMALL_W + 16 ? { resizeWidth: SMALL_W, resizeHeight: Math.round((SMALL_W * vh) / vw), resizeQuality: 'low' } : undefined;
+      createImageBitmap(video, bmpOpts).then((bitmap) => {
         if (!worker) { bitmap.close(); return; }
         worker.postMessage({ type: 'frame', bitmap, ts: now, face: withFace }, [bitmap]);
       }).catch(() => { busy = false; });
@@ -304,8 +306,9 @@
     try {
       if (detector) {
         const t0 = performance.now();
+        const src = smallFrame();
         if (handLm) {
-          const hr = handLm.detectForVideo(video, now);
+          const hr = handLm.detectForVideo(src, now);
           palms = (hr.landmarks || []).map((lm, k) => {
             let x = 0, y = 0;
             for (const i of [0, 5, 9, 13, 17]) { x += lm[i].x; y += lm[i].y; }
@@ -313,7 +316,7 @@
             return { x: x / 5, y: y / 5, score: hd ? hd.score : 0, lm: lm.map((q) => [q.x, q.y]) };
           });
         }
-        const res = withFace ? detector.detectForVideo(video, now) : { detections: [] };
+        const res = withFace ? detector.detectForVideo(src, now) : { detections: [] };
         recordMs(performance.now() - t0);
         resN++;
         if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
@@ -322,7 +325,8 @@
           const b = d.boundingBox;
           if (!best || b.width * b.height > best.width * best.height) best = b;
         }
-        const vw = video.videoWidth, vh = video.videoHeight;
+        // Box is in the pixels of the frame we fed in (possibly the shrunken copy).
+        const vw = src.videoWidth || src.width, vh = src.videoHeight || src.height;
         if (best) hit = { cx: (best.originX + best.width / 2) / vw, cy: (best.originY + best.height / 2) / vh, size: best.width / vw };
       } else if (motion) {
         hit = motion(video);
@@ -341,6 +345,23 @@
   function recordMs(ms) {
     if (++nDetect <= WARMUP_FRAMES) return;
     stats.ms = stats.ms ? stats.ms * 0.8 + ms * 0.2 : ms;
+  }
+
+  /** The models work at ~128-224 px internally, but cameras often ignore the
+   *  320x240 we ask for and deliver full HD. Shrinking each frame ourselves
+   *  keeps the GPU upload and resize per detection small whatever we're sent. */
+  const SMALL_W = 320;
+  let smallC = null, smallG = null;
+  function smallFrame() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw <= SMALL_W + 16) return video;
+    const h = Math.round((SMALL_W * vh) / vw);
+    if (!smallC || smallC.height !== h) {
+      smallC = document.createElement('canvas'); smallC.width = SMALL_W; smallC.height = h;
+      smallG = smallC.getContext('2d');
+    }
+    smallG.drawImage(video, 0, 0, SMALL_W, h);
+    return smallC;
   }
 
   /** Both detectors report here; one swipe can't be counted twice. */
@@ -603,7 +624,7 @@
       g.font = '12px ui-monospace,Menlo,monospace';
       const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
       const hz = stats.handHz || 0;
-      line(0, `${stats.where}  hands on ${(stats.handDelegate || '-').toLowerCase()}  ${hz} frames/s  ${stats.ms.toFixed(0)}ms`, hz < 8 ? '#fbbf24' : '#9fe');
+      line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${stats.ms.toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}`, hz < 8 ? '#fbbf24' : '#9fe');
       line(1, `hands ${palms.length}${palms.map((p) => ` (${(p.score || 0).toFixed(2)})`).join('')}   face ${faceBox && pose.seen ? 'yes' : 'no'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
