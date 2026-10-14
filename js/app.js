@@ -18,6 +18,7 @@
  *   scale=<0.4-1>   fix the render resolution scale (default: adapts to keep >= ~25 fps)
  *   tex=<px>        WebGL land texture width, default 4096
  *   kiosk=1         hide the cursor
+ *   autoupdate=0    don't reload by itself when a new version is published
  *   signage=1       non-interactive digital signage: tour always on, no controls
  *   mode=free       clean globe: no panels; a floating callout appears at the outage
  *                   once the globe has zoomed in (default: hud). Remembered per device.
@@ -1325,6 +1326,50 @@
     if (m === 'free') setMode(true, false);
   }
 
+  // ── Self-update ──────────────────────────────────────────────────────────
+  // Every minute, fetch this page fresh (unique query = past every cache) and
+  // compare it with what was loaded. Any deploy changes it (asset versions
+  // live in the HTML), so a difference means "new version": reload once the
+  // screen has been left alone for a moment.
+  const UPDATE_EVERY_MS = 60000, UPDATE_IDLE_MS = 20000;
+  let pageSig = null, updatePending = false;
+  function sig(text) { let h = 0; for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0; return h; }
+  async function fetchPageSig() {
+    const u = new URL(location.href); u.hash = ''; u.searchParams.set('u', Date.now());
+    const r = await fetch(u.toString(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return sig(await r.text());
+  }
+  function reloadNow(msg) {
+    try { sessionStorage.setItem('te-resume-glass', window.Glass && window.Glass.on ? '1' : ''); } catch (_) { /* */ }
+    toast(msg || 'Updating\u2026', 'info');
+    setTimeout(() => location.reload(), 900);
+  }
+  function startAutoUpdate() {
+    if (qs.get('autoupdate') === '0' || location.protocol === 'file:') return;
+    fetchPageSig().then((s0) => { pageSig = s0; }).catch(() => {});
+    setInterval(async () => {
+      if (!updatePending) {
+        try {
+          const s1 = await fetchPageSig();
+          if (pageSig === null) pageSig = s1;
+          else if (s1 !== pageSig) updatePending = true;
+        } catch (_) { return; }
+      }
+      const idle = performance.now() - S.lastInput > UPDATE_IDLE_MS;
+      const busy = (window.Glass && window.Glass.grabbing) || S.guideOpen || S.dragging;
+      if (updatePending && idle && !busy) reloadNow();
+    }, UPDATE_EVERY_MS);
+  }
+  // Manual: press and hold the ThousandEyes logo for a second.
+  {
+    const logo = document.querySelector('.brand-logo');
+    let t = 0;
+    logo.addEventListener('pointerdown', () => { clearTimeout(t); t = setTimeout(() => { sfx('tap'); reloadNow('Reloading\u2026'); }, 1000); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => logo.addEventListener(ev, () => clearTimeout(t)));
+    logo.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
   // ── Main loop ────────────────────────────────────────────────────────────
   // Adaptive pacing: if a frame's work regularly overruns a 60 Hz slot, render
   // every other vsync (30 fps) instead. Steady 30 looks far smoother than a
@@ -1412,6 +1457,10 @@
     setInterval(refresh, CFG.refreshMs);
     // Tour runs from launch unless explicitly disabled with tour=0.
     if (CFG.tour !== '0' || CFG.signage) { S.lastInput = -Infinity; }
-    if (qs.get('glass') === '1' && window.Glass) window.Glass.start();
+    // Camera back on after a self-update (permission is already granted).
+    let resumeGlass = false;
+    try { resumeGlass = sessionStorage.getItem('te-resume-glass') === '1'; sessionStorage.removeItem('te-resume-glass'); } catch (_) { /* */ }
+    if ((qs.get('glass') === '1' || resumeGlass) && window.Glass) window.Glass.start();
+    startAutoUpdate();
   })();
 })();

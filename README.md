@@ -83,6 +83,10 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 - **Fist grab.** Close one hand into a fist and hold it still for a quarter of a second to grab the globe, then drag it around. A fist that's moving while it closes doesn't grab. It lets go after a quarter of a second of open hand, or three quarters of a second with no hand in view; open it to let go and it keeps spinning with your hand's momentum. With both hands in fists, pull them apart to zoom in, push them together to zoom out, and move them together to turn the globe. `grabpan=` sets how far the globe turns per hand movement (default `1.6`). Hand movement faster than a deliberate drag or pull (tracking glitches, someone walking past) is ignored, and the fling on release is capped. Swipes are ignored while you grab and for a moment after. Head tracking only moves the view by direction. Lean-to-zoom is off by default and can be turned back on with `leanzoom=0.85`.
 - **Performance.** Detection runs in a Web Worker, on the GPU where available, so it never blocks rendering. It processes one frame at a time at up to about 20 Hz and is smoothed, so the parallax trails your movement slightly. If the worker can't start, detection runs on the main thread, limited to about 30% of the frame budget.
 
+## Updates
+
+The page checks for a new published version about once a minute. When it finds one, it waits until the screen has been left alone for 20 seconds, shows "Updating…" and reloads. If the camera was on, it comes back on. To reload right away, press and hold the ThousandEyes logo for a second. `autoupdate=0` turns automatic updates off.
+
 ## URL options
 
 | Param | Default | |
@@ -117,6 +121,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `sound` | on | `0` mutes interface sounds |
 | `volume` | `1` | interface sound volume, 0–2 |
 | `perf` | off | `1` shows frame timing and Glass tracking stats |
+| `autoupdate` | on | `0` stops the page reloading itself when a new version is published |
 | `signage` | off | `1` for non-interactive signage |
 | `kiosk` | off | `1` hides the cursor |
 | `data` | auto | override the outages.json URL |
