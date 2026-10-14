@@ -58,7 +58,7 @@
   let calib = null;    // { n, sum } while calibrating, then { size }
   let busy = false, lastSend = 0, rateT0 = 0, rateN = 0, nDetect = 0;
   let recent = [], lastSize = 0, faceBox = null, swipe = null, handSwipe = null, onSwipe = () => {}, lastSwipeSample = 0;
-  let handLm = null, lastSwipeAny = -Infinity, lastPalms = [];
+  let handLm = null, lastSwipeAny = -Infinity, lastPalms = [], lastHandSeen = -Infinity;
   let debug = null, debugWanted = qs.get('camdebug') === '1', frameN = 0, resN = 0, resT0 = 0;
   const SWIPE_ON = qs.get('swipe') !== '0';
 
@@ -271,10 +271,13 @@
     if (swipe && now - lastSwipeSample >= 60) {
       lastSwipeSample = now;
       const dir = swipe(video, now);
-      // Only trusted when someone is sat in front, and only needed when the
-      // hand model is missing or too slow to catch a swipe itself.
+      // Only trusted when someone is in front (a face, or a hand seen in the
+      // last 2 s), and only needed when the hand model is missing or too slow
+      // to catch a swipe itself.
       const handsSlow = !handSwipe || (stats.handHz || 0) < 8;
-      if (dir && pose.seen && handsSlow) emitSwipe(dir, 'motion');
+      const someone = pose.seen || now - lastHandSeen < 2000;
+      if (dir && someone && handsSlow) emitSwipe(dir, 'motion');
+      else if (dir && swipe.diag) swipe.diag.why = !someone ? 'nobody in view (ignored)' : 'hands fast: left to them';
     }
     if (now - lastSend < MIN_INTERVAL_MS) return;
 
@@ -507,10 +510,16 @@
     const fn = (palms, now) => {
       // Cooldown: record nothing, so the rest of the same sweep can't fire again.
       if (now < quietUntil) { tracks = []; diag.why = 'cooldown'; return null; }
+      if (palms.length) lastHandSeen = now;
+      // Scale to the model's rate: at 5 Hz a fast hand moves ~0.4 of the frame
+      // between samples, and a swipe needs a longer window to collect 3+ points.
+      const hz = Math.max(2, stats.handHz || 10);
+      const link = Math.min(0.5, Math.max(C.LINK, 2 / hz));
+      const windowMs = Math.min(1000, Math.max(C.WINDOW_MS, 3.5 * 1000 / hz));
       // Link palms to tracks (greedy nearest).
       const used = new Set();
       for (const p of palms) {
-        let best = null, bd = C.LINK;
+        let best = null, bd = link;
         for (const tr of tracks) {
           if (used.has(tr)) continue;
           const last = tr.pts[tr.pts.length - 1];
@@ -521,11 +530,11 @@
         else { const tr = { pts: [{ x: p.x, y: p.y, t: now }] }; tracks.push(tr); used.add(tr); }
       }
       if (!palms.length && !tracks.length) diag.why = 'no hand';
-      for (const tr of tracks) tr.pts = tr.pts.filter((q) => now - q.t <= C.WINDOW_MS);
+      for (const tr of tracks) tr.pts = tr.pts.filter((q) => now - q.t <= windowMs);
       for (const tr of tracks) {
         if (!used.has(tr)) {
           // Lost: judge once, right after it disappears.
-          if (tr.judgedLost || !tr.pts.length || now - tr.pts[tr.pts.length - 1].t > C.GAP_MS) continue;
+          if (tr.judgedLost || !tr.pts.length || now - tr.pts[tr.pts.length - 1].t > Math.max(C.GAP_MS, 1500 / hz)) continue;
           tr.judgedLost = true;
           const dir = judge(tr.pts, C.LOST_TRAVEL);
           if (dir) return fire(dir, now);
@@ -534,7 +543,7 @@
           if (dir) return fire(dir, now);
         }
       }
-      tracks = tracks.filter((tr) => tr.pts.length && now - tr.pts[tr.pts.length - 1].t <= C.GAP_MS);
+      tracks = tracks.filter((tr) => tr.pts.length && now - tr.pts[tr.pts.length - 1].t <= Math.max(C.GAP_MS, 1500 / hz));
       return null;
     };
     fn.tracks = () => tracks;
