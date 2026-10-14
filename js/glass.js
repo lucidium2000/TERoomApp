@@ -156,48 +156,8 @@
         worker = null;
       }
     }
-    // 2. Main thread (GPU where WebGL2 allows), face + hands.
-    if (!G.mode) {
-      try {
-        const vision = await import(MP_BASE + 'vision_bundle.mjs');
-        const files = await vision.FilesetResolver.forVisionTasks(MP_BASE + 'wasm');
-        const order = delegate === 'cpu' ? ['CPU'] : ['GPU', 'CPU'];
-        for (const d of order) {
-          try {
-            detector = await vision.FaceDetector.createFromOptions(files, {
-              baseOptions: { modelAssetPath: MP_BASE + 'blaze_face_short_range.tflite', delegate: d },
-              runningMode: 'VIDEO', minDetectionConfidence: 0.5,
-            });
-            stats.where = 'main/' + d.toLowerCase();
-            break;
-          } catch (e) { if (d === 'CPU') throw e; }
-        }
-        G.mode = 'face';
-        if (SWIPE_ON && HAND_ENGINE === 'lite') {
-          try {
-            await startLiteHands();
-            stats.hands = true; stats.handDelegate = 'lite/webgl';
-          } catch (e) {
-            console.warn('[glass] TF.js lite hands unavailable, trying MediaPipe', e);
-          }
-        }
-        if (SWIPE_ON && !stats.hands) {
-          for (const d of order) {
-            try {
-              handLm = await vision.HandLandmarker.createFromOptions(files, {
-                baseOptions: { modelAssetPath: MP_BASE + 'hand_landmarker.task', delegate: d },
-                runningMode: 'VIDEO', numHands: 2,
-                minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.3,
-              });
-              stats.hands = true; stats.handDelegate = d;
-              break;
-            } catch (e) { /* try next; no hands is fine */ }
-          }
-        }
-      } catch (e) {
-        console.warn('[glass] face detector unavailable, using motion tracking', e);
-      }
-    }
+    // 2. Main thread: face + hands (lite TF.js on WebGL by default).
+    if (!G.mode) await startMainDetectors(delegate);
     // 3. Motion centroid.
     if (!G.mode) { motion = makeMotionTracker(); G.mode = 'motion'; stats.where = 'motion'; }
 
@@ -213,8 +173,81 @@
     if (liteDet) liteLoop();
     debug = debugWanted ? makeDebugView() : null;
     rateT0 = performance.now(); rateN = 0;
+    if (worker) scheduleWorkerCheck(delegate);
     loop();
     smoothLoop();
+  }
+
+  /** Main-thread detectors: MediaPipe face (GPU where WebGL2 allows) and the
+   *  hand model (TF.js lite on WebGL by default - the same WebGL the globe
+   *  renders with, which is genuinely hardware-accelerated on a Desk Pro). */
+  async function startMainDetectors(delegate) {
+    try {
+      const vision = await import(MP_BASE + 'vision_bundle.mjs');
+      const files = await vision.FilesetResolver.forVisionTasks(MP_BASE + 'wasm');
+      const order = delegate === 'cpu' ? ['CPU'] : ['GPU', 'CPU'];
+      for (const d of order) {
+        try {
+          detector = await vision.FaceDetector.createFromOptions(files, {
+            baseOptions: { modelAssetPath: MP_BASE + 'blaze_face_short_range.tflite', delegate: d },
+            runningMode: 'VIDEO', minDetectionConfidence: 0.5,
+          });
+          stats.where = 'main/' + d.toLowerCase();
+          break;
+        } catch (e) { if (d === 'CPU') throw e; }
+      }
+      G.mode = 'face';
+      stats.hands = false; stats.handDelegate = null;
+      if (SWIPE_ON && HAND_ENGINE === 'lite') {
+        try {
+          await startLiteHands();
+          stats.hands = true; stats.handDelegate = 'lite/webgl';
+        } catch (e) {
+          console.warn('[glass] TF.js lite hands unavailable, trying MediaPipe', e);
+        }
+      }
+      if (SWIPE_ON && !stats.hands) {
+        for (const d of order) {
+          try {
+            handLm = await vision.HandLandmarker.createFromOptions(files, {
+              baseOptions: { modelAssetPath: MP_BASE + 'hand_landmarker.task', delegate: d },
+              runningMode: 'VIDEO', numHands: 2,
+              minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.3,
+            });
+            stats.hands = true; stats.handDelegate = d;
+            break;
+          } catch (e) { /* try next; no hands is fine */ }
+        }
+      }
+      return true;
+    } catch (e) {
+      console.warn('[glass] face detector unavailable, using motion tracking', e);
+      return false;
+    }
+  }
+
+  /** The worker's "GPU" can be a software WebGL emulation (seen on a Desk Pro:
+   *  it reports GPU and runs at ~1 frame/s). So don't trust the label - measure.
+   *  A few seconds in, if hands run below MIN_WORKER_HZ, move detection to the
+   *  main thread with the lite model. */
+  const MIN_WORKER_HZ = parseFloat(qs.get('minworkerhz')) || 6;
+  let workerCheck = 0;
+  function scheduleWorkerCheck(delegate) {
+    clearTimeout(workerCheck);
+    workerCheck = setTimeout(async () => {
+      if (!G.on || !worker || !SWIPE_ON || qs.get('glassworker') === '1') return;
+      const hz = stats.handHz || 0;
+      if (hz >= MIN_WORKER_HZ) return;
+      console.info(`[glass] worker hands at ${hz}/s - switching to main-thread detection`);
+      worker.terminate(); worker = null; busy = false;
+      if (!(await startMainDetectors(delegate)) || !G.on) return;
+      stats.switched = `worker was ${hz}/s`;
+      stats.where += '*';   // * = auto-switched from a slow worker (see stats.switched)
+      handSwipe = stats.hands ? makeHandSwipeDetector() : null;
+      stats.swipe = handSwipe ? 'hands+motion' : 'motion';
+      resN = 0; resT0 = performance.now(); stats.handHz = 0;
+      if (liteDet) liteLoop();
+    }, 6000);
   }
 
   function startWorker(delegate) {
@@ -264,6 +297,7 @@
 
   function teardown() {
     clearTimeout(timer); timer = 0;
+    clearTimeout(workerCheck);
     if (video && video.cancelVideoFrameCallback && video._vfc) video.cancelVideoFrameCallback(video._vfc);
     stopTracks();
     if (video) { video.srcObject = null; video = null; }
