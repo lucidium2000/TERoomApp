@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=31">
+  <link rel="stylesheet" href="css/app.css?v=39">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -94,21 +94,6 @@
 
   <div class="swipe-hint" id="swipeHint" aria-hidden="true"></div>
   <div class="grab-hint" id="grabHint" aria-hidden="true"></div>
-  <div class="gesture" id="gesture" aria-live="polite">
-    <svg viewBox="0 0 120 120" width="150" height="150" aria-hidden="true">
-      <circle class="g-track" cx="60" cy="60" r="54"/>
-      <circle class="g-ring" id="gestureRing" cx="60" cy="60" r="54" pathLength="100"/>
-      <g class="g-hand">
-        <rect x="38" y="52" width="44" height="40" rx="14"/>
-        <rect x="38" y="22" width="10" height="40" rx="5"/>
-        <rect x="50" y="15" width="10" height="45" rx="5"/>
-        <rect x="62" y="19" width="10" height="42" rx="5"/>
-        <rect x="74" y="28" width="9" height="34" rx="4.5"/>
-        <rect x="24" y="52" width="10" height="30" rx="5" transform="rotate(-35 29 67)"/>
-      </g>
-    </svg>
-    <div class="g-label" id="gestureLabel"></div>
-  </div>
   <div class="toast" id="toast" hidden></div>
   <div class="error" id="error" hidden></div>
 
@@ -116,7 +101,7 @@
   <script src="vendor/d3-geo.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script src="js/glglobe.js?v=17"></script>
-  <script src="js/glass.js?v=38"></script>
-  <script src="js/app.js?v=38"></script>
+  <script src="js/glass.js?v=39"></script>
+  <script src="js/app.js?v=39"></script>
 </body>
 </html>
