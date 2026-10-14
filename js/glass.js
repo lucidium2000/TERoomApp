@@ -537,7 +537,7 @@
 
   /** Is the hand upright? Wrist below the middle knuckle, and the wrist ->
    *  knuckle direction within UPRIGHT_DEG of straight up. */
-  function fistUpright(lm, aspect) {
+  function handUpright(lm, aspect) {
     const dx = lm[9][0] - lm[0][0], dy = (lm[0][1] - lm[9][1]) * aspect;   // dy > 0: knuckle above wrist
     return dy > 0 && Math.atan2(Math.abs(dx), dy) * 180 / Math.PI < GRAB.UPRIGHT_DEG;
   }
@@ -545,7 +545,7 @@
   function updateGrab(palms, now, aspect) {
     const withLm = palms.filter((p) => p.lm);
     grab.curls = withLm.map((p) => curl(p.lm, aspect));
-    grab.upright = withLm.map((p) => fistUpright(p.lm, aspect));
+    grab.upright = withLm.map((p) => handUpright(p.lm, aspect));
     const thr = grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON;
     const fists = withLm.filter((p, i) => grab.curls[i] < thr && grab.upright[i]);
     const mode = fists.length >= 2 ? 'zoom' : fists.length === 1 ? 'pan' : null;
@@ -608,7 +608,10 @@
   // One open hand, fingers up, held roughly still for HOLD_MS turns fist
   // gestures on ("Ready"). They pause by themselves once no hand has been seen
   // for IDLE_MS - an open palm while Ready just lets go of the globe.
-  const PALM = { OPEN: 1.6, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 500 };
+  // OPEN: curl above this = fingers clearly spread. The hand must also be
+  // upright within GRAB.UPRIGHT_DEG (same rule as fists) - a tilted or waved
+  // hand doesn't arm gestures.
+  const PALM = { OPEN: 1.7, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 500 };
   const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
   let armed = false, onGesture = () => {};
 
@@ -619,7 +622,7 @@
 
   function updatePalmHold(palms, now, aspect) {
     const withLm = palms.filter((p) => p.lm);
-    const open = withLm.filter((p) => curl(p.lm, aspect) > PALM.OPEN && upright(p.lm, aspect));
+    const open = withLm.filter((p) => curl(p.lm, aspect) > PALM.OPEN && upright(p.lm, aspect) && handUpright(p.lm, aspect));
     if (armed) {
       if (hold.active) { hold.active = false; hold.progress = 0; onGesture('cancel', 0); }
       if (now - lastHandSeen > PALM.IDLE_MS) {
