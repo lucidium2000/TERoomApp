@@ -74,6 +74,10 @@
     /** Called with ('starting' | 'face' | 'motion' | 'off' | 'error', detail). */
     onState(fn) { onState = fn; },
     onSwipe(fn) { onSwipe = fn; },
+    /** fn(state: 'start' | 'move' | 'end', ratio): two fists, ratio = current
+     *  distance between them / distance when the grab began. */
+    onGrab(fn) { onGrab = fn; },
+    get grabbing() { return grab.on; },
     start, stop,
     /** Show/hide the camera debug view (starts Glass mode if needed). */
     setDebug(on) {
@@ -238,12 +242,7 @@
     const now = performance.now();
     resN++;
     if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
-    if (handSwipe) {
-      const dir = handSwipe(m.hands || [], now);
-      if (dir) emitSwipe(dir, 'hands');
-    }
-    lastPalms = m.hands || [];
-    if (debug) debug(lastPalms);
+    processHands(m.hands || [], now, m.w && m.h ? m.h / m.w : 0.5625);
   }
 
   function stop() {
@@ -269,6 +268,7 @@
     clearTimeout(liteTimer); liteTimer = 0;
     if (liteDet) { try { liteDet.dispose(); } catch (_) { /* */ } liteDet = null; }
     motion = null; swipe = null; handSwipe = null; G.mode = null; busy = false;
+    if (grab.on) { grab.on = false; grab.endT = performance.now(); onGrab('end', grab.ratio); }
     if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
     // smoothLoop keeps easing pose back to zero, then ends.
@@ -355,11 +355,8 @@
       console.warn('[glass] detection error', e);
     }
     if (withFace || !detector) measure(hit);
-    if (palms) {
-      lastPalms = palms;
-      if (handSwipe) { const dir = handSwipe(palms, now); if (dir) emitSwipe(dir, 'hands'); }
-      if (debug) debug(palms);
-    } else if (debug && !worker) debug(lastPalms);
+    if (palms) processHands(palms, now, video.videoHeight / video.videoWidth);
+    else if (debug && !worker) debug(lastPalms);
   }
 
   function recordMs(ms) {
@@ -435,9 +432,7 @@
         for (const i of [0, 5, 9, 13, 17]) { x += k[i].x; y += k[i].y; }
         return { x: x / 5 / sw, y: y / 5 / sh, score: h.score || 0, lm: k.map((q) => [q.x / sw, q.y / sh]) };
       });
-      lastPalms = palms;
-      if (handSwipe) { const dir = handSwipe(palms, now); if (dir) emitSwipe(dir, 'hands'); }
-      if (debug) debug(palms);
+      processHands(palms, now, sh / sw);
       liteTimer = setTimeout(liteLoop, Math.max(0, stats.handMs * (1 / LITE_BUDGET - 1)));
     }).catch((e) => {
       console.warn('[glass] lite hands error', e);
@@ -445,9 +440,60 @@
     });
   }
 
+  // ── Two-fist grab-to-zoom ────────────────────────────────────────────────
+  // A fist: fingertips curled in near the wrist. Measured against the hand's
+  // own size (wrist -> middle knuckle), so distance from the camera doesn't
+  // matter. Open hand ~1.9, fist ~1.0; hysteresis between FIST_ON and FIST_OFF.
+  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, GAP_MS: 400, AFTER_MS: 900 };
+  const grab = { on: false, d0: 0, ratio: 1, lastBoth: 0, endT: -Infinity, curls: [] };
+  let onGrab = () => {};
+
+  function curl(lm, aspect) {
+    const d = (a, b) => Math.hypot(lm[a][0] - lm[b][0], (lm[a][1] - lm[b][1]) * aspect);
+    const size = d(0, 9) || 1e-6;
+    return (d(8, 0) + d(12, 0) + d(16, 0) + d(20, 0)) / 4 / size;
+  }
+
+  function updateGrab(palms, now, aspect) {
+    const withLm = palms.filter((p) => p.lm);
+    grab.curls = withLm.map((p) => curl(p.lm, aspect));
+    const thr = grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON;
+    const fists = withLm.filter((p, i) => grab.curls[i] < thr);
+    if (fists.length >= 2) {
+      // The two fists furthest apart (normally the only two).
+      const a = fists[0], b = fists[1];
+      const dist = Math.hypot(a.x - b.x, (a.y - b.y) * aspect);
+      grab.lastBoth = now;
+      if (!grab.on) {
+        grab.on = true; grab.d0 = Math.max(0.05, dist); grab.ratio = 1;
+        onGrab('start', 1);
+      } else {
+        grab.ratio = dist / grab.d0;
+        onGrab('move', grab.ratio);
+      }
+    } else if (grab.on && now - grab.lastBoth > GRAB.GAP_MS) {
+      grab.on = false; grab.endT = now;
+      onGrab('end', grab.ratio);
+    }
+  }
+
+  /** Every hand result, from whichever engine, comes through here. */
+  function processHands(palms, now, aspect) {
+    lastPalms = palms;
+    if (palms.length) lastHandSeen = now;
+    updateGrab(palms, now, aspect || 0.5625);
+    // While grabbing (and just after), two-handed movement must not swipe.
+    if (handSwipe) {
+      const dir = handSwipe(grab.on ? [] : palms, now);
+      if (dir) emitSwipe(dir, 'hands');
+    }
+    if (debug) debug(palms);
+  }
+
   /** Both detectors report here; one swipe can't be counted twice. */
   function emitSwipe(dir, source) {
     const now = performance.now();
+    if (grab.on || now - grab.endT < GRAB.AFTER_MS) return;
     if (now - lastSwipeAny < 1000) return;
     lastSwipeAny = now;
     stats.lastSwipe = { dir, source, t: now };
@@ -697,7 +743,16 @@
           g.fillStyle = '#34d399';
           for (const q of p.lm) { g.beginPath(); g.arc(X(q[0]), Y(q[1]), 2.2, 0, 7); g.fill(); }
         }
-        g.fillStyle = '#fff'; g.beginPath(); g.arc(X(p.x), Y(p.y), 6, 0, 7); g.fill();
+      }
+      palms.forEach((p, i) => {
+        const fist = grab.curls[i] !== undefined && grab.curls[i] < (grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON);
+        g.fillStyle = fist ? '#f43f5e' : '#fff';
+        g.beginPath(); g.arc(X(p.x), Y(p.y), fist ? 9 : 6, 0, 7); g.fill();
+      });
+      if (grab.on && palms.length >= 2) {
+        g.strokeStyle = '#f43f5e'; g.lineWidth = 2; g.setLineDash([6, 5]);
+        g.beginPath(); g.moveTo(X(palms[0].x), Y(palms[0].y)); g.lineTo(X(palms[1].x), Y(palms[1].y)); g.stroke();
+        g.setLineDash([]);
       }
       // Text panel.
       const d = handSwipe ? handSwipe.diag : null, md = swipe ? swipe.diag : null;
@@ -706,7 +761,7 @@
       const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
       const hz = stats.handHz || 0;
       line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${(stats.handMs || stats.ms).toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}`, hz < 8 ? '#fbbf24' : '#9fe');
-      line(1, `hands ${palms.length}${palms.map((p) => ` (${(p.score || 0).toFixed(2)})`).join('')}   face ${faceBox && pose.seen ? 'yes' : 'no'}`);
+      line(1, `hands ${palms.length}  curl ${grab.curls.map((c) => c.toFixed(2)).join(' ') || '-'} (fist<${GRAB.FIST_ON})  face ${faceBox && pose.seen ? 'y' : 'n'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
         g.fillStyle = '#9fe'; g.fillText('hand:', 8, H + 52);
@@ -722,6 +777,7 @@
       }
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
+      if (grab.on) { line(5, `GRAB  zoom x${grab.ratio.toFixed(2)}`, '#f43f5e'); return; }
       line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
     };
     view.remove = () => c.remove();

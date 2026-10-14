@@ -213,7 +213,9 @@
   // moves; the stars are farthest away, so they move most.
   const PARALLAX = { stars: 0.06, globe: 0.028, lon: 14, lat: 9 };
   // Lean-to-zoom: pose.z is log2(distance ratio), so twice as close -> 2^0.85 = 1.8x.
-  const LEAN_ZOOM_GAIN = num('leanzoom', 0.85);
+  // Off by default: zoom is two-fist grab (pull apart / push together).
+  // ?leanzoom=0.85 brings back lean-to-zoom.
+  const LEAN_ZOOM_GAIN = num('leanzoom', 0);
   const NO_POSE = { x: 0, y: 0, z: 0 };
   const pose = () => (window.Glass && window.Glass.pose) || NO_POSE;
 
@@ -605,6 +607,7 @@
   }
 
   function step(now, dt) {
+    if (S.grabTarget) view.zoom += (S.grabTarget - view.zoom) * (1 - Math.pow(0.8, dt / 16));
     if (S.spin) {
       const sp = S.spin, t = Math.min(1, (now - sp.t0) / sp.dur);
       view.lon = wrapLon(sp.from + sp.total * (1 - Math.pow(1 - t, 4)));
@@ -1063,6 +1066,7 @@
   const camChip = document.getElementById('camChip');
 
   const swipeEl = document.getElementById('swipeHint');
+  const grabHint = document.getElementById('grabHint');
   let swipeTimer = 0;
   function showSwipe(dir) {
     swipeEl.textContent = dir === 'left' ? '\u2190' : '\u2192';
@@ -1093,6 +1097,25 @@
     });
     // Air swipe: spin the world three full turns in the swipe's direction,
     // launched hard and coasting to a stop exactly where it started.
+    // Two fists: grab the globe; pull apart to zoom in, push together to zoom
+    // out. The zoom eases toward the target so it glides at the hand-model rate.
+    let grabZoom0 = 1;
+    window.Glass.onGrab((state, ratio) => {
+      if (state === 'start') {
+        grabZoom0 = view.zoom;
+        S.flight = null; S.spin = null; S.vel.lon = S.vel.lat = 0;
+        userInput();
+        S.grabTarget = view.zoom;
+        grabHint.className = 'grab-hint show';
+      } else if (state === 'move') {
+        S.lastInput = performance.now();
+        S.grabTarget = clampZoom(grabZoom0 * Math.pow(ratio, 1.4));
+      } else {
+        S.grabTarget = null;
+        grabHint.className = 'grab-hint';
+      }
+      grabHint.textContent = `\u270A \u270A  \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`;
+    });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);
       spinTurns(dir === 'left' ? 3 : -3);   // swipe left = surface moves left = east comes round

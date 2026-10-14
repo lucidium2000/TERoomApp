@@ -325,3 +325,12 @@ body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointe
   .card { grid-template-columns: 1fr; }
   .card .card-locs { border-left: 0; padding: .6em 0 0; columns: 1; }
 }
+
+/* Two-fist grab: a pill showing the zoom while you hold. */
+.grab-hint {
+  position: fixed; left: 50%; top: calc(var(--gutter) + 1em); transform: translateX(-50%) scale(.9);
+  padding: .5em 1.2em; border-radius: 99px; font-size: 1.3em; font-weight: 700; letter-spacing: .04em;
+  color: #fff; background: rgba(244, 63, 94, .85); box-shadow: 0 8px 30px rgba(244, 63, 94, .45);
+  opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
+}
+.grab-hint.show { opacity: 1; transform: translateX(-50%) scale(1); }

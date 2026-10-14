@@ -72,7 +72,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 - **Hand model.** On the main-thread path (the one a Desk Pro uses), hands are tracked by TF.js MediaPipe Hands **lite**. It runs on WebGL1, its models are about half the size, and it runs asynchronously, so most of its time is GPU work in the background. `hands=mediapipe` switches back to the MediaPipe Tasks full model for comparison, and `handbudget=` (0.1 to 1, default 0.6) sets how hard the lite model is driven.
 - **Two swipe detectors.** Alongside the hand model, a cheap motion-sweep detector runs at about 16 Hz. It only acts when someone's face is in view and the hand model is missing or running below 8 frames per second.
 - **Steady by design.** Small head movements are ignored, and tracking is smoothed and filtered, so the globe doesn't jitter.
-- **Lean to zoom.** Distance is calibrated to where you're sitting when tracking starts. Move closer to zoom in (twice as close is about 1.8x) and lean back to zoom out. Pinching (or double-tapping) to zoom by hand makes your current distance the new zero. Use `leanzoom=` to change the strength (default `0.85`, `0` to turn it off).
+- **Two-fist zoom.** Make a fist with both hands to grab the globe. Pull your fists apart to zoom in and push them together to zoom out; open a hand to let go. Swipes are ignored while you grab and for a moment after. Head tracking only moves the view by direction. Lean-to-zoom is off by default and can be turned back on with `leanzoom=0.85`.
 - **Performance.** Detection runs in a Web Worker, on the GPU where available, so it never blocks rendering. It processes one frame at a time at up to about 20 Hz and is smoothed, so the parallax trails your movement slightly. If the worker can't start, detection runs on the main thread, limited to about 30% of the frame budget.
 
 ## URL options
@@ -97,7 +97,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `eye` | `1.0` | assumed viewing distance, in screen widths |
 | `eyerange` | `1.2` | how far the virtual eye moves for a given head movement |
 | `mode` | `hud` | `free` for the clean-globe mode |
-| `leanzoom` | `0.85` | Glass mode lean-to-zoom strength; `0` turns it off |
+| `leanzoom` | `0` | Glass mode lean-to-zoom strength (off; zoom is two-fist grab); `0.85` turns it on |
 | `glassdelegate` | auto | `cpu` forces CPU face detection if the GPU path misbehaves |
 | `maxfps` | `60` | `30` locks rendering at 30 fps (it already drops to 30 on its own if frames run long) |
 | `renderer` | auto | `2d` forces the Canvas 2D renderer (WebGL is used when available) |
