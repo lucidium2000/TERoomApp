@@ -1097,6 +1097,9 @@
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
+      // The gesture guide opens with the camera; the palm hold (or ✕) closes it.
+      if (state === 'face' || state === 'motion') openGuide();
+      else if (state === 'off' || state === 'error') { if (S.guideOpen) closeGuide(); }
       if (state === 'face') toast('Gestures Enabled', 'info');
       else if (state === 'motion') toast('Gestures Enabled', 'info');
       else if (state === 'error') toast(detail);
@@ -1176,7 +1179,7 @@
     guide.addEventListener('click', (e) => { if (e.target === guide) closeGuide(); });
     window.Glass.onGesture((state, progress) => {
       if (state === 'hold') setHud('hold', progress);
-      else if (state === 'armed') setHud('ready');
+      else if (state === 'armed') { setHud('ready'); if (S.guideOpen) closeGuide(); }
       else setHud('dormant');   // cancel / paused
       camChip.classList.toggle('armed', state === 'armed');
       if (state === 'armed' || state === 'paused') camChip.lastChild.textContent = state === 'armed' ? 'CAMERA \u00B7 GESTURES' : 'CAMERA';

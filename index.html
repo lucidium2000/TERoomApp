@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=62">
+  <link rel="stylesheet" href="css/app.css?v=63">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -147,9 +147,14 @@
       <path d="M22 98h76M30 90l-8 8 8 8M90 90l8 8-8 8" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="sPinch" viewBox="0 0 120 120">
-      <rect x="40" y="56" width="44" height="40" rx="14"/>
-      <rect x="52" y="17" width="10" height="45" rx="5"/><rect x="64" y="21" width="10" height="42" rx="5"/><rect x="76" y="30" width="9" height="34" rx="4.5"/>
-      <circle cx="38" cy="50" r="14" fill="none" stroke="currentColor" stroke-width="9"/>
+      <!-- Same palm and three raised fingers as the open hand; the index curls
+           down to meet the thumb tip, leaving an open "O" between them. -->
+      <rect x="42" y="54" width="44" height="40" rx="14"/>
+      <rect x="53" y="15" width="10" height="45" rx="5"/>
+      <rect x="65" y="19" width="10" height="42" rx="5"/>
+      <rect x="77" y="28" width="9" height="34" rx="4.5"/>
+      <path d="M48 60C47 40 36 30 27 39" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/>
+      <path d="M46 84C33 80 23 68 25 48" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/>
     </symbol>
     <symbol id="sHead" viewBox="0 0 120 120">
       <circle cx="60" cy="48" r="20"/><path d="M28 104c4-20 18-30 32-30s28 10 32 30z"/>
@@ -161,7 +166,7 @@
     <section class="guide-card" role="dialog" aria-labelledby="guideTitle">
       <button class="guide-close" id="guideClose" aria-label="Close">&times;</button>
       <h2 id="guideTitle">Gestures</h2>
-      <p class="guide-sub">Turn the camera on, then use your hands in view of the Desk Pro.</p>
+      <p class="guide-sub">Use your hands in view of the camera.</p>
       <div class="guide-grid">
         <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Palm up &middot; half a second</b><span>Activates gestures. The badge at the top turns green: <em>Ready</em>.</span></div></div>
         <div class="gi"><svg><use href="#sFist"/></svg><div><b>Fist &middot; hold still, then move</b><span>Grabs the globe. Move your fist to turn the world.</span></div></div>
@@ -172,6 +177,7 @@
         <div class="gi"><svg><use href="#sHead"/></svg><div><b>Move your head</b><span>The globe shifts as if you're looking through glass.</span></div></div>
       </div>
       <p class="guide-tip">Keep hands upright and inside the camera view. Gestures pause on their own when your hands leave the view; lift your palm again to resume.</p>
+      <p class="guide-start"><svg><use href="#sOpen"/></svg>Lift your open palm to close this and start</p>
     </section>
   </div>
 
@@ -183,6 +189,6 @@
   <script src="vendor/topojson-client.min.js"></script>
   <script src="js/glglobe.js?v=17"></script>
   <script src="js/glass.js?v=62"></script>
-  <script src="js/app.js?v=62"></script>
+  <script src="js/app.js?v=63"></script>
 </body>
 </html>

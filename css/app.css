@@ -401,3 +401,8 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .gesture .g-pinchg { display: none; }
 .gesture.pinch .g-open { display: none; }
 .gesture.pinch .g-pinchg { display: inline; }
+.guide-start {
+  margin: .9em 0 0; display: flex; align-items: center; justify-content: center; gap: .5em;
+  font-weight: 700; color: var(--ok);
+}
+.guide-start svg { width: 1.6em; height: 1.6em; fill: var(--ok); }
