@@ -525,7 +525,7 @@
   // One open hand, fingers up, held roughly still for HOLD_MS toggles fist
   // gestures on ("Ready") and off ("Paused"). After a toggle the hand must go
   // away (LATCH) before another hold can count, so it can't flip-flop.
-  const PALM = { OPEN: 1.6, HOLD_MS: 1000, DRIFT: 0.09, GAP_MS: 350 };
+  const PALM = { OPEN: 1.6, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350 };
   const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
   let armed = false, onGesture = () => {};
 
@@ -863,7 +863,7 @@
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
       g.fillStyle = armed ? '#34d399' : '#fbbf24';
-      g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 1s = ready)', 8, H + 88);
+      g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 0.5s = ready)', 8, H + 88);
       if (hold.active) { line(5, `palm hold ${Math.round(hold.progress * 100)}%`, '#34d399'); return; }
       if (!grab.on && grab.pendMode && !grab.latched) { line(5, `fist hold ${Math.min(100, Math.round((performance.now() - grab.pendT0) / GRAB.HOLD_MS * 100))}%`, '#f43f5e'); return; }
       if (grab.latched) { line(5, 'let go (idle) - open hand to grab again', '#fbbf24'); return; }
