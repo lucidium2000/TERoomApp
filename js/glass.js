@@ -79,6 +79,9 @@
      *  since the last update (0..1 frame units, viewer's view, +x = their
      *  right, +y = down); info.ratio is fist spacing / spacing at grab start. */
     onGrab(fn) { onGrab = fn; },
+    /** fn(state: 'hold' | 'cancel' | 'armed' | 'paused', progress 0..1). */
+    onGesture(fn) { onGesture = fn; },
+    get armed() { return armed; },
     get grabbing() { return grab.on; },
     start, stop,
     /** Show/hide the camera debug view (starts Glass mode if needed). */
@@ -271,6 +274,7 @@
     if (liteDet) { try { liteDet.dispose(); } catch (_) { /* */ } liteDet = null; }
     motion = null; swipe = null; handSwipe = null; G.mode = null; busy = false;
     if (grab.on) { grab.on = false; grab.mode = null; grab.endT = performance.now(); onGrab('end', { ratio: grab.ratio }); }
+    if (armed || hold.active) { armed = false; hold.active = false; hold.latched = false; onGesture('paused', 0); }
     if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
     // smoothLoop keeps easing pose back to zero, then ends.
@@ -497,11 +501,52 @@
     onGrab('move', { mode, ratio: grab.ratio, dx, dy });
   }
 
+  // ── Palm hold: arm / pause fist gestures ─────────────────────────────────
+  // One open hand, fingers up, held roughly still for HOLD_MS toggles fist
+  // gestures on ("Ready") and off ("Paused"). After a toggle the hand must go
+  // away (LATCH) before another hold can count, so it can't flip-flop.
+  const PALM = { OPEN: 1.6, HOLD_MS: 2000, DRIFT: 0.09, GAP_MS: 350 };
+  const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
+  let armed = false, onGesture = () => {};
+
+  function upright(lm, aspect) {
+    const size = Math.hypot(lm[0][0] - lm[9][0], (lm[0][1] - lm[9][1]) * aspect);
+    return lm[12][1] < lm[0][1] - size * 0.5 / aspect;   // middle fingertip well above the wrist
+  }
+
+  function updatePalmHold(palms, now, aspect) {
+    const withLm = palms.filter((p) => p.lm);
+    const open = withLm.filter((p) => curl(p.lm, aspect) > PALM.OPEN && upright(p.lm, aspect));
+    if (open.length === 1 && !grab.on) {
+      const p = open[0];
+      hold.lastSeen = now;
+      if (hold.latched) return;
+      if (!hold.active || Math.hypot(p.x - hold.x, p.y - hold.y) > PALM.DRIFT) {
+        // (Re)start the hold here - moving the hand around doesn't count.
+        hold.active = true; hold.t0 = now; hold.x = p.x; hold.y = p.y;
+      }
+      hold.progress = Math.min(1, (now - hold.t0) / PALM.HOLD_MS);
+      onGesture('hold', hold.progress);
+      if (hold.progress >= 1) {
+        armed = !armed;
+        hold.active = false; hold.latched = true; hold.progress = 0;
+        if (!armed && grab.on) { grab.on = false; grab.mode = null; grab.endT = now; onGrab('end', { ratio: grab.ratio }); }
+        onGesture(armed ? 'armed' : 'paused', 1);
+      }
+    } else if (now - hold.lastSeen > PALM.GAP_MS) {
+      if (hold.active) { hold.active = false; hold.progress = 0; onGesture('cancel', 0); }
+      if (!open.length) hold.latched = false;   // hand gone: the next hold may toggle again
+    }
+  }
+
   /** Every hand result, from whichever engine, comes through here. */
   function processHands(palms, now, aspect) {
     lastPalms = palms;
     if (palms.length) lastHandSeen = now;
-    updateGrab(palms, now, aspect || 0.5625);
+    updatePalmHold(palms, now, aspect || 0.5625);
+    // Fist grabs only while armed by a palm hold.
+    if (armed) updateGrab(palms, now, aspect || 0.5625);
+    else grab.curls = palms.filter((p) => p.lm).map((p) => curl(p.lm, aspect || 0.5625));
     // While grabbing (and just after), two-handed movement must not swipe.
     if (handSwipe) {
       const dir = handSwipe(grab.on ? [] : palms, now);
@@ -797,6 +842,9 @@
       }
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
+      g.fillStyle = armed ? '#34d399' : '#fbbf24';
+      g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 2s = ready)', 8, H + 88);
+      if (hold.active) { line(5, `palm hold ${Math.round(hold.progress * 100)}%`, '#34d399'); return; }
       if (grab.on) { line(5, grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate', '#f43f5e'); return; }
       line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
     };

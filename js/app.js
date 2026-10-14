@@ -1096,7 +1096,7 @@
       glassBtn.classList.toggle('busy', state === 'starting');
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
-      if (state === 'face') toast('Glass mode on: tracking your head');
+      if (state === 'face') toast('Glass mode on. Hold an open palm up for 2 s to enable fist gestures');
       else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
       else if (state === 'error') toast(detail);
     });
@@ -1141,6 +1141,29 @@
       grabHint.textContent = info.mode === 'zoom' || (state === 'move' && info.mode === 'zoom')
         ? `\u270A \u270A  \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`
         : '\u270A  drag';
+    });
+    // Palm hold: arm / pause the fist gestures.
+    const gestureEl = document.getElementById('gesture');
+    const gestureRing = document.getElementById('gestureRing');
+    const gestureLabel = document.getElementById('gestureLabel');
+    let gestureTimer = 0;
+    window.Glass.onGesture((state, progress) => {
+      clearTimeout(gestureTimer);
+      if (state === 'hold') {
+        gestureEl.className = 'gesture show';
+        gestureRing.style.strokeDashoffset = String(100 - progress * 100);
+        gestureLabel.textContent = window.Glass.armed ? 'Hold to pause' : 'Hold to start';
+      } else if (state === 'cancel') {
+        gestureEl.className = 'gesture';
+      } else {
+        const ready = state === 'armed';
+        gestureEl.className = 'gesture show ' + (ready ? 'ready' : 'paused');
+        gestureRing.style.strokeDashoffset = '0';
+        gestureLabel.textContent = ready ? 'Ready' : 'Paused';
+        camChip.classList.toggle('armed', ready);
+        camChip.lastChild.textContent = ready ? 'CAMERA \u00B7 GESTURES' : 'CAMERA';
+        gestureTimer = setTimeout(() => { gestureEl.className = 'gesture ' + (ready ? 'ready' : 'paused'); }, 1600);
+      }
     });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);
