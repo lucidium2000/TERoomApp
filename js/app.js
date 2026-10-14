@@ -21,6 +21,8 @@
  *   signage=1       non-interactive digital signage: tour always on, no controls
  *   mode=free       clean globe: no panels; a floating callout appears at the outage
  *                   once the globe has zoomed in (default: hud). Remembered per device.
+ *   zoom=<n>        resting zoom, default 1.2
+ *   swipe=0         disable the experimental arm-swipe gesture in Glass mode
  *   glass=1         start Glass mode (camera parallax) on load, if the device allows it
  */
 (function () {
@@ -115,7 +117,8 @@
   };
 
   // ── State ────────────────────────────────────────────────────────────────
-  const view = { lon: -40, lat: 22, zoom: 1 };       // centre of the visible face
+  const DEFAULT_ZOOM = Math.max(0.6, Math.min(3, num('zoom', 1.2)));
+  const view = { lon: -40, lat: 22, zoom: DEFAULT_ZOOM };   // centre of the visible face
   // Render resolution scale: 1 = full device resolution. Lowered automatically
   // if the device can't keep up (see adaptScale), or fixed with ?scale=.
   const FIXED_SCALE = qs.has('scale') ? Math.max(0.4, Math.min(1, num('scale', 1))) : 0;
@@ -485,7 +488,7 @@
     perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | ${glr ? 'webgl' : '2d' + (S.glOff ? ' [gl off: ' + S.glOff + ']' : '')} `
       + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) | work ${f('total')}ms: `
       + (glr ? `gl ${f('gl')} markers ${f('markers')}` : `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`)
-      + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | deriv ${glr.info.deriv}` : '')
+      + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | lines ${S.segments || '-'} | lod ${glr.info.lod} aniso ${glr.info.aniso}` : '')
       + (G && G.on ? `\nglass ${G.stats.where} ${G.stats.hz}Hz detect ${G.stats.ms.toFixed(1)}ms z ${G.pose.z.toFixed(2)}` : '');
     for (const key in perfAcc) perfAcc[key] = 0;
     perfFrames = 0; perfLast = t;
@@ -498,7 +501,7 @@
     const pts = o.locations.map((l) => [l.lon, l.lat]);
     const centre = pts.length > 1 ? d3.geoCentroid({ type: 'MultiPoint', coordinates: pts }) : pts[0];
     const spread = Math.max(0, ...pts.map((p) => d3.geoDistance(p, centre)));
-    const zoom = Math.max(1, Math.min(2.6, 1.05 / (spread + 0.32)));
+    const zoom = Math.max(DEFAULT_ZOOM, Math.min(2.6, 1.05 / (spread + 0.32)));
     const from = [view.lon, view.lat];
     const to = [centre[0], clampLat(centre[1] - 6 / zoom)];   // sit it a touch above centre
     const hop = d3.geoDistance(from, to);
@@ -528,7 +531,7 @@
       } else if (!S.selected && now - S.lastInput > SPIN_RESUME_MS) {
         view.lon = wrapLon(view.lon + (CFG.spinDegPerS * dt) / 1000);
         view.lat += (18 - view.lat) * 0.0006 * dt / 16;      // drift back to a pleasant tilt
-        view.zoom += (1 - view.zoom) * 0.002 * dt / 16;
+        view.zoom += (DEFAULT_ZOOM - view.zoom) * 0.002 * dt / 16;
       }
     }
 
@@ -770,6 +773,23 @@
     }
   }
 
+  /** WebGL gets the 50m Natural Earth data: vector coastlines and borders stay
+   *  sharp at any zoom, and the GPU draws ~80k segments without noticing. */
+  async function loadGLWorld() {
+    if (!glr) return;
+    let world;
+    try { world = await (await fetch('vendor/countries-50m.json')).json(); } catch (e) { reportError(e, 'world map 50m'); return; }
+    glTry('world', () => {
+      const r = glr.setWorld({
+        land: topojson.feature(world, world.objects.land),
+        coast: topojson.mesh(world, world.objects.land),
+        borders: topojson.mesh(world, world.objects.countries, (a, b) => a !== b),
+        texWidth: num('tex', 8192),
+      });
+      S.texW = r.texW; S.segments = r.segments;
+    });
+  }
+
   async function loadWorld() {
     const world = await (await fetch(`vendor/countries-${CFG.detail}.json`)).json();
     S.land = topojson.feature(world, world.objects.land);
@@ -804,7 +824,7 @@
     if (pts.size >= 2) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinch > 0) view.zoom = clampZoom(view.zoom * (d / pinch));
+      if (pinch > 0) { bakeLean(); view.zoom = clampZoom(view.zoom * (d / pinch)); }
       pinch = d;
       // Moving both fingers together turns the globe too.
       const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -819,6 +839,17 @@
     S.vel.lon = (-dx * degPerPx) / dt; S.vel.lat = (dy * degPerPx) / dt;
     down.lx = e.clientX; down.ly = e.clientY; down.lt = now();
   });
+
+  /** Manual zoom wins over lean-to-zoom: fold whatever the lean is adding into
+   *  the view, then make the viewer's current distance the new zero. So after
+   *  a pinch the globe stays exactly where the user put it, and leaning works
+   *  relative to their new position. */
+  function bakeLean() {
+    const G = window.Glass;
+    if (!G || !G.on) return;
+    if (G.pose.z) view.zoom = clampZoom(view.zoom * Math.pow(2, G.pose.z * LEAN_ZOOM_GAIN));
+    G.recalibrate();
+  }
 
   function clampZoom(z) { return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); }
 
@@ -840,13 +871,14 @@
 
   function endPointer(e) {
     pts.delete(e.pointerId);
-    if (pts.size < 2) { pinch = 0; mid = null; }
+    if (pts.size < 2) { if (pinch) bakeLean(); pinch = 0; mid = null; }
     // Double tap: zoom in on that spot.
     if (down && !down.moved && e.type === 'pointerup') {
       const t = now();
       if (lastTap && t - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
         lastTap = null;
         const ll = projection.invert([e.clientX, e.clientY]);
+        bakeLean();
         zoomTo(view.zoom * 1.8, ll && d3.geoDistance(ll, [view.lon, view.lat]) < Math.PI / 2 ? ll : null);
         down = null; S.dragging = false;
         return;
@@ -870,11 +902,12 @@
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault(); userInput(); S.flight = null;
+    bakeLean();
     view.zoom = clampZoom(view.zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.006 : 0.0015)));
   }, { passive: false });
 
   // Reset view (zoom is by pinch, double-tap, wheel, or leaning in with Glass mode).
-  document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(1, [view.lon, 18]); });
+  document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(DEFAULT_ZOOM, [view.lon, 18]); });
   // Stop the browser itself from zooming the page on a pinch (Safari/WebKit gesture events).
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 
@@ -919,6 +952,15 @@
   const sheenGlare = sheen.querySelector('i');
   const camChip = document.getElementById('camChip');
 
+  const swipeEl = document.getElementById('swipeHint');
+  let swipeTimer = 0;
+  function showSwipe(dir) {
+    swipeEl.textContent = dir === 'left' ? '\u2190' : '\u2192';
+    swipeEl.className = 'swipe-hint show ' + dir;
+    clearTimeout(swipeTimer);
+    swipeTimer = setTimeout(() => { swipeEl.className = 'swipe-hint'; }, 600);
+  }
+
   function updateSheen() {
     if (!window.Glass || (!window.Glass.on && !sheen.classList.contains('on'))) return;
     const P = pose();
@@ -938,6 +980,23 @@
       if (state === 'face') toast('Glass mode on: tracking your head');
       else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
       else if (state === 'error') toast(detail);
+    });
+    // Experimental arm swipe: next/previous outage while one is showing (or on
+    // tour), otherwise a flick that spins the globe.
+    window.Glass.onSwipe((dir) => {
+      const sign = dir === 'left' ? 1 : -1;     // swipe left = move forward / spin east
+      showSwipe(dir);
+      if (S.touring || S.selected) {
+        const list = tourList();
+        if (!list.length) return;
+        const i = Math.max(0, list.indexOf(S.selected));
+        if (S.touring) { S.tourIdx = (i + sign + list.length) % list.length; select(list[S.tourIdx], { fromTour: true }); }
+        else select(list[(i + sign + list.length) % list.length]);
+      } else {
+        S.flight = null;
+        S.vel.lon = 0.12 * sign; S.vel.lat = 0;
+        S.lastInput = performance.now();
+      }
     });
     glassBtn.addEventListener('click', () => {
       userInput();
@@ -1096,7 +1155,7 @@
     await data;
     // The land texture is the slowest one-off step, so it comes after the data
     // is on screen. Until then the WebGL globe shows ocean only.
-    if (S.land) setTimeout(() => glTry('land texture', () => { S.texW = glr.setLand(S.land, S.borders, num('tex', 4096)); }), 50);
+    if (glr) setTimeout(loadGLWorld, 50);
     setInterval(refresh, CFG.refreshMs);
     // Tour runs from launch unless explicitly disabled with tour=0.
     if (CFG.tour !== '0' || CFG.signage) { S.lastInput = -Infinity; }

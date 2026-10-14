@@ -1,26 +1,35 @@
 /* WebGL globe renderer.
  *
  * Canvas 2D re-projects every coastline and border on the CPU each frame, and
- * on a RoomOS device the rasterising is CPU-bound too. Here the land is drawn
- * ONCE into an equirectangular texture, and a single full-screen fragment
- * shader does the rest per pixel on the GPU: starfield, atmosphere halo,
- * shaded ocean, land/coast/border colours, graticule, a smooth day/night
- * terminator and the limb. Markers, arcs and labels stay on the 2D overlay.
+ * on a RoomOS Desk Pro it rasterises on the CPU too (~7 fps). Here the GPU
+ * does it all:
+ *
+ *  1. One full-screen fragment pass: starfield, atmosphere halo, shaded ocean,
+ *     graticule, land fill (from a mipmapped equirectangular coverage texture),
+ *     a smooth day/night terminator and the limb.
+ *  2. Coastlines and borders as true vector lines (50m Natural Earth data,
+ *     ~80k segments in one static buffer), projected in the vertex shader -
+ *     so they stay crisp at every zoom, unlike lines baked into a texture.
+ *
+ * Markers, arcs and labels stay on the 2D overlay canvas.
  *
  * createGlobeGL(canvas) -> null if WebGL is unavailable, else
- *   { setLand(world), setStars(canvas), render(p), resize(w, h), info }
+ *   { setWorld({ land, coast, borders, texWidth }), setStars(canvas), render(p), resize(w, h), info }
  */
 (function () {
   'use strict';
 
-  const VS = `
+  const QUAD_VS = `
 attribute vec2 aPos;
 void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
   // GLSL ES 1.0 so it runs on WebGL1 as well as WebGL2.
-  const FS = `
+  const QUAD_FS = `
 #ifdef GL_OES_standard_derivatives
 #extension GL_OES_standard_derivatives : enable
+#endif
+#ifdef GL_EXT_shader_texture_lod
+#extension GL_EXT_shader_texture_lod : enable
 #endif
 precision highp float;
 uniform vec2 uRes;        // drawing-buffer size, px
@@ -30,16 +39,30 @@ uniform mat3 uRot;        // view (x right, y up, z toward viewer) -> world
 uniform vec3 uSun;        // world unit vector toward the sun
 uniform vec2 uStarOff;    // starfield pan, px
 uniform float uPx;        // device px per CSS px (line widths)
-uniform sampler2D uLand;  // r = land coverage, g = borders, b = coastline
+uniform sampler2D uLand;  // land coverage (luminance)
 uniform sampler2D uStars;
-uniform float uHasDeriv;
 
 const float PI = 3.14159265;
-const vec3 SPACE = vec3(0.0196, 0.0275, 0.051);
 
 float gridLine(float deg, float step, float pxPerDeg) {
   float d = abs(mod(deg + step * 0.5, step) - step * 0.5) * pxPerDeg;  // distance in px
   return 1.0 - smoothstep(0.35 * uPx, 1.1 * uPx, d);
+}
+
+float landAt(vec2 uv) {
+#if defined(GL_EXT_shader_texture_lod) && defined(GL_OES_standard_derivatives)
+  // atan() wraps at the antimeridian, which makes the screen-space derivative
+  // of u spike there and would pick the blurriest mip along a 1px seam. Take
+  // the gradient from whichever of two u's (seam at 180 or at 0) is continuous.
+  float u2 = fract(uv.x + 0.5);
+  vec2 dx = vec2(dFdx(uv.x), dFdx(uv.y)), dy = vec2(dFdy(uv.x), dFdy(uv.y));
+  float dx2 = dFdx(u2), dy2 = dFdy(u2);
+  if (abs(dx2) < abs(dx.x)) dx.x = dx2;
+  if (abs(dy2) < abs(dy.x)) dy.x = dy2;
+  return texture2DGradEXT(uLand, uv, dx * 0.8, dy * 0.8).r;   // slight sharpening bias
+#else
+  return texture2D(uLand, uv).r;
+#endif
 }
 
 void main() {
@@ -48,7 +71,7 @@ void main() {
   float r2 = dot(d, d);
   float r = sqrt(r2);
 
-  // Stars (texture holds one screen; wrap it by hand - NPOT textures can't REPEAT in WebGL1).
+  // Stars (texture holds one screen; wrap by hand - NPOT textures can't REPEAT in WebGL1).
   vec3 col = texture2D(uStars, fract((frag + uStarOff) / uRes)).rgb;
 
   // Atmosphere halo: 0.28 at the limb, 0.08 a third of the way out, 0 at 1.22R.
@@ -67,9 +90,8 @@ void main() {
 
     // Ocean: offset radial shading so it reads as a sphere, not a disc.
     float ot = clamp((length(d - vec2(-0.32, -0.44)) - 0.05) / 1.38, 0.0, 1.0);
-    vec3 ocean = ot < 0.62 ? mix(vec3(0.106, 0.161, 0.259), vec3(0.059, 0.090, 0.165), ot / 0.62)
-                           : mix(vec3(0.059, 0.090, 0.165), vec3(0.031, 0.051, 0.094), (ot - 0.62) / 0.38);
-    vec3 g = ocean;
+    vec3 g = ot < 0.62 ? mix(vec3(0.106, 0.161, 0.259), vec3(0.059, 0.090, 0.165), ot / 0.62)
+                       : mix(vec3(0.059, 0.090, 0.165), vec3(0.031, 0.051, 0.094), (ot - 0.62) / 0.38);
 
     // Graticule every 15 degrees. Pixel scale from derivatives when available.
     float latDeg = lat * 180.0 / PI, lonDeg = lon * 180.0 / PI;
@@ -85,25 +107,48 @@ void main() {
     float grat = max(gridLine(latDeg, 15.0, pxLat) * step(abs(latDeg), 76.0), gridLine(lonDeg, 15.0, pxLon) * step(abs(latDeg), 80.0));
     g = mix(g, vec3(0.580, 0.639, 0.722), grat * 0.16);
 
-    vec3 L = texture2D(uLand, uv).rgb;
-    g = mix(g, vec3(0.141, 0.204, 0.294), L.r);                 // land #24344b
-    g = mix(g, vec3(0.431, 0.549, 0.725), L.b * 0.55);          // coastline
-    g = mix(g, vec3(0.282, 0.376, 0.518), L.g);                 // borders #486084
+    g = mix(g, vec3(0.141, 0.204, 0.294), landAt(uv));          // land #24344b
 
     // Night: a smooth terminator, darkest about 18 degrees past it.
-    float s = dot(w, uSun);
-    g *= 1.0 - 0.5 * smoothstep(0.09, -0.3, s);
+    g *= 1.0 - 0.5 * smoothstep(0.09, -0.3, dot(w, uSun));
 
     // Limb line, antialiased, 1.2 css px.
-    float edge = (1.0 - r) * uR;
-    float limb = 1.0 - smoothstep(0.0, 1.2 * uPx, edge);
+    float limb = 1.0 - smoothstep(0.0, 1.2 * uPx, (1.0 - r) * uR);
     g = mix(g, vec3(0.2196, 0.7412, 0.9725), limb * 0.45);
 
     // Antialias the disc edge against the halo.
-    float cover = clamp((1.0 - r) * uR + 0.5, 0.0, 1.0);
-    col = mix(col, g, cover);
+    col = mix(col, g, clamp((1.0 - r) * uR + 0.5, 0.0, 1.0));
   }
   gl_FragColor = vec4(col, 1.0);
+}`;
+
+  // Vector lines on the sphere: unit vectors in, orthographic out.
+  const LINE_VS = `
+attribute vec3 aP;
+uniform mat3 uRot;
+uniform vec2 uRes, uC;
+uniform float uR;
+varying float vZ;
+varying vec3 vW;
+void main() {
+  vec3 v = aP * uRot;                 // row-vector multiply = transpose(uRot) * aP: world -> view
+  vec2 s = uC + uR * vec2(v.x, -v.y);
+  gl_Position = vec4(s.x / uRes.x * 2.0 - 1.0, 1.0 - s.y / uRes.y * 2.0, 0.0, 1.0);
+  vZ = v.z;
+  vW = aP;
+}`;
+
+  const LINE_FS = `
+precision mediump float;
+uniform vec4 uColor;
+uniform vec3 uSun;
+varying float vZ;
+varying vec3 vW;
+void main() {
+  if (vZ < 0.0) discard;                                   // far side
+  float night = 1.0 - 0.5 * smoothstep(0.09, -0.3, dot(normalize(vW), uSun));
+  float fade = smoothstep(0.0, 0.04, vZ);                  // soften into the limb
+  gl_FragColor = vec4(uColor.rgb * night, uColor.a * fade);
 }`;
 
   function compile(gl, type, src) {
@@ -113,39 +158,46 @@ void main() {
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || 'shader compile failed');
     return s;
   }
+  function program(gl, vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || 'link failed');
+    return p;
+  }
 
   window.createGlobeGL = function (canvas) {
     let gl = null;
-    const opts = { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' };
+    // antialias: MSAA keeps the 1px vector coastlines smooth.
+    const opts = { alpha: false, antialias: true, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' };
     try { gl = canvas.getContext('webgl', opts) || canvas.getContext('experimental-webgl', opts); } catch (_) { gl = null; }
     if (!gl) return null;
 
-    const hasDeriv = !!gl.getExtension('OES_standard_derivatives');
-    let prog;
+    const ext = {
+      deriv: !!gl.getExtension('OES_standard_derivatives'),
+      lod: !!gl.getExtension('EXT_shader_texture_lod'),
+      aniso: gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic'),
+    };
+    let quadProg, lineProg;
     try {
-      prog = gl.createProgram();
-      gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, VS));
-      gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, FS));
-      gl.linkProgram(prog);
-      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link failed');
+      quadProg = program(gl, QUAD_VS, QUAD_FS);
+      lineProg = program(gl, LINE_VS, LINE_FS);
     } catch (e) {
       console.warn('[globe] WebGL shader failed, using 2D', e);
       return null;
     }
-    gl.useProgram(prog);
 
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const aPos = gl.getAttribLocation(prog, 'aPos');
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-
-    const U = {};
-    for (const n of ['uRes', 'uC', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uHasDeriv']) U[n] = gl.getUniformLocation(prog, n);
-    gl.uniform1i(U.uLand, 0);
-    gl.uniform1i(U.uStars, 1);
-    gl.uniform1f(U.uHasDeriv, hasDeriv ? 1 : 0);
+    const Q = { aPos: gl.getAttribLocation(quadProg, 'aPos') };
+    for (const n of ['uRes', 'uC', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars']) Q[n] = gl.getUniformLocation(quadProg, n);
+    const Lu = { aP: gl.getAttribLocation(lineProg, 'aP') };
+    for (const n of ['uRot', 'uRes', 'uC', 'uR', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
+    gl.useProgram(quadProg);
+    gl.uniform1i(Q.uLand, 0);
+    gl.uniform1i(Q.uStars, 1);
 
     function makeTex(unit) {
       const t = gl.createTexture();
@@ -167,25 +219,68 @@ void main() {
       renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
     } catch (_) { /* */ }
 
-    /** Bake land into an equirectangular texture: coverage in red, borders in
-     *  green, coastline in blue, so the shader picks the colours. Built once. */
-    function setLand(land, borders, width) {
-      const W = Math.min(width || 4096, maxTex), H = W / 2;
-      const c = document.createElement('canvas'); c.width = W; c.height = H;
-      const g = c.getContext('2d');
-      g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-      const proj = d3.geoEquirectangular().scale(W / (2 * Math.PI)).translate([W / 2, H / 2]).precision(0.1);
-      const p = d3.geoPath(proj, g);
-      g.lineJoin = 'round';
-      g.fillStyle = '#f00'; g.beginPath(); p(land); g.fill();
-      g.globalCompositeOperation = 'lighter';
-      const lw = Math.max(1, W / 4096) * 1.25;
-      g.strokeStyle = '#0000ff'; g.lineWidth = lw * 1.1; g.beginPath(); p(land); g.stroke();
-      g.strokeStyle = '#00ff00'; g.lineWidth = lw; g.beginPath(); p(borders); g.stroke();
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, landTex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
-      return W;
+    let lineBuf = null, coastCount = 0, borderCount = 0, texW = 0;
+
+    /** Land coverage -> mipmapped luminance texture (one byte per texel, so
+     *  8192x4096 is ~32 MB). Falls back to a smaller size if the device can't. */
+    function buildLandTexture(land, want) {
+      for (let W = Math.min(want, maxTex); W >= 2048; W /= 2) {
+        let c = null;
+        try {
+          const H = W / 2;
+          c = document.createElement('canvas'); c.width = W; c.height = H;
+          const g = c.getContext('2d');
+          g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+          const proj = d3.geoEquirectangular().scale(W / (2 * Math.PI)).translate([W / 2, H / 2]).precision(0.1);
+          g.fillStyle = '#fff'; g.beginPath(); d3.geoPath(proj, g)(land); g.fill();
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, landTex);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, c);
+          gl.generateMipmap(gl.TEXTURE_2D);   // power-of-two sizes, so WebGL1 allows it
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          if (ext.aniso) {
+            const max = gl.getParameter(ext.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+            gl.texParameterf(gl.TEXTURE_2D, ext.aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, max));
+          }
+          if (gl.getError() !== gl.NO_ERROR) throw new Error('texture upload failed at ' + W);
+          return W;
+        } catch (e) {
+          console.warn('[globe] land texture ' + W + ' failed, trying smaller', e);
+        } finally {
+          if (c) { c.width = 0; c.height = 0; }   // release the big canvas now
+        }
+      }
+      throw new Error('could not build land texture');
+    }
+
+    /** MultiLineStrings -> one GL_LINES buffer of unit vectors. */
+    function buildLines(coast, borders) {
+      const toPairs = (geom, out) => {
+        const RAD = Math.PI / 180;
+        let n = 0;
+        for (const line of geom.coordinates) {
+          for (let i = 0; i + 1 < line.length; i++) {
+            for (const [lo, la] of [line[i], line[i + 1]]) {
+              const l = lo * RAD, p = la * RAD, c = Math.cos(p);
+              out.push(c * Math.cos(l), c * Math.sin(l), Math.sin(p));
+            }
+            n += 2;
+          }
+        }
+        return n;
+      };
+      const arr = [];
+      coastCount = toPairs(coast, arr);
+      borderCount = toPairs(borders, arr);
+      lineBuf = lineBuf || gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
+    }
+
+    function setWorld(w) {
+      texW = buildLandTexture(w.land, w.texWidth || 8192);
+      buildLines(w.coast, w.borders);
+      return { texW, segments: (coastCount + borderCount) / 2 };
     }
 
     function setStars(starCanvas) {
@@ -205,16 +300,42 @@ void main() {
       const sl = Math.sin(l), cl = Math.cos(l), sf = Math.sin(f), cf = Math.cos(f);
       // Columns: east, north, centre (view x, y, z in world coordinates).
       const rot = new Float32Array([-sl, cl, 0, -sf * cl, -sf * sl, cf, cf * cl, cf * sl, sf]);
-      gl.uniform2f(U.uRes, canvas.width, canvas.height);
-      gl.uniform2f(U.uC, p.cx, p.cy);
-      gl.uniform1f(U.uR, p.R);
-      gl.uniformMatrix3fv(U.uRot, false, rot);
-      gl.uniform3f(U.uSun, p.sun[0], p.sun[1], p.sun[2]);
-      gl.uniform2f(U.uStarOff, p.starX, p.starY);
-      gl.uniform1f(U.uPx, p.px);
+
+      // 1. Everything but the lines, in one full-screen pass.
+      gl.disable(gl.BLEND);
+      gl.useProgram(quadProg);
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+      gl.enableVertexAttribArray(Q.aPos);
+      gl.vertexAttribPointer(Q.aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform2f(Q.uRes, canvas.width, canvas.height);
+      gl.uniform2f(Q.uC, p.cx, p.cy);
+      gl.uniform1f(Q.uR, p.R);
+      gl.uniformMatrix3fv(Q.uRot, false, rot);
+      gl.uniform3f(Q.uSun, p.sun[0], p.sun[1], p.sun[2]);
+      gl.uniform2f(Q.uStarOff, p.starX, p.starY);
+      gl.uniform1f(Q.uPx, p.px);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+      // 2. Coastlines, then borders, as vector lines.
+      if (!lineBuf) return;
+      gl.useProgram(lineProg);
+      gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
+      gl.enableVertexAttribArray(Lu.aP);
+      gl.vertexAttribPointer(Lu.aP, 3, gl.FLOAT, false, 0, 0);
+      gl.uniformMatrix3fv(Lu.uRot, false, rot);
+      gl.uniform2f(Lu.uRes, canvas.width, canvas.height);
+      gl.uniform2f(Lu.uC, p.cx, p.cy);
+      gl.uniform1f(Lu.uR, p.R);
+      gl.uniform3f(Lu.uSun, p.sun[0], p.sun[1], p.sun[2]);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.uniform4f(Lu.uColor, 0.431, 0.549, 0.725, 0.6);    // coastline
+      gl.drawArrays(gl.LINES, 0, coastCount);
+      gl.uniform4f(Lu.uColor, 0.282, 0.376, 0.518, 0.85);   // borders #486084
+      gl.drawArrays(gl.LINES, coastCount, borderCount);
+      gl.disable(gl.BLEND);
     }
 
-    return { setLand, setStars, render, resize, info: { renderer, maxTex, deriv: hasDeriv } };
+    return { setWorld, setStars, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
   };
 })();

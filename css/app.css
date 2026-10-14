@@ -295,3 +295,14 @@ body.free .timeline { right: auto; }
 .zoomctl button, .tour { transition: opacity .5s ease, transform .5s ease; }
 body.free.chrome-hidden .zoomctl button,
 body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointer-events: none; }
+
+/* Arm-swipe feedback: a big arrow that slides the way you swiped. */
+.swipe-hint {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-size: 7em; font-weight: 200; color: rgba(201, 241, 255, .85); pointer-events: none;
+  opacity: 0; text-shadow: 0 0 30px rgba(22, 189, 235, .7);
+}
+.swipe-hint.show.left { animation: swipe-l .6s ease-out; }
+.swipe-hint.show.right { animation: swipe-r .6s ease-out; }
+@keyframes swipe-l { 0% { opacity: 0; margin-left: 80px; } 30% { opacity: 1; } 100% { opacity: 0; margin-left: -80px; } }
+@keyframes swipe-r { 0% { opacity: 0; margin-left: -80px; } 30% { opacity: 1; } 100% { opacity: 0; margin-left: 80px; } }

@@ -15,7 +15,11 @@
  * The camera only starts from an explicit tap (or ?glass=1), and stops on the
  * next tap, on page hide, or if the track ends (e.g. a call takes the camera).
  *
- * Exposes window.Glass = { start(), stop(), on, mode, pose, stats }
+ * Experimental arm swipe: a fast horizontal sweep of motion beside the viewer
+ * (the face region is masked out, so head movement doesn't count) fires
+ * onSwipe('left' | 'right'), from the viewer's point of view. ?swipe=0 disables.
+ *
+ * Exposes window.Glass = { start(), stop(), recalibrate(), onSwipe(fn), on, mode, pose, stats }
  *   pose.x, pose.y  -1..1, the viewer's position from THEIR point of view
  *                   (x+ = their right, y+ = up), smoothed.
  *   pose.z          log2 of (face size / size when tracking began): +1 means
@@ -33,8 +37,11 @@
   const BUDGET = 0.3;              // main-thread fallback: spend at most ~30% of time detecting
   const MAX_INTERVAL_MS = 250;     // ...but never track slower than 4 Hz
   const WARMUP_FRAMES = 3;         // first GPU runs compile shaders: don't let them skew timing
-  const SMOOTH_XY = 0.2;           // per-frame easing toward the measured position
-  const SMOOTH_Z = 0.08;           // distance is noisier than position: ease harder
+  const GAIN_XY = 1.8;             // head offset from centre -> -1..1 (lower = needs more movement)
+  const DEADZONE_XY = 0.1;         // "play": small head movements are ignored entirely
+  const DEADZONE_Z = 0.15;         // ...and small leans
+  const SMOOTH_XY = 0.09;          // per-frame easing toward the measured position
+  const SMOOTH_Z = 0.05;           // distance is noisier than position: ease harder
   const LOST_AFTER_MS = 1500;      // no subject for this long: drift back to centre
   const RECALIBRATE_AFTER_MS = 4000;  // gone this long: treat the next face as a new viewer
 
@@ -45,12 +52,20 @@
   let timer = 0, raf = 0, lastSeen = 0, onState = () => {};
   let calib = null;    // { n, sum } while calibrating, then { size }
   let busy = false, lastSend = 0, rateT0 = 0, rateN = 0, nDetect = 0;
+  let recent = [], lastSize = 0, faceBox = null, swipe = null, onSwipe = () => {}, lastSwipeSample = 0;
+  const SWIPE_ON = qs.get('swipe') !== '0';
 
   const G = {
     on: false, mode: null, pose, stats,
     /** Called with ('starting' | 'face' | 'motion' | 'off' | 'error', detail). */
     onState(fn) { onState = fn; },
+    onSwipe(fn) { onSwipe = fn; },
     start, stop,
+    /** Make the current distance the new zero (called when the user zooms by hand). */
+    recalibrate() {
+      if (lastSize) calib = { size: lastSize };
+      target.z = 0; pose.z = 0;
+    },
   };
   window.Glass = G;
 
@@ -124,7 +139,8 @@
 
     if (!G.on) { teardown(); return; }
     onState(G.mode);
-    calib = null; nDetect = 0; stats.ms = 0;
+    calib = null; nDetect = 0; stats.ms = 0; recent = []; lastSize = 0; faceBox = null;
+    swipe = SWIPE_ON ? makeSwipeDetector() : null;
     rateT0 = performance.now(); rateN = 0;
     loop();
     smoothLoop();
@@ -176,7 +192,7 @@
     if (video) { video.srcObject = null; video = null; }
     if (worker) { worker.terminate(); worker = null; }
     if (detector) { try { detector.close(); } catch (_) { /* */ } detector = null; }
-    motion = null; G.mode = null; busy = false;
+    motion = null; swipe = null; G.mode = null; busy = false;
     target.x = target.y = target.z = 0;
     // smoothLoop keeps easing pose back to zero, then ends.
   }
@@ -193,6 +209,11 @@
   function tick() {
     if (!G.on || !video || video.readyState < 2 || !video.videoWidth) return;
     const now = performance.now();
+    if (swipe && now - lastSwipeSample >= 60) {
+      lastSwipeSample = now;
+      const dir = swipe(video, faceBox, now);
+      if (dir) onSwipe(dir);
+    }
     if (now - lastSend < MIN_INTERVAL_MS) return;
 
     if (worker) {
@@ -245,11 +266,17 @@
   function measure(hit) {
     const now = performance.now();
     if (hit) {
-      if (now - lastSeen > RECALIBRATE_AFTER_MS) calib = null;   // a new (or returning) viewer
+      if (now - lastSeen > RECALIBRATE_AFTER_MS) { calib = null; recent = []; }   // a new (or returning) viewer
       lastSeen = now;
+      faceBox = hit.size ? { cx: hit.cx, cy: hit.cy, size: hit.size } : null;
+      // Median of the last three detections: one bad frame can't make it jump.
+      recent.push(hit); if (recent.length > 3) recent.shift();
+      const med = (k) => recent.map((h) => h[k]).sort((a, b) => a - b)[Math.floor(recent.length / 2)];
+      hit = { cx: med('cx'), cy: med('cy'), size: med('size') };
+      lastSize = hit.size;
       // The camera faces the viewer, so their right is the image's left: mirror x.
-      target.x = clamp((0.5 - hit.cx) * 2.4, -1, 1);
-      target.y = clamp((0.5 - hit.cy) * 2.4, -1, 1);
+      target.x = clamp((0.5 - hit.cx) * GAIN_XY, -1, 1);
+      target.y = clamp((0.5 - hit.cy) * GAIN_XY, -1, 1);
       if (hit.size) {
         // Distance: calibrate on the first ~half second of sightings, then
         // compare. log2 makes "twice as close" and "twice as far" symmetric.
@@ -273,9 +300,9 @@
     const tick = () => {
       // Small deadzones so a seated, still viewer doesn't make the globe shimmer.
       const dz = (v, d) => (Math.abs(v) < d ? 0 : v - Math.sign(v) * d);
-      pose.x += (dz(target.x, 0.04) - pose.x) * SMOOTH_XY;
-      pose.y += (dz(target.y, 0.04) - pose.y) * SMOOTH_XY;
-      pose.z += (dz(target.z, 0.08) - pose.z) * SMOOTH_Z;
+      pose.x += (dz(target.x, DEADZONE_XY) - pose.x) * SMOOTH_XY;
+      pose.y += (dz(target.y, DEADZONE_XY) - pose.y) * SMOOTH_XY;
+      pose.z += (dz(target.z, DEADZONE_Z) - pose.z) * SMOOTH_Z;
       const settled = Math.abs(pose.x) + Math.abs(pose.y) + Math.abs(pose.z) < 0.002;
       if (G.on || !settled) raf = requestAnimationFrame(tick);
       else { pose.x = pose.y = pose.z = 0; pose.seen = false; }
@@ -303,6 +330,50 @@
       }
       if (n < W * H * 0.01) return null;
       return { cx: sx / n / W, cy: sy / n / H, size: 0 };
+    };
+  }
+
+  /** Experimental arm swipe. Frame-to-frame motion on a 48x36 copy, with the
+   *  face (and a margin around it) masked out. A swipe is a big blob of motion
+   *  whose centre travels a third of the frame in under ~0.7 s, mostly in one
+   *  direction. Returns 'left' | 'right' (viewer's point of view) or null. */
+  function makeSwipeDetector() {
+    const W = 48, H = 36, MIN_MASS = W * H * 0.03, WINDOW_MS = 700, TRAVEL = 0.33, COOLDOWN_MS = 1200;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    let prev = null, hist = [], quietUntil = 0;
+    return (vid, face, now) => {
+      g.drawImage(vid, 0, 0, W, H);
+      const px = g.getImageData(0, 0, W, H).data;
+      const cur = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) cur[i] = px[i * 4 + 1];
+      if (!prev) { prev = cur; return null; }
+      // Mask: the face box grown 1.4x sideways and down to the shoulders.
+      let fx0 = -1, fx1 = -1, fy0 = -1, fy1 = -1;
+      if (face) {
+        const half = face.size * 1.4;
+        fx0 = (face.cx - half) * W; fx1 = (face.cx + half) * W;
+        fy0 = (face.cy - half) * H; fy1 = (face.cy + half * 1.6) * H;
+      }
+      let sx = 0, n = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1) continue;
+        const i = y * W + x;
+        if (Math.abs(cur[i] - prev[i]) > 28) { sx += x; n++; }
+      }
+      prev = cur;
+      if (now < quietUntil) return null;
+      if (n >= MIN_MASS) hist.push({ t: now, x: sx / n / W });
+      hist = hist.filter((h) => now - h.t <= WINDOW_MS);
+      if (hist.length < 4) return null;
+      const dx = hist[hist.length - 1].x - hist[0].x;
+      if (Math.abs(dx) < TRAVEL) return null;
+      let agree = 0;
+      for (let i = 1; i < hist.length; i++) if (Math.sign(hist[i].x - hist[i - 1].x) === Math.sign(dx)) agree++;
+      if (agree / (hist.length - 1) < 0.7) return null;
+      hist = []; quietUntil = now + COOLDOWN_MS;
+      // Image x grows toward the viewer's LEFT (the camera faces them).
+      return dx > 0 ? 'left' : 'right';
     };
   }
 

@@ -66,7 +66,9 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 - **On-device only.** Frames are analysed in the page and discarded. Nothing is uploaded. The model and runtime are served from this repo (`vendor/mediapipe`, about 9.5 MB, loaded only when Glass mode is turned on).
 - **Releases the camera** when turned off, when the page is hidden, or when another app (such as a call) takes the camera.
 - **The device must allow web apps to use the camera.** Turn this on in the device's WebEngine settings before trying it. Without permission, the button shows an explanation and nothing else changes.
-- **Lean to zoom.** Distance is calibrated to where you're sitting when tracking starts. Move closer to zoom in (twice as close is about 1.8x) and lean back to zoom out. Use `leanzoom=` to change the strength (default `0.85`, `0` to turn it off).
+- **Arm swipe (experimental).** Sweep an arm across, beside your body. While an outage is showing, or the tour is running, a swipe moves to the next or previous outage; otherwise it spins the globe. The area around your face is ignored, so head movement doesn't trigger it. Turn it off with `swipe=0`.
+- **Steady by design.** Small head movements are ignored, and tracking is smoothed and filtered, so the globe doesn't jitter.
+- **Lean to zoom.** Distance is calibrated to where you're sitting when tracking starts. Move closer to zoom in (twice as close is about 1.8x) and lean back to zoom out. Pinching (or double-tapping) to zoom by hand makes your current distance the new zero. Use `leanzoom=` to change the strength (default `0.85`, `0` to turn it off).
 - **Performance.** Detection runs in a Web Worker, on the GPU where available, so it never blocks rendering. It processes one frame at a time at up to about 20 Hz and is smoothed, so the parallax trails your movement slightly. If the worker can't start, detection runs on the main thread, limited to about 30% of the frame budget.
 
 ## URL options
@@ -82,13 +84,15 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `detail` | `110m` | `50m` for sharper coastlines (heavier on the device) |
 | `dpr` | `1.5` | render pixel-ratio cap; lower it if a device struggles |
 | `glass` | off | `1` starts Glass mode on load (the device must allow camera access) |
+| `zoom` | `1.2` | resting zoom level |
+| `swipe` | on | `0` disables the Glass mode arm swipe |
 | `mode` | `hud` | `free` for the clean-globe mode |
 | `leanzoom` | `0.85` | Glass mode lean-to-zoom strength; `0` turns it off |
 | `glassdelegate` | auto | `cpu` forces CPU face detection if the GPU path misbehaves |
 | `maxfps` | `60` | `30` locks rendering at 30 fps (it already drops to 30 on its own if frames run long) |
 | `renderer` | auto | `2d` forces the Canvas 2D renderer (WebGL is used when available) |
 | `scale` | auto | fix the render resolution (`0.4`–`1`); by default it drops automatically if the device can't hold ~25 fps |
-| `tex` | `4096` | WebGL land texture width; `8192` is sharper when zoomed in but uses about 4x the GPU memory |
+| `tex` | `8192` | WebGL land-fill texture width (coastlines and borders are vector lines regardless); `4096` saves GPU memory |
 | `perf` | off | `1` shows frame timing and Glass tracking stats |
 | `signage` | off | `1` for non-interactive signage |
 | `kiosk` | off | `1` hides the cursor |
