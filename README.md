@@ -93,7 +93,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `zoom` | `1.2` | resting zoom level |
 | `grabpan` | `1.6` | how far a fist grab turns the globe per unit of hand travel |
 | `swipe` | on | `0` disables the Glass mode air swipe |
-| `hands` | `mediapipe` | hand model on the main-thread path: `mediapipe`, or `lite` (TF.js, experimental: locked up a Desk Pro) |
+| `hands` | `mediapipe` | hand model: `mediapipe`; `webgpu` (TF.js lite on WebGPU in the worker: asynchronous, can't block the page); or `lite` (TF.js on main-thread WebGL, experimental: locked up a Desk Pro) |
 | `handbudget` | `0.6` | how hard the lite hand model is driven (`1` = back to back) |
 | `camdebug` | off | `1` shows a camera preview with tracking overlays (Glass mode) |
 | `depth` | `0.6` | how far behind the screen the globe sits, in screen widths; deeper means stronger parallax |

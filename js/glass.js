@@ -40,7 +40,8 @@
   // Hand model on the main-thread path: 'lite' = TF.js MediaPipe Hands lite
   // (WebGL1-capable, smaller/faster), 'mediapipe' = MediaPipe Tasks full model.
   // Default 'mediapipe': the TF.js lite model locked up a Desk Pro (blocking
-  // GPU readback on the main thread). Opt in with ?hands=lite.
+  // GPU readback on the main thread). Opt in with ?hands=lite (main thread,
+  // WebGL) or ?hands=webgpu (worker, WebGPU - async, can't block the page).
   const HAND_ENGINE = (qs.get('hands') || 'mediapipe').toLowerCase();
   // Share of wall time the lite loop may occupy (much of it is async GPU wait). 1 = back to back.
   const LITE_BUDGET = Math.max(0.1, Math.min(1, parseFloat(qs.get('handbudget')) || 0.6));
@@ -151,7 +152,7 @@
       try {
         worker = await startWorker(delegate);
         G.mode = 'face';
-        if (SWIPE_ON && !forceWorker && delegate !== 'cpu' && stats.handDelegate !== 'GPU' && mainGL2) {
+        if (SWIPE_ON && !forceWorker && delegate !== 'cpu' && (stats.handDelegate === 'CPU' || !stats.hands) && mainGL2) {
           console.info('[glass] worker hands are on CPU; moving detection to the main-thread GPU');
           worker.terminate(); worker = null; G.mode = null;
         }
@@ -270,11 +271,12 @@
           stats.hands = !!m.hands;
           stats.handDelegate = m.handDelegate || null;
           stats.workerGL = m.gl || '?';
+          if (m.webgpuErr) { stats.webgpuErr = m.webgpuErr; console.warn('[glass] WebGPU hands unavailable:', m.webgpuErr); }
           w.onmessage = onWorkerMessage;
           resolve(w);
         } else if (m.type === 'error') { clearTimeout(to); reject(new Error(m.message)); }
       };
-      w.postMessage({ type: 'init', base: MP_BASE, delegate, hands: SWIPE_ON });
+      w.postMessage({ type: 'init', base: MP_BASE, delegate, hands: SWIPE_ON, handEngine: HAND_ENGINE, tfBase: TF_BASE });
     });
   }
 
@@ -986,7 +988,8 @@
       const p4 = platform;
       g.fillStyle = '#c4b5fd';
       g.fillText(`roomos:${p4.roomos ? 'y' : 'n'} chrome ${p4.chrome} webgpu:${p4.webgpu ? 'y' : 'n'} webnn:${p4.webnn ? 'y' : 'n'}`, 8, H + 142);
-      g.fillText(`gl main: ${p4.gl2.slice(0, 26)} | wrk: ${(stats.workerGL || '-').slice(0, 20)}`, 8, H + 160);
+      g.fillText(stats.webgpuErr ? `webgpu hands failed: ${stats.webgpuErr.slice(0, 40)}`
+        : `gl main: ${p4.gl2.slice(0, 26)} | wrk: ${(stats.workerGL || '-').slice(0, 20)}`, 8, H + 160);
       const ls = stats.lastSwipe;
       const recent = ls && performance.now() - ls.t < 1500;
       g.fillStyle = armed ? '#34d399' : '#fbbf24';

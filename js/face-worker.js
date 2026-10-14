@@ -15,7 +15,29 @@
 /* global importScripts */
 'use strict';
 
-let face = null, hands = null;
+let face = null, hands = null, tfHands = null;
+
+/** TF.js MediaPipe Hands lite on the WebGPU backend - inside this worker, so
+ *  even a slow first run can't stall the page, and WebGPU reads results back
+ *  asynchronously (WebGL's blocking readback is what locked up a Desk Pro). */
+async function initWebGPUHands(tfBase) {
+  if (!self.navigator || !self.navigator.gpu) throw new Error('no WebGPU in this worker');
+  // Load the UMD bundles BEFORE the CommonJS shim exists, so they attach to
+  // self.tf / self.handPoseDetection rather than to the shim's exports.
+  for (const f of ['tf-core.min.js', 'tf-converter.min.js', 'tf-backend-webgpu.min.js', 'hand-pose-detection.min.js']) importScripts(tfBase + f);
+  const tf = self.tf, hpd = self.handPoseDetection;
+  if (!(await tf.setBackend('webgpu'))) throw new Error('WebGPU backend unavailable');
+  await tf.ready();
+  const det = await hpd.createDetector(hpd.SupportedModels.MediaPipeHands, {
+    runtime: 'tfjs', modelType: 'lite', maxHands: 2,
+    detectorModelUrl: tfBase + 'hand-lite/detector/model.json',
+    landmarkModelUrl: tfBase + 'hand-lite/landmark/model.json',
+  });
+  // Warm-up: the first run compiles the shaders.
+  const z = tf.zeros([180, 320, 3], 'int32');
+  try { await det.estimateHands(z); } finally { z.dispose(); }
+  return det;
+}
 
 async function create(Task, files, opts, want) {
   // GPU (WebGL in an OffscreenCanvas) is much faster where the device allows
@@ -30,7 +52,11 @@ async function create(Task, files, opts, want) {
   throw lastErr || new Error('MediaPipe task failed to initialise');
 }
 
-async function init(base, want, wantHands) {
+async function init(base, want, wantHands, handEngine, tfBase) {
+  let webgpuErr = null;
+  if (wantHands && handEngine === 'webgpu') {
+    try { tfHands = await initWebGPUHands(tfBase); } catch (e) { tfHands = null; webgpuErr = String((e && e.message) || e); }
+  }
   self.exports = {};
   self.module = { exports: self.exports };
   importScripts(base + 'vision_bundle_cjs.js');   // CommonJS build, renamed .js so every server sends a JS MIME type
@@ -42,8 +68,8 @@ async function init(base, want, wantHands) {
     minDetectionConfidence: 0.5,
   }, want);
   face = f.task;
-  let handsOk = false, handDelegate = null;
-  if (wantHands) {
+  let handsOk = !!tfHands, handDelegate = tfHands ? 'lite/webgpu' : null;
+  if (wantHands && !tfHands) {
     try {
       const h = await create(HandLandmarker, files, {
         baseOptions: { modelAssetPath: base + 'hand_landmarker.task' },
@@ -63,15 +89,15 @@ async function init(base, want, wantHands) {
     const g = new OffscreenCanvas(1, 1).getContext('webgl2') || new OffscreenCanvas(1, 1).getContext('webgl');
     if (g) { const d = g.getExtension('WEBGL_debug_renderer_info'); gl = String(d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER)); }
   } catch (e) { gl = 'error'; }
-  return { delegate: f.delegate, hands: handsOk, handDelegate, gl };
+  return { delegate: f.delegate, hands: handsOk, handDelegate, gl, webgpuErr };
 }
 
 self.onmessage = async (ev) => {
   const m = ev.data;
   if (m.type === 'init') {
     try {
-      const r = await init(m.base, m.delegate, m.hands);
-      self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands, handDelegate: r.handDelegate, gl: r.gl });
+      const r = await init(m.base, m.delegate, m.hands, m.handEngine, m.tfBase);
+      self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands, handDelegate: r.handDelegate, gl: r.gl, webgpuErr: r.webgpuErr });
     } catch (e) {
       self.postMessage({ type: 'error', message: String((e && e.message) || e) });
     }
@@ -89,7 +115,21 @@ self.onmessage = async (ev) => {
         if (!box || b.width * b.height > box.width * box.height) box = { originX: b.originX, originY: b.originY, width: b.width, height: b.height };
       }
     } catch (e) { /* drop the frame */ }
-    if (hands) {
+    if (tfHands) {
+      try {
+        const tf = self.tf;
+        const img = tf.browser.fromPixels(bmp);
+        let res;
+        try { res = await tfHands.estimateHands(img, { flipHorizontal: false }); } finally { img.dispose(); }
+        const bw = bmp.width, bh = bmp.height;
+        for (const h of res || []) {
+          const k = h.keypoints;
+          let x = 0, y = 0;
+          for (const i of [0, 5, 9, 13, 17]) { x += k[i].x; y += k[i].y; }
+          palms.push({ x: x / 5 / bw, y: y / 5 / bh, score: h.score || 0, lm: k.map((q) => [q.x / bw, q.y / bh]) });
+        }
+      } catch (e) { /* drop */ }
+    } else if (hands) {
       try {
         const res = hands.detectForVideo(bmp, m.ts);
         (res.landmarks || []).forEach((lm, k) => {
