@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=57">
+  <link rel="stylesheet" href="css/app.css?v=62">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -115,6 +115,7 @@
         <rect x="24" y="52" width="10" height="30" rx="5" transform="rotate(-35 29 67)"/>
       </g>
       <g class="g-hand g-fist"><use href="#gFist"/></g>
+      <g class="g-hand g-pinchg"><use href="#sPinch" width="120" height="120"/></g>
       <g class="g-hand g-zoom">
         <use href="#gFist" transform="translate(4 30) scale(.52)"/>
         <use href="#gFist" transform="translate(54 30) scale(.52)"/>
@@ -122,7 +123,58 @@
       </g>
     </svg>
     <div class="g-label" id="gestureLabel"></div>
+    <button class="g-info" id="gestureInfoBtn">Tap here for Gesture Info</button>
   </div>
+  <!-- Gesture icons, shared by the guide. Same drawing style as the badge. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="sOpen" viewBox="0 0 120 120">
+      <rect x="38" y="52" width="44" height="40" rx="14"/><rect x="38" y="22" width="10" height="40" rx="5"/>
+      <rect x="50" y="15" width="10" height="45" rx="5"/><rect x="62" y="19" width="10" height="42" rx="5"/>
+      <rect x="74" y="28" width="9" height="34" rx="4.5"/><rect x="24" y="52" width="10" height="30" rx="5" transform="rotate(-35 29 67)"/>
+    </symbol>
+    <symbol id="sFist" viewBox="0 0 120 120">
+      <rect x="34" y="44" width="52" height="44" rx="15"/>
+      <circle cx="42" cy="47" r="8"/><circle cx="54" cy="44" r="8"/><circle cx="66" cy="44" r="8"/><circle cx="78" cy="47" r="8"/>
+      <rect x="46" y="86" width="28" height="13" rx="4"/>
+      <path d="M48 52v14M60 50v16M72 52v14M36 74h34" fill="none" stroke="rgba(9,14,26,.55)" stroke-width="2.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sTwoFists" viewBox="0 0 120 120">
+      <use href="#sFist" x="-10" y="22" width="70" height="70"/><use href="#sFist" x="60" y="22" width="70" height="70"/>
+      <path d="M44 34h32M49 28l-6 6 6 6M71 28l6 6-6 6" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sSwipe" viewBox="0 0 120 120">
+      <use href="#sOpen" x="22" y="8" width="76" height="76"/>
+      <path d="M22 98h76M30 90l-8 8 8 8M90 90l8 8-8 8" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sPinch" viewBox="0 0 120 120">
+      <rect x="40" y="56" width="44" height="40" rx="14"/>
+      <rect x="52" y="17" width="10" height="45" rx="5"/><rect x="64" y="21" width="10" height="42" rx="5"/><rect x="76" y="30" width="9" height="34" rx="4.5"/>
+      <circle cx="38" cy="50" r="14" fill="none" stroke="currentColor" stroke-width="9"/>
+    </symbol>
+    <symbol id="sHead" viewBox="0 0 120 120">
+      <circle cx="60" cy="48" r="20"/><path d="M28 104c4-20 18-30 32-30s28 10 32 30z"/>
+      <path d="M14 48h12M20 42l-6 6 6 6M106 48H94M100 42l6 6-6 6" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </svg>
+
+  <div class="guide" id="guide" hidden>
+    <section class="guide-card" role="dialog" aria-labelledby="guideTitle">
+      <button class="guide-close" id="guideClose" aria-label="Close">&times;</button>
+      <h2 id="guideTitle">Gestures</h2>
+      <p class="guide-sub">Turn the camera on, then use your hands in view of the Desk Pro.</p>
+      <div class="guide-grid">
+        <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Palm up &middot; half a second</b><span>Activates gestures. The badge at the top turns green: <em>Ready</em>.</span></div></div>
+        <div class="gi"><svg><use href="#sFist"/></svg><div><b>Fist &middot; hold still, then move</b><span>Grabs the globe. Move your fist to turn the world.</span></div></div>
+        <div class="gi"><svg><use href="#sTwoFists"/></svg><div><b>Two fists</b><span>Pull apart to zoom in, push together to zoom out. Move both to turn.</span></div></div>
+        <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Open your hand</b><span>Lets go of the globe. It keeps spinning with your momentum.</span></div></div>
+        <div class="gi"><svg><use href="#sSwipe"/></svg><div><b>Swipe sideways</b><span>A quick sweep spins the world three full turns.</span></div></div>
+        <div class="gi"><svg><use href="#sPinch"/></svg><div><b>Pinch &middot; experimental</b><span>Right hand: next outage. Left hand: previous outage.</span></div></div>
+        <div class="gi"><svg><use href="#sHead"/></svg><div><b>Move your head</b><span>The globe shifts as if you're looking through glass.</span></div></div>
+      </div>
+      <p class="guide-tip">Keep hands upright and inside the camera view. Gestures pause on their own when your hands leave the view; lift your palm again to resume.</p>
+    </section>
+  </div>
+
   <div class="toast" id="toast" hidden></div>
   <div class="error" id="error" hidden></div>
 
@@ -130,7 +182,7 @@
   <script src="vendor/d3-geo.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script src="js/glglobe.js?v=17"></script>
-  <script src="js/glass.js?v=59"></script>
-  <script src="js/app.js?v=58"></script>
+  <script src="js/glass.js?v=62"></script>
+  <script src="js/app.js?v=62"></script>
 </body>
 </html>

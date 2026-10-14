@@ -645,7 +645,7 @@
 
     // Tour: start when idle, advance on a timer.
     const tourOff = CFG.tour === '0' && !CFG.signage;
-    if (!S.touring && !tourOff && S.outages.length && now - S.lastInput > CFG.idleMs) setTour(true);
+    if (!S.touring && !tourOff && !S.guideOpen && S.outages.length && now - S.lastInput > CFG.idleMs) setTour(true);
     if (S.touring && !S.spin) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
       el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
@@ -1153,13 +1153,27 @@
     const gestureLabel = document.getElementById('gestureLabel');
     function setHud(state, progress) {
       if (state === 'off') { gestureEl.className = 'gesture'; return; }
-      const cls = { dormant: 'dormant', hold: 'dormant holding', ready: 'ready', drag: 'ready active drag', zoom: 'ready active zoom' }[state];
+      const cls = { dormant: 'dormant', hold: 'dormant holding', ready: 'ready', drag: 'ready active drag', zoom: 'ready active zoom',
+        next: 'ready active pinch', prev: 'ready active pinch' }[state];
       gestureEl.className = 'gesture show ' + cls;
       gestureRing.style.strokeDashoffset = String(state === 'dormant' ? 100 : state === 'hold' ? 100 - (progress || 0) * 100 : 0);
-      gestureLabel.textContent = state === 'drag' ? 'Drag'
+      clearTimeout(setHud.t);
+      if (state === 'next' || state === 'prev') {
+        // A pinch flashes briefly, then the badge returns to Ready.
+        setHud.t = setTimeout(() => setHud(window.Glass.armed ? 'ready' : 'dormant'), 800);
+      }
+      gestureLabel.textContent = state === 'next' ? 'Next' : state === 'prev' ? 'Previous' : state === 'drag' ? 'Drag'
         : state === 'zoom' ? `Zoom \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`
         : state === 'ready' ? 'Ready' : 'Lift palm to activate';
     }
+    // Gesture guide: opened from the "Tap here for Gesture Info" line under the
+    // paused badge. The tour waits while it's open.
+    const guide = document.getElementById('guide');
+    const openGuide = () => { userInput(); guide.hidden = false; S.guideOpen = true; };
+    const closeGuide = () => { guide.hidden = true; S.guideOpen = false; userInput(); };
+    document.getElementById('gestureInfoBtn').addEventListener('click', (e) => { e.stopPropagation(); openGuide(); });
+    document.getElementById('guideClose').addEventListener('click', closeGuide);
+    guide.addEventListener('click', (e) => { if (e.target === guide) closeGuide(); });
     window.Glass.onGesture((state, progress) => {
       if (state === 'hold') setHud('hold', progress);
       else if (state === 'armed') setHud('ready');
@@ -1176,7 +1190,7 @@
       const i = list.indexOf(S.selected);
       const step = hand === 'right' ? 1 : -1;
       const next = i < 0 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length;
-      showSwipe(step > 0 ? 'right' : 'left');
+      setHud(step > 0 ? 'next' : 'prev');
       select(list[next]);
     });
     window.Glass.onSwipe((dir) => {

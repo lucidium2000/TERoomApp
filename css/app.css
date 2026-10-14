@@ -190,7 +190,7 @@ body.signage .zoomctl { display: none; }
 
 /* ── Toast / error ─────────────────────────────────── */
 .toast {
-  position: fixed; top: calc(var(--gutter) + 5em); left: 50%; transform: translateX(-50%);
+  position: fixed; top: calc(var(--gutter) + 8.5em); left: 50%; transform: translateX(-50%);
   background: rgba(241, 94, 34, .95); color: #fff; font-weight: 700;
   padding: .7em 1.3em; border-radius: 99px; box-shadow: 0 10px 40px rgba(241, 94, 34, .45);
   animation: rise .4s ease-out;
@@ -367,3 +367,37 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .gesture.zoom .g-zoom { display: inline; }
 .gesture .g-crease { fill: none; stroke: rgba(9, 14, 26, .55); stroke-width: 2.5; stroke-linecap: round; }
 .gesture .g-arrow { fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* "Tap here for Gesture Info": shown under the badge while gestures are paused. */
+.gesture .g-info {
+  display: none; pointer-events: auto; margin-top: .1em; padding: .35em .8em; border-radius: 99px;
+  font-size: .62em; font-weight: 600; color: var(--ink-2); background: rgba(9, 14, 26, .7);
+  border: 1px solid var(--line); min-height: 32px;
+}
+.gesture.show.dormant .g-info { display: block; }
+
+/* Gesture guide */
+.guide {
+  position: fixed; inset: 0; z-index: 150; display: grid; place-items: center; padding: 16px;
+  background: rgba(2, 4, 10, .6);
+}
+.guide[hidden] { display: none; }
+.guide-card {
+  position: relative; width: min(56em, 100%); max-height: calc(100vh - 32px); overflow: auto;
+  background: rgba(9, 14, 26, .94); border: 1px solid rgba(255, 255, 255, .14); border-radius: 20px;
+  padding: 1.4em 1.6em 1.3em; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); animation: rise .35s ease-out;
+}
+.guide-card h2 { margin: 0; font-size: 1.6em; }
+.guide-sub { margin: .3em 0 1.1em; color: var(--ink-2); }
+.guide-close { position: absolute; top: .5em; right: .6em; font-size: 2em; line-height: 1; color: var(--ink-3); width: 48px; height: 48px; }
+.guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19em, 1fr)); gap: .8em 1.4em; }
+.gi { display: flex; gap: .9em; align-items: center; }
+.gi svg { width: 3.4em; height: 3.4em; flex: none; fill: var(--ok); color: var(--ok); }
+.gi b { display: block; font-size: 1.02em; }
+.gi span { color: var(--ink-2); font-size: .92em; }
+.guide-tip { margin: 1.1em 0 0; padding-top: .9em; border-top: 1px solid var(--line); color: var(--ink-3); font-size: .9em; }
+
+/* Pinch acknowledgement in the badge. */
+.gesture .g-pinchg { display: none; }
+.gesture.pinch .g-open { display: none; }
+.gesture.pinch .g-pinchg { display: inline; }

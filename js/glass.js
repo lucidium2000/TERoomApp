@@ -659,8 +659,8 @@
   // Right hand pinch = next outage, left hand = previous. Fires once on the
   // pinch (edge), must open again before the next; only while armed, never
   // from a fist. Distance is measured against the hand's own size.
-  // The models label hands assuming a mirrored (selfie) image; we feed the raw
-  // camera, so the label is the viewer's OTHER hand. ?pinchswap=1 flips it.
+  // Which hand is which: the model's own label is used as-is (swapped from the
+  // first version after testing on the device). ?pinchswap=1 flips it back.
   const PINCH = { ON: 0.35, OFF: 0.6, HOLD_MS: 120, COOLDOWN_MS: 600 };
   const PINCH_SWAP = qs.get('pinchswap') === '1';
   const pinch = { left: { on: false, t0: 0, last: -Infinity }, right: { on: false, t0: 0, last: -Infinity }, ratios: [] };
@@ -670,7 +670,7 @@
     const l = String(label || '').toLowerCase();
     if (l !== 'left' && l !== 'right') return null;
     const mirrored = l === 'left' ? 'right' : 'left';
-    return PINCH_SWAP ? l : mirrored;
+    return PINCH_SWAP ? mirrored : l;
   }
 
   function updatePinch(palms, now, aspect) {
