@@ -290,11 +290,11 @@ body.free .timeline { right: auto; }
 .float-locs { color: var(--ink-2); font-size: .85em; line-height: 1.45; }
 
 /* Free mode: controls fade out when idle; a touch anywhere brings them back.
-   The CAMERA chip is deliberately left visible - the camera indicator must
-   never disappear while the camera is on. */
-.zoomctl button, .tour { transition: opacity .5s ease, transform .5s ease; }
+   The CAMERA chip fades with them. */
+.zoomctl button, .tour, .cam-chip { transition: opacity .5s ease, transform .5s ease; }
 body.free.chrome-hidden .zoomctl button,
 body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointer-events: none; }
+body.free.chrome-hidden .cam-chip { opacity: 0; }
 
 /* Arm-swipe feedback: a big arrow that slides the way you swiped. */
 .swipe-hint {
