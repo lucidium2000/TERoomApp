@@ -58,6 +58,10 @@ xConfiguration Standby Signage Mode: On
 xConfiguration Standby Signage Url: "https://<you>.github.io/<repo>/?signage=1"
 ```
 
+## Sounds
+
+Short, soft interface sounds are synthesized in the browser (no audio files) for button taps, selecting and touring outages, new-outage alerts, camera on/off, and each gesture: ready, grab and let go, pinch, swipe, and opening and closing the guide. Browsers only allow sound after the first touch, so an untouched signage screen stays silent. `sound=0` mutes everything and `volume=` (0–2) scales it.
+
 ## Glass mode (experimental)
 
 The camera button on the left turns on head-tracked parallax. The device camera finds the person in front of the screen. It looks for a face with MediaPipe BlazeFace and falls back to tracking movement if the face model can't load. The starfield and globe then shift the opposite way while the panels stay put, so the screen feels like a pane of glass with the Earth behind it. Leaning in zooms slightly.
@@ -110,6 +114,8 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `scale` | auto | fix the render resolution (`0.4`–`1`); by default it drops automatically if the device can't hold ~25 fps |
 | `tex` | `8192` | WebGL land-fill texture width (coastlines and borders are vector lines regardless); `4096` saves GPU memory |
 | `faceevery` | `4` | with hands on, run face detection on every Nth frame |
+| `sound` | on | `0` mutes interface sounds |
+| `volume` | `1` | interface sound volume, 0–2 |
 | `perf` | off | `1` shows frame timing and Glass tracking stats |
 | `signage` | off | `1` for non-interactive signage |
 | `kiosk` | off | `1` hides the cursor |

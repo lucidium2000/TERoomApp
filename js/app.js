@@ -51,6 +51,8 @@
   if (CFG.signage) document.body.classList.add('signage');
 
   const COLORS = { network: '#f15e22', application: '#16bdeb' };
+  /** Interface sound (js/sound.js); silent until the first touch. */
+  const sfx = (name) => { if (window.Sfx) window.Sfx.play(name); };
   const RGB = { network: '241,94,34', application: '22,189,235' };
   const RAD = Math.PI / 180;
   const ZOOM_MIN = 0.6, ZOOM_MAX = 8;
@@ -700,8 +702,10 @@
   }
 
   function select(o, { fromTour = false } = {}) {
+    const had = S.selected;
     S.selected = o;
-    if (!o) { el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
+    if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
+    sfx(fromTour ? 'tour' : 'select');
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
 
@@ -872,6 +876,7 @@
     if (!firstLoad && fresh.length) {
       const o = fresh.sort((a, b) => b.start - a.start)[0];
       toast(`New ${o.kind} outage: ${o.name} · ${o.locations[0].name}`);
+      sfx('alert');
       if (now() - S.lastInput > 10000 || S.touring) select(o, { fromTour: S.touring });
     }
   }
@@ -994,6 +999,7 @@
         const ll = proj.invert(e.clientX, e.clientY);
         bakeLean();
         zoomTo(view.zoom * 1.8, ll);
+        sfx('zoom');
         down = null; S.dragging = false;
         return;
       }
@@ -1021,7 +1027,7 @@
   }, { passive: false });
 
   // Reset view (zoom is by pinch, double-tap, wheel, or leaning in with Glass mode).
-  document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(DEFAULT_ZOOM, [view.lon, 18]); });
+  document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(DEFAULT_ZOOM, [view.lon, 18]); sfx('reset'); });
   // Stop the browser itself from zooming the page on a pinch (Safari/WebKit gesture events).
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 
@@ -1034,6 +1040,7 @@
   el.panel.addEventListener('pointerdown', userInput);
 
   document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+    sfx('tap');
     userInput();
     S.filter = c.dataset.filter;
     document.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c));
@@ -1042,6 +1049,7 @@
   }));
 
   el.watch.addEventListener('click', (e) => {
+    if (e.target.closest('.watch-pill')) sfx('tap');
     const b = e.target.closest('.watch-pill');
     if (!b) return;
     userInput();
@@ -1053,6 +1061,7 @@
   el.cardClose.addEventListener('click', () => { userInput(); select(null); });
   el.tourBtn.addEventListener('click', () => {
     const on = !S.touring;
+    sfx(on ? 'on' : 'off');
     S.lastInput = now();
     setTour(on);
     if (!on) S.lastInput = now();
@@ -1094,7 +1103,11 @@
   }
 
   if (window.Glass) {
+    let camWasOn = false;
     window.Glass.onState((state, detail) => {
+      if (state === 'face' || state === 'motion') { if (!camWasOn) sfx('camOn'); camWasOn = true; }
+      else if (state === 'off') { if (camWasOn) sfx('camOff'); camWasOn = false; }
+      else if (state === 'error') { sfx('error'); camWasOn = false; }
       const on = state === 'starting' || state === 'face' || state === 'motion';
       glassBtn.setAttribute('aria-pressed', String(on));
       glassBtn.classList.toggle('busy', state === 'starting');
@@ -1147,7 +1160,8 @@
         S.vel.lon = -S.grabVel.x * k * degPerPx;
         S.vel.lat = S.grabVel.y * k * degPerPx;
       }
-      if (state === 'end') setHud(window.Glass.armed ? 'ready' : 'dormant');
+      if (state === 'start') sfx('grab');
+      if (state === 'end') { sfx('release'); setHud(window.Glass.armed ? 'ready' : 'dormant'); }
       else setHud(info.mode === 'zoom' ? 'zoom' : 'drag');
     });
     // Gesture mini-HUD (top centre): one badge that tells the whole story.
@@ -1176,15 +1190,15 @@
     // Gesture guide: opened from the "Tap here for Gesture Info" line under the
     // paused badge. The tour waits while it's open.
     const guide = document.getElementById('guide');
-    const openGuide = () => { userInput(); guide.hidden = false; S.guideOpen = true; };
-    const closeGuide = () => { guide.hidden = true; S.guideOpen = false; userInput(); };
+    const openGuide = () => { userInput(); if (guide.hidden) sfx('open'); guide.hidden = false; S.guideOpen = true; };
+    const closeGuide = () => { if (!guide.hidden) sfx('close'); guide.hidden = true; S.guideOpen = false; userInput(); };
     document.getElementById('gestureInfoBtn').addEventListener('click', (e) => { e.stopPropagation(); openGuide(); });
     document.getElementById('guideClose').addEventListener('click', closeGuide);
     guide.addEventListener('click', (e) => { if (e.target === guide) closeGuide(); });
     window.Glass.onGesture((state, progress) => {
       if (state === 'hold') setHud('hold', progress);
-      else if (state === 'armed') { setHud('ready'); if (S.guideOpen) closeGuide(); }
-      else setHud('dormant');   // cancel / paused
+      else if (state === 'armed') { sfx('ready'); setHud('ready'); if (S.guideOpen) closeGuide(); }
+      else { if (state === 'paused') sfx('pause'); setHud('dormant'); }   // cancel / paused
       camChip.classList.toggle('armed', state === 'armed');
       if (state === 'armed' || state === 'paused') camChip.lastChild.textContent = state === 'armed' ? 'CAMERA \u00B7 GESTURES' : 'CAMERA';
     });
@@ -1198,10 +1212,12 @@
       const step = hand === 'right' ? 1 : -1;
       const next = i < 0 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length;
       setHud(step > 0 ? 'next' : 'prev');
+      sfx(step > 0 ? 'next' : 'prev');
       select(list[next]);
     });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);
+      sfx('whoosh');
       spinTurns(dir === 'left' ? 3 : -3);   // swipe left = surface moves left = east comes round
     });
     // Tap: camera on/off. Press and hold (~0.6 s): camera debug view on/off
@@ -1215,6 +1231,7 @@
         const on = !window.Glass.debug;
         window.Glass.setDebug(on);
         toast(on ? 'Camera debug view on (hold again to hide)' : 'Camera debug view off');
+        sfx('tap');
       }, 600);
     });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => glassBtn.addEventListener(t, () => clearTimeout(holdTimer)));
@@ -1287,7 +1304,7 @@
     invalidateLayout(false);   // globe glides to its new centre
     if (save) { try { localStorage.setItem('te-globe-mode', free ? 'free' : 'hud'); } catch (_) { /* */ } }
   }
-  modeBtn.addEventListener('click', () => { userInput(); setMode(!S.free); });
+  modeBtn.addEventListener('click', () => { userInput(); setMode(!S.free); sfx('toggle'); });
 
   // Free mode: the control column fades away when nobody is touching the
   // screen, and any touch brings it back. Capture phase, so the reveal happens
