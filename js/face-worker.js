@@ -42,7 +42,7 @@ async function init(base, want, wantHands) {
     minDetectionConfidence: 0.5,
   }, want);
   face = f.task;
-  let handsOk = false;
+  let handsOk = false, handDelegate = null;
   if (wantHands) {
     try {
       const h = await create(HandLandmarker, files, {
@@ -54,10 +54,10 @@ async function init(base, want, wantHands) {
         minHandPresenceConfidence: 0.4,
         minTrackingConfidence: 0.3,
       }, want);
-      hands = h.task; handsOk = true;
+      hands = h.task; handsOk = true; handDelegate = h.delegate;
     } catch (e) { /* face tracking still works without hands */ }
   }
-  return { delegate: f.delegate, hands: handsOk };
+  return { delegate: f.delegate, hands: handsOk, handDelegate };
 }
 
 self.onmessage = async (ev) => {
@@ -65,7 +65,7 @@ self.onmessage = async (ev) => {
   if (m.type === 'init') {
     try {
       const r = await init(m.base, m.delegate, m.hands);
-      self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands });
+      self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands, handDelegate: r.handDelegate });
     } catch (e) {
       self.postMessage({ type: 'error', message: String((e && e.message) || e) });
     }

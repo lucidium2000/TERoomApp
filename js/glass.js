@@ -58,6 +58,7 @@
   let calib = null;    // { n, sum } while calibrating, then { size }
   let busy = false, lastSend = 0, rateT0 = 0, rateN = 0, nDetect = 0;
   let recent = [], lastSize = 0, faceBox = null, swipe = null, handSwipe = null, onSwipe = () => {}, lastSwipeSample = 0;
+  let handLm = null, lastSwipeAny = -Infinity, lastPalms = [];
   let debug = null, debugWanted = qs.get('camdebug') === '1', frameN = 0, resN = 0, resT0 = 0;
   const SWIPE_ON = qs.get('swipe') !== '0';
 
@@ -118,23 +119,34 @@
 
     const delegate = (qs.get('glassdelegate') || '').toLowerCase();
     G.mode = null;
-    // 1. Worker (best: inference off the render thread).
+    // MediaPipe's GPU path needs WebGL2. Inside a worker that means
+    // OffscreenCanvas WebGL2, which some browsers (seen on a Desk Pro) lack, so
+    // the worker falls back to CPU - fine for faces, far too slow for hands
+    // (~3 Hz). If the page itself has WebGL2, run on the main thread instead.
+    const mainGL2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch (_) { return false; } })();
+    const forceWorker = qs.get('glassworker') === '1';
+    // 1. Worker (best when it gets the GPU: inference off the render thread).
     if (qs.get('glassworker') !== '0' && window.Worker && window.createImageBitmap) {
       try {
         worker = await startWorker(delegate);
         G.mode = 'face';
+        if (SWIPE_ON && !forceWorker && delegate !== 'cpu' && stats.handDelegate !== 'GPU' && mainGL2) {
+          console.info('[glass] worker hands are on CPU; moving detection to the main-thread GPU');
+          worker.terminate(); worker = null; G.mode = null;
+        }
       } catch (e) {
         console.warn('[glass] worker detector unavailable', e);
         if (worker) worker.terminate();
         worker = null;
       }
     }
-    // 2. Main thread.
+    // 2. Main thread (GPU where WebGL2 allows), face + hands.
     if (!G.mode) {
       try {
         const vision = await import(MP_BASE + 'vision_bundle.mjs');
         const files = await vision.FilesetResolver.forVisionTasks(MP_BASE + 'wasm');
-        for (const d of delegate === 'cpu' ? ['CPU'] : ['GPU', 'CPU']) {
+        const order = delegate === 'cpu' ? ['CPU'] : ['GPU', 'CPU'];
+        for (const d of order) {
           try {
             detector = await vision.FaceDetector.createFromOptions(files, {
               baseOptions: { modelAssetPath: MP_BASE + 'blaze_face_short_range.tflite', delegate: d },
@@ -145,6 +157,19 @@
           } catch (e) { if (d === 'CPU') throw e; }
         }
         G.mode = 'face';
+        if (SWIPE_ON) {
+          for (const d of order) {
+            try {
+              handLm = await vision.HandLandmarker.createFromOptions(files, {
+                baseOptions: { modelAssetPath: MP_BASE + 'hand_landmarker.task', delegate: d },
+                runningMode: 'VIDEO', numHands: 2,
+                minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.3,
+              });
+              stats.hands = true; stats.handDelegate = d;
+              break;
+            } catch (e) { /* try next; no hands is fine */ }
+          }
+        }
       } catch (e) {
         console.warn('[glass] face detector unavailable, using motion tracking', e);
       }
@@ -155,10 +180,12 @@
     if (!G.on) { teardown(); return; }
     onState(G.mode);
     calib = null; nDetect = 0; stats.ms = 0; recent = []; lastSize = 0; faceBox = null;
-    // Hands when the worker loaded the model; frame-difference motion otherwise.
+    // Two swipe detectors: hand landmarks (precise, but only as fast as the
+    // model runs) and a cheap motion sweep at ~16 Hz that covers for a slow model.
     handSwipe = SWIPE_ON && stats.hands ? makeHandSwipeDetector() : null;
-    swipe = SWIPE_ON && !handSwipe ? makeSwipeDetector() : null;
-    stats.swipe = handSwipe ? 'hands' : swipe ? 'motion' : 'off';
+    swipe = SWIPE_ON ? makeSwipeDetector() : null;
+    stats.swipe = handSwipe ? 'hands+motion' : swipe ? 'motion' : 'off';
+    lastSwipeAny = -Infinity;
     debug = debugWanted ? makeDebugView() : null;
     rateT0 = performance.now(); rateN = 0;
     loop();
@@ -176,6 +203,7 @@
           clearTimeout(to);
           stats.where = 'worker/' + m.delegate.toLowerCase();
           stats.hands = !!m.hands;
+          stats.handDelegate = m.handDelegate || null;
           w.onmessage = onWorkerMessage;
           resolve(w);
         } else if (m.type === 'error') { clearTimeout(to); reject(new Error(m.message)); }
@@ -195,10 +223,11 @@
     resN++;
     if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
     if (handSwipe) {
-      const dir = handSwipe(m.hands || [], performance.now());
-      if (dir) onSwipe(dir);
+      const dir = handSwipe(m.hands || [], now);
+      if (dir) emitSwipe(dir, 'hands');
     }
-    if (debug) debug(m.hands || []);
+    lastPalms = m.hands || [];
+    if (debug) debug(lastPalms);
   }
 
   function stop() {
@@ -220,6 +249,7 @@
     if (video) { video.srcObject = null; video = null; }
     if (worker) { worker.terminate(); worker = null; }
     if (detector) { try { detector.close(); } catch (_) { /* */ } detector = null; }
+    if (handLm) { try { handLm.close(); } catch (_) { /* */ } handLm = null; }
     motion = null; swipe = null; handSwipe = null; G.mode = null; busy = false;
     if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
@@ -240,8 +270,11 @@
     const now = performance.now();
     if (swipe && now - lastSwipeSample >= 60) {
       lastSwipeSample = now;
-      const dir = swipe(video, faceBox, now);
-      if (dir) onSwipe(dir);
+      const dir = swipe(video, now);
+      // Only trusted when someone is sat in front, and only needed when the
+      // hand model is missing or too slow to catch a swipe itself.
+      const handsSlow = !handSwipe || (stats.handHz || 0) < 8;
+      if (dir && pose.seen && handsSlow) emitSwipe(dir, 'motion');
     }
     if (now - lastSend < MIN_INTERVAL_MS) return;
 
@@ -263,12 +296,24 @@
     if (detector && now - lastSend < Math.min(MAX_INTERVAL_MS, stats.ms / BUDGET)) return;
     lastSend = now;
     countRate(now);
-    let hit = null;
+    let hit = null, palms = null;
+    const withFace = !handLm || (++frameN % 2 === 0);
     try {
       if (detector) {
         const t0 = performance.now();
-        const res = detector.detectForVideo(video, now);
+        if (handLm) {
+          const hr = handLm.detectForVideo(video, now);
+          palms = (hr.landmarks || []).map((lm, k) => {
+            let x = 0, y = 0;
+            for (const i of [0, 5, 9, 13, 17]) { x += lm[i].x; y += lm[i].y; }
+            const hd = hr.handedness && hr.handedness[k] && hr.handedness[k][0];
+            return { x: x / 5, y: y / 5, score: hd ? hd.score : 0, lm: lm.map((q) => [q.x, q.y]) };
+          });
+        }
+        const res = withFace ? detector.detectForVideo(video, now) : { detections: [] };
         recordMs(performance.now() - t0);
+        resN++;
+        if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
         let best = null;
         for (const d of res.detections || []) {
           const b = d.boundingBox;
@@ -282,12 +327,26 @@
     } catch (e) {
       console.warn('[glass] detection error', e);
     }
-    measure(hit);
+    if (withFace || !detector) measure(hit);
+    if (palms) {
+      lastPalms = palms;
+      if (handSwipe) { const dir = handSwipe(palms, now); if (dir) emitSwipe(dir, 'hands'); }
+      if (debug) debug(palms);
+    } else if (debug && !worker) debug(lastPalms);
   }
 
   function recordMs(ms) {
     if (++nDetect <= WARMUP_FRAMES) return;
     stats.ms = stats.ms ? stats.ms * 0.8 + ms * 0.2 : ms;
+  }
+
+  /** Both detectors report here; one swipe can't be counted twice. */
+  function emitSwipe(dir, source) {
+    const now = performance.now();
+    if (now - lastSwipeAny < 1000) return;
+    lastSwipeAny = now;
+    stats.lastSwipe = { dir, source, t: now };
+    onSwipe(dir);
   }
 
   function countRate(now) {
@@ -365,48 +424,55 @@
     };
   }
 
-  /** Experimental arm swipe. Frame-to-frame motion on a 48x36 copy, with the
-   *  face (and a margin around it) masked out. A swipe is a big blob of motion
-   *  whose centre travels a third of the frame in under ~0.7 s, mostly in one
-   *  direction. Returns 'left' | 'right' (viewer's point of view) or null. */
+  /** Fast motion sweep (no model): frame-to-frame differences on a 64x48
+   *  copy, ~16 Hz. A swipe is a big blob of motion whose centre travels >= 30%
+   *  of the frame within ~0.6 s, mostly one way. Frames where most of the image
+   *  changes (auto-exposure, lights) are skipped; the threshold adapts to
+   *  sensor noise. Nothing is masked: a head turn moves the centre a little,
+   *  an arm sweep moves it a lot. Returns 'left' | 'right' (viewer's view). */
+  const MOTION = { TRAVEL: 0.3, WINDOW_MS: 650, MIN_MASS: 0.025, COOLDOWN_MS: 1000, REVERSE_MS: 1500 };
   function makeSwipeDetector() {
-    const W = 48, H = 36, MIN_MASS = W * H * 0.03, WINDOW_MS = 700, TRAVEL = 0.33, COOLDOWN_MS = 1200;
+    const W = 64, H = 48, N = W * H;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const g = c.getContext('2d', { willReadFrequently: true });
-    let prev = null, hist = [], quietUntil = 0;
-    return (vid, face, now) => {
+    let prev = null, hist = [], quietUntil = 0, lastDir = null, lastT = 0;
+    const diag = { travel: 0, mass: 0, why: 'warming up' };
+    const fn = (vid, now) => {
       g.drawImage(vid, 0, 0, W, H);
       const px = g.getImageData(0, 0, W, H).data;
-      const cur = new Uint8Array(W * H);
-      for (let i = 0; i < W * H; i++) cur[i] = px[i * 4 + 1];
+      const cur = new Uint8Array(N);
+      for (let i = 0; i < N; i++) cur[i] = (px[i * 4] + 2 * px[i * 4 + 1] + px[i * 4 + 2]) >> 2;
       if (!prev) { prev = cur; return null; }
-      // Mask: the face box grown 1.4x sideways and down to the shoulders.
-      let fx0 = -1, fx1 = -1, fy0 = -1, fy1 = -1;
-      if (face) {
-        const half = face.size * 1.4;
-        fx0 = (face.cx - half) * W; fx1 = (face.cx + half) * W;
-        fy0 = (face.cy - half) * H; fy1 = (face.cy + half * 1.6) * H;
-      }
+      let sum = 0;
+      for (let i = 0; i < N; i++) sum += Math.abs(cur[i] - prev[i]);
+      const thr = Math.max(18, (sum / N) * 2.5);
       let sx = 0, n = 0;
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        if (x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1) continue;
         const i = y * W + x;
-        if (Math.abs(cur[i] - prev[i]) > 28) { sx += x; n++; }
+        if (Math.abs(cur[i] - prev[i]) > thr) { sx += x; n++; }
       }
       prev = cur;
-      if (now < quietUntil) return null;
-      if (n >= MIN_MASS) hist.push({ t: now, x: sx / n / W });
-      hist = hist.filter((h) => now - h.t <= WINDOW_MS);
-      if (hist.length < 4) return null;
+      diag.mass = n / N;
+      if (n / N > 0.5) { hist = []; diag.why = 'whole-image change (skipped)'; return null; }
+      if (now < quietUntil) { hist = []; diag.why = 'cooldown'; return null; }
+      if (n / N >= MOTION.MIN_MASS) hist.push({ t: now, x: sx / n / W });
+      hist = hist.filter((h) => now - h.t <= MOTION.WINDOW_MS);
+      if (hist.length < 3) { diag.why = n / N >= MOTION.MIN_MASS ? 'moving' : 'still'; diag.travel = 0; return null; }
       const dx = hist[hist.length - 1].x - hist[0].x;
-      if (Math.abs(dx) < TRAVEL) return null;
+      diag.travel = Math.abs(dx);
+      if (Math.abs(dx) < MOTION.TRAVEL) { diag.why = 'too short'; return null; }
       let agree = 0;
       for (let i = 1; i < hist.length; i++) if (Math.sign(hist[i].x - hist[i - 1].x) === Math.sign(dx)) agree++;
-      if (agree / (hist.length - 1) < 0.7) return null;
-      hist = []; quietUntil = now + COOLDOWN_MS;
-      // Image x grows toward the viewer's LEFT (the camera faces them).
-      return dx > 0 ? 'left' : 'right';
+      if (agree / (hist.length - 1) < 0.7) { diag.why = 'back and forth'; return null; }
+      hist = [];
+      const dir = dx > 0 ? 'left' : 'right';   // image x grows toward the viewer's LEFT
+      if (lastDir && dir !== lastDir && now - lastT < MOTION.REVERSE_MS) { diag.why = 'return stroke (ignored)'; return null; }
+      quietUntil = now + MOTION.COOLDOWN_MS; lastDir = dir; lastT = now;
+      diag.why = 'SWIPE ' + dir;
+      return dir;
     };
+    fn.diag = diag;
+    return fn;
   }
 
   /** Air swipe from tracked palms. Each palm is linked to the nearest recent
@@ -482,7 +548,7 @@
   const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
     [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]];
   function makeDebugView() {
-    const W = 400, H = 300, TXT = 92;
+    const W = 400, H = 300, TXT = 112;
     const c = document.createElement('canvas');
     c.width = W; c.height = H + TXT;
     c.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:98;border-radius:12px;'
@@ -523,22 +589,29 @@
         g.fillStyle = '#fff'; g.beginPath(); g.arc(X(p.x), Y(p.y), 6, 0, 7); g.fill();
       }
       // Text panel.
-      const d = handSwipe ? handSwipe.diag : null;
+      const d = handSwipe ? handSwipe.diag : null, md = swipe ? swipe.diag : null;
       g.fillStyle = '#0b1220'; g.fillRect(0, H, W, TXT);
-      g.font = '12px ui-monospace,Menlo,monospace'; g.fillStyle = '#9fe';
-      const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 17); };
-      line(0, `${stats.where}  swipe:${stats.swipe}  frames ${stats.handHz || 0}/s  detect ${stats.ms.toFixed(0)}ms`);
-      line(1, `hands ${palms.length}${palms.map((p) => ` (${p.score.toFixed(2)})`).join('')}   face ${faceBox ? 'yes' : 'no'}`);
+      g.font = '12px ui-monospace,Menlo,monospace';
+      const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
+      const hz = stats.handHz || 0;
+      line(0, `${stats.where}  hands on ${(stats.handDelegate || '-').toLowerCase()}  ${hz} frames/s  ${stats.ms.toFixed(0)}ms`, hz < 8 ? '#fbbf24' : '#9fe');
+      line(1, `hands ${palms.length}${palms.map((p) => ` (${(p.score || 0).toFixed(2)})`).join('')}   face ${faceBox && pose.seen ? 'yes' : 'no'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
-        g.fillStyle = ok(Math.abs(d.dx), SWIPE.TRAVEL);
-        g.fillText(`travel ${Math.abs(d.dx).toFixed(2)}/${SWIPE.TRAVEL}`, 8, H + 50);
-        g.fillStyle = ok(d.speed, SWIPE.SPEED);
-        g.fillText(`speed ${d.speed.toFixed(2)}/${SWIPE.SPEED}`, 150, H + 50);
-        g.fillStyle = '#9fe'; g.fillText(`pts ${d.n}`, 290, H + 50);
-        const recent = d.fired && performance.now() - d.firedT < 1500;
-        line(3, recent ? `>>> SWIPE ${d.fired.toUpperCase()} <<<` : `status: ${d.why}`, recent ? '#f15e22' : '#e6edf7');
+        g.fillStyle = '#9fe'; g.fillText('hand:', 8, H + 52);
+        g.fillStyle = ok(Math.abs(d.dx), SWIPE.TRAVEL); g.fillText(`travel ${Math.abs(d.dx).toFixed(2)}/${SWIPE.TRAVEL}`, 56, H + 52);
+        g.fillStyle = ok(d.speed, SWIPE.SPEED); g.fillText(`speed ${d.speed.toFixed(2)}/${SWIPE.SPEED}`, 200, H + 52);
+        g.fillStyle = '#9fe'; g.fillText(d.why.slice(0, 14), 330, H + 52);
       }
+      if (md) {
+        g.fillStyle = '#9fe'; g.fillText('motion:', 8, H + 70);
+        g.fillStyle = md.travel >= MOTION.TRAVEL ? '#34d399' : '#fbbf24';
+        g.fillText(`travel ${md.travel.toFixed(2)}/${MOTION.TRAVEL}`, 70, H + 70);
+        g.fillStyle = '#9fe'; g.fillText(`${md.why}`.slice(0, 26), 200, H + 70);
+      }
+      const ls = stats.lastSwipe;
+      const recent = ls && performance.now() - ls.t < 1500;
+      line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
     };
     view.remove = () => c.remove();
     return view;
