@@ -1156,7 +1156,8 @@
       gestureEl.className = 'gesture show ' + cls;
       gestureRing.style.strokeDashoffset = String(state === 'dormant' ? 100 : state === 'hold' ? 100 - (progress || 0) * 100 : 0);
       gestureLabel.textContent = state === 'drag' ? 'Drag'
-        : state === 'zoom' ? `Zoom \u00D7${(S.grabTarget || view.zoom).toFixed(1)}` : 'Ready';
+        : state === 'zoom' ? `Zoom \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`
+        : state === 'ready' ? 'Ready' : 'Lift palm to activate';
     }
     window.Glass.onGesture((state, progress) => {
       if (state === 'hold') setHud('hold', progress);
