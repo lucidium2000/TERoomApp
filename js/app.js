@@ -801,9 +801,7 @@
     view.zoom = clampZoom(view.zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.006 : 0.0015)));
   }, { passive: false });
 
-  // On-screen zoom controls - pinch isn't obvious to everyone on a room device.
-  document.getElementById('zoomIn').addEventListener('click', () => { userInput(); zoomTo(view.zoom * 1.6); });
-  document.getElementById('zoomOut').addEventListener('click', () => { userInput(); zoomTo(view.zoom / 1.6); });
+  // Reset view (zoom is by pinch, double-tap, wheel, or leaning in with Glass mode).
   document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(1, [view.lon, 18]); });
   // Stop the browser itself from zooming the page on a pinch (Safari/WebKit gesture events).
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
