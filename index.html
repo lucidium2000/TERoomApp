@@ -6,10 +6,11 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=3">
+  <link rel="stylesheet" href="css/app.css?v=5">
 </head>
 <body>
   <canvas id="globe" aria-label="Globe showing current Internet outages"></canvas>
+  <div class="sheen" id="sheen" aria-hidden="true"></div>
 
   <header class="brand">
     <img class="brand-logo" src="assets/te-logo.png" alt="ThousandEyes">
@@ -43,6 +44,12 @@
   <nav class="zoomctl" aria-label="Globe zoom">
     <button id="zoomIn" aria-label="Zoom in"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
     <button id="zoomOut" aria-label="Zoom out"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+    <div class="glass-wrap">
+    <button id="glassBtn" class="glass-btn" aria-pressed="false" aria-label="Glass mode: camera parallax (experimental)" title="Glass mode (experimental): uses the camera to follow your head">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    </button>
+    <span class="cam-chip" id="camChip" hidden><i></i>CAMERA</span>
+    </div>
     <button id="zoomReset" aria-label="Reset view"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.2 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.2-3.8-8.5s1.2-6.1 3.8-8.5Z"/></svg></button>
   </nav>
 
@@ -77,6 +84,7 @@
   <script src="vendor/d3-array.min.js"></script>
   <script src="vendor/d3-geo.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/glass.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

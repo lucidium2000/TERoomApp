@@ -57,6 +57,16 @@ xConfiguration Standby Signage Mode: On
 xConfiguration Standby Signage Url: "https://<you>.github.io/<repo>/?signage=1"
 ```
 
+## Glass mode (experimental)
+
+The camera button on the left turns on head-tracked parallax. The device camera finds the person in front of the screen. It looks for a face with MediaPipe BlazeFace and falls back to tracking movement if the face model can't load. The starfield and globe then shift the opposite way while the panels stay put, so the screen feels like a pane of glass with the Earth behind it. Leaning in zooms slightly.
+
+- **Off by default.** It starts only when someone taps the button, or with `?glass=1`. A **CAMERA** chip is shown whenever the camera is on.
+- **On-device only.** Frames are analysed in the page and discarded. Nothing is uploaded. The model and runtime are served from this repo (`vendor/mediapipe`, about 9.5 MB, loaded only when Glass mode is turned on).
+- **Releases the camera** when turned off, when the page is hidden, or when another app (such as a call) takes the camera.
+- **The device must allow web apps to use the camera.** Turn this on in the device's WebEngine settings before trying it. Without permission, the button shows an explanation and nothing else changes.
+- **Expect some lag.** Detection runs at about 15 Hz on the CPU and is smoothed, so the parallax trails your movement slightly.
+
 ## URL options
 
 | Param | Default | |
@@ -69,6 +79,7 @@ xConfiguration Standby Signage Url: "https://<you>.github.io/<repo>/?signage=1"
 | `refresh` | `300` | data reload, seconds |
 | `detail` | `110m` | `50m` for sharper coastlines (heavier on the device) |
 | `dpr` | `1.5` | render pixel-ratio cap; lower it if a device struggles |
+| `glass` | off | `1` starts Glass mode on load (the device must allow camera access) |
 | `signage` | off | `1` for non-interactive signage |
 | `kiosk` | off | `1` hides the cursor |
 | `data` | auto | override the outages.json URL |

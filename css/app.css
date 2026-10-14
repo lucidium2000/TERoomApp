@@ -219,3 +219,32 @@ body.signage .chips, body.signage .tour, body.signage .card-close { display: non
   .card { left: 16px; right: 16px; width: auto; bottom: calc(38vh + 12px); }
   .card-locs { columns: 1; }
 }
+
+/* ── Glass mode (experimental camera parallax) ─────── */
+.glass-wrap { position: relative; }
+.zoomctl .glass-btn[aria-pressed="true"] {
+  background: rgba(22, 189, 235, .2); border-color: rgba(22, 189, 235, .65); color: #c9f1ff;
+  box-shadow: 0 0 18px rgba(22, 189, 235, .35);
+}
+.zoomctl .glass-btn.busy { animation: blink 1s infinite; }
+/* Always say when the camera is on - this is a shared room device. */
+.cam-chip {
+  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  white-space: nowrap; font-size: .72em; font-weight: 800; letter-spacing: .12em;
+  padding: .35em .7em; border-radius: 99px; color: #c9f1ff;
+  background: rgba(9, 14, 26, .85); border: 1px solid rgba(22, 189, 235, .5);
+  display: inline-flex; align-items: center; gap: .45em; pointer-events: none;
+}
+.cam-chip[hidden] { display: none; }
+.cam-chip i { width: .6em; height: .6em; border-radius: 50%; background: var(--ink-3); }
+.cam-chip.seen i { background: var(--app); box-shadow: 0 0 8px var(--app); }
+/* The pane of glass: a soft reflection that drifts with the viewer, plus a
+   faint edge falloff. Above the globe, below the UI, never interactive. */
+.sheen {
+  position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .8s ease;
+  background:
+    radial-gradient(ellipse 55% 40% at var(--gx, 50%) var(--gy, 30%), rgba(190, 225, 255, .075), transparent 70%),
+    linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, .03) 46%, transparent 54%),
+    radial-gradient(ellipse 120% 95% at 50% 50%, transparent 62%, rgba(0, 0, 0, .35) 100%);
+}
+.sheen.on { opacity: 1; }

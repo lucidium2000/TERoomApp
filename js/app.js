@@ -16,6 +16,7 @@
  *   dpr=<n>         cap the render pixel ratio, default 1.5
  *   kiosk=1         hide the cursor
  *   signage=1       non-interactive digital signage: tour always on, no controls
+ *   glass=1         start Glass mode (camera parallax) on load, if the device allows it
  */
 (function () {
   'use strict';
@@ -101,7 +102,8 @@
   function clampLat(l) { return Math.max(-85, Math.min(85, l)); }
 
   function isVisible(lon, lat) {
-    return d3.geoDistance([lon, lat], [view.lon, view.lat]) < Math.PI / 2 - 0.02;
+    const r = projection.rotate();
+    return d3.geoDistance([lon, lat], [-r[0], -r[1]]) < Math.PI / 2 - 0.02;
   }
 
   // Sun position (low-precision almanac; good to a fraction of a degree).
@@ -140,6 +142,14 @@
     return c;
   }
 
+  // ── Glass mode parallax ──────────────────────────────────────────────────
+  // How far each depth layer slides, as a fraction of the viewport, when the
+  // viewer is at the edge of the tracked range. The UI is the "glass" and never
+  // moves; the stars are farthest away, so they move most.
+  const PARALLAX = { stars: 0.06, globe: 0.028, lon: 14, lat: 9, zoom: 0.12 };
+  const NO_POSE = { x: 0, y: 0, z: 0 };
+  const pose = () => (window.Glass && window.Glass.pose) || NO_POSE;
+
   // ── Rendering ────────────────────────────────────────────────────────────
   function resize() {
     S.w = window.innerWidth; S.h = window.innerHeight;
@@ -152,14 +162,22 @@
     ctx.fillStyle = '#05070d';
     ctx.fillRect(0, 0, w, h);
     // The sky drifts as the globe turns - half a screen per full revolution.
-    let ox = (-(view.lon / 360) * w * 0.5) % w; if (ox > 0) ox -= w;
-    let oy = ((view.lat / 90) * h * 0.175) % h; if (oy > 0) oy -= h;
+    // Plus the opposite-direction parallax shift when Glass mode is tracking.
+    const P = pose();
+    let ox = (-(view.lon / 360) * w * 0.5 - P.x * w * PARALLAX.stars) % w; if (ox > 0) ox -= w;
+    let oy = ((view.lat / 90) * h * 0.175 + P.y * h * PARALLAX.stars) % h; if (oy > 0) oy -= h;
     for (let x = ox; x < w; x += w) for (let y = oy; y < h; y += h) ctx.drawImage(S.stars, x, y, w, h);
   }
 
   function drawGlobe(now, L) {
-    const R = L.base * view.zoom;
-    projection.translate([L.cx, L.cy]).scale(R).rotate([-view.lon, -view.lat]);
+    // Glass mode: the globe slides opposite to the viewer's head and turns to
+    // show the side they are now looking from - what an object behind a window
+    // does. Render-only; the user's own view (drag/zoom/tour) is untouched.
+    const P = pose();
+    L = { ...L, cx: L.cx - P.x * S.w * PARALLAX.globe, cy: L.cy + P.y * S.h * PARALLAX.globe };
+    const R = L.base * view.zoom * (1 + P.z * PARALLAX.zoom);
+    projection.translate([L.cx, L.cy]).scale(R)
+      .rotate([-(view.lon + P.x * PARALLAX.lon), -clampLat(view.lat + P.y * PARALLAX.lat)]);
 
     // Atmosphere halo.
     const halo = ctx.createRadialGradient(L.cx, L.cy, R * 0.96, L.cx, L.cy, R * 1.22);
@@ -706,6 +724,39 @@
 
   window.addEventListener('resize', resize);
 
+  // ── Glass mode controls ──────────────────────────────────────────────────
+  const glassBtn = document.getElementById('glassBtn');
+  const sheen = document.getElementById('sheen');
+  const camChip = document.getElementById('camChip');
+
+  function updateSheen() {
+    if (!window.Glass || (!window.Glass.on && !sheen.classList.contains('on'))) return;
+    const P = pose();
+    // Reflections on glass drift WITH the viewer, against the scene behind it.
+    sheen.style.setProperty('--gx', (50 + P.x * 30).toFixed(2) + '%');
+    sheen.style.setProperty('--gy', (30 - P.y * 25).toFixed(2) + '%');
+    camChip.classList.toggle('seen', !!P.seen);
+  }
+
+  if (window.Glass) {
+    window.Glass.onState((state, detail) => {
+      const on = state === 'starting' || state === 'face' || state === 'motion';
+      glassBtn.setAttribute('aria-pressed', String(on));
+      glassBtn.classList.toggle('busy', state === 'starting');
+      sheen.classList.toggle('on', state === 'face' || state === 'motion');
+      camChip.hidden = !(state === 'face' || state === 'motion');
+      if (state === 'face') toast('Glass mode on: tracking your head');
+      else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
+      else if (state === 'error') toast(detail);
+    });
+    glassBtn.addEventListener('click', () => {
+      userInput();
+      if (window.Glass.on) window.Glass.stop(); else window.Glass.start();
+    });
+  } else {
+    glassBtn.hidden = true;
+  }
+
   // ── Main loop ────────────────────────────────────────────────────────────
   let last = now();
   function frame(t) {
@@ -717,6 +768,7 @@
       ctx.setTransform(CFG.dpr, 0, 0, CFG.dpr, 0, 0);
       drawSky();
       drawGlobe(t, layout());
+      updateSheen();
     } catch (e) {
       if (!frame.warned) { frame.warned = true; console.error('[globe] frame error', e); }
     }
@@ -738,5 +790,6 @@
     setInterval(refresh, CFG.refreshMs);
     // Tour runs from launch unless explicitly disabled with tour=0.
     if (CFG.tour !== '0' || CFG.signage) { S.lastInput = -Infinity; }
+    if (qs.get('glass') === '1' && window.Glass) window.Glass.start();
   })();
 })();
