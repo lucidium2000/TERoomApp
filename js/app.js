@@ -1096,7 +1096,7 @@
       glassBtn.classList.toggle('busy', state === 'starting');
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
-      if (state === 'face') toast('Glass mode on. Make a fist and hold it still to grab the globe');
+      if (state === 'face') toast('Glass mode on. Hold an open palm up for half a second to enable fist gestures');
       else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
       else if (state === 'error') toast(detail);
     });
@@ -1144,6 +1144,33 @@
       grabHint.textContent = info.mode === 'zoom' || (state === 'move' && info.mode === 'zoom')
         ? `\u270A \u270A  \u00D7${(S.grabTarget || view.zoom).toFixed(1)}`
         : '\u270A  drag';
+    });
+    // Palm hold: arm / pause the fist gestures.
+    const gestureEl = document.getElementById('gesture');
+    const gestureRing = document.getElementById('gestureRing');
+    const gestureLabel = document.getElementById('gestureLabel');
+    let gestureTimer = 0;
+    window.Glass.onGesture((state, progress) => {
+      clearTimeout(gestureTimer);
+      if (state === 'hold') {
+        gestureEl.className = 'gesture show';
+        gestureRing.style.strokeDashoffset = String(100 - progress * 100);
+        gestureLabel.textContent = 'Hold to start';
+      } else if (state === 'cancel') {
+        gestureEl.className = 'gesture';
+      } else if (state === 'armed') {
+        gestureEl.className = 'gesture show ready';
+        gestureRing.style.strokeDashoffset = '0';
+        gestureLabel.textContent = 'Ready';
+        camChip.classList.add('armed');
+        camChip.lastChild.textContent = 'CAMERA \u00B7 GESTURES';
+        gestureTimer = setTimeout(() => { gestureEl.className = 'gesture ready'; }, 1600);
+      } else {
+        // Paused (no hands for a moment): silent - only the camera chip changes back.
+        gestureEl.className = 'gesture';
+        camChip.classList.remove('armed');
+        camChip.lastChild.textContent = 'CAMERA';
+      }
     });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);
