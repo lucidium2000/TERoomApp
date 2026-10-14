@@ -5,7 +5,7 @@ A full-screen, touch-friendly globe of live Internet outages from **ThousandEyes
 - **Globe:** shaded ocean, navy land, live day/night terminator, panning starfield, atmosphere glow.
 - **Network outages** (ISPs, clouds, CDNs) are shown in TE orange. **Application outages** (SaaS) are shown in TE cyan. Active outages pulse.
 - **Tap an outage** on the globe or in the list. The globe flies there, links the affected locations with great-circle arcs and labels the cities.
-- **Tour mode** runs from launch. Touch stops it, and it resumes after 30 s idle. It cycles through active and recent outages, which suits a lobby screen or a device sitting idle between meetings.
+- **Tour mode** runs from launch. Touch stops it, and it resumes after 10 s idle (HUD or Free mode). It cycles through active and recent outages, which suits a lobby screen or a device sitting idle between meetings.
 - **"Your services"** shows at a glance whether Webex, Zoom, Microsoft 365, Google or AWS had outages, so people can tell "is it me or the internet?"
 - **HUD / Free modes:** the frame button on the left switches modes, and the device remembers the choice. HUD shows the side panel, the outage card and the timeline. Free mode is a clean globe: the panels are hidden, the controls fade away until someone touches the screen, and when the globe zooms into an outage a small floating window appears next to the affected locations.
 - **24-hour timeline** of outage starts. New outages that arrive on a refresh get a toast and a fly-to.
@@ -81,7 +81,7 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | Param | Default | |
 |---|---|---|
 | `tour` | on | tours from launch and resumes after `idle`; `0` disables it |
-| `idle` | `30` | seconds without touch before the tour starts |
+| `idle` | `10` | seconds without touch before the tour starts |
 | `dwell` | `10` | seconds per outage on tour |
 | `spin` | `3` | idle rotation, degrees/second |
 | `watch` | `webex,zoom,microsoft,google,amazon` | services for the "Your services" strip; also `teams`, `slack`, `salesforce`, `cloudflare`, `github`, or any keyword |

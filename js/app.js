@@ -8,7 +8,7 @@
  *   data=<url>      outages.json to load (default: this repo's `data` branch)
  *   refresh=<sec>   reload interval, default 300
  *   tour=0          disable the tour (default: tours on load, and again after idle)
- *   idle=<sec>      seconds without touch before the tour starts, default 30
+ *   idle=<sec>      seconds without touch before the tour starts, default 10
  *   dwell=<sec>     seconds per outage on tour, default 10
  *   spin=<deg/s>    idle rotation speed, default 3
  *   watch=a,b,c     service keywords for "Your services", default webex,zoom,microsoft,google,amazon
@@ -37,7 +37,7 @@
   const num = (k, d) => (qs.has(k) && isFinite(+qs.get(k)) ? +qs.get(k) : d);
   const CFG = {
     refreshMs: Math.max(60, num('refresh', 300)) * 1000,
-    idleMs: num('idle', 30) * 1000,
+    idleMs: num('idle', 10) * 1000,
     dwellMs: Math.max(4, num('dwell', 10)) * 1000,
     spinDegPerS: num('spin', 3),
     dpr: Math.min(window.devicePixelRatio || 1, num('dpr', 1.5)),
