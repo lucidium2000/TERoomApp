@@ -325,9 +325,18 @@
   // ── Measurement ──────────────────────────────────────────────────────────
   // Driven by new camera frames where the browser supports it, so a frame is
   // never analysed twice; otherwise a timer.
+  let camN = 0, camT0 = 0;
+  function countCam() {
+    const now = performance.now();
+    camN++;
+    if (!camT0) camT0 = now;
+    if (now - camT0 >= 1000) { stats.camHz = Math.round((camN * 1000) / (now - camT0)); camN = 0; camT0 = now; }
+  }
   function loop() {
     if (!G.on || !video) return;
-    if (video.requestVideoFrameCallback) video._vfc = video.requestVideoFrameCallback(() => { tick(); loop(); });
+    // Driven by new camera frames, so every rate downstream is capped by the
+    // camera's actual frame rate (stats.camHz) - which drops in dim light.
+    if (video.requestVideoFrameCallback) video._vfc = video.requestVideoFrameCallback(() => { countCam(); tick(); loop(); });
     else timer = setTimeout(() => { tick(); loop(); }, MIN_INTERVAL_MS);
   }
 
@@ -954,7 +963,7 @@
       g.font = '12px ui-monospace,Menlo,monospace';
       const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
       const hz = stats.handHz || 0;
-      line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${(stats.handMs || stats.ms).toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}`, hz < 8 ? '#fbbf24' : '#9fe');
+      line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${(stats.handMs || stats.ms).toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}@${stats.camHz || '?'}fps`, hz < 8 ? '#fbbf24' : '#9fe');
       line(1, `hands ${palms.length}  curl ${grab.curls.map((c) => c.toFixed(2)).join(' ') || '-'} (fist<${GRAB.FIST_ON})  face ${faceBox && pose.seen ? 'y' : 'n'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
