@@ -451,10 +451,18 @@
   // own size (wrist -> middle knuckle), so distance from the camera doesn't
   // matter. Open hand ~1.9, fist ~1.0; hysteresis between FIST_ON and FIST_OFF.
   // One fist = 'pan' (the globe follows the fist). Two fists = 'zoom' (their
-  // spacing zooms, their midpoint still pans). A grab only starts after the
-  // same fist count is seen on DEBOUNCE consecutive results.
-  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, GAP_MS: 400, AFTER_MS: 900, DEBOUNCE: 2 };
-  const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0 };
+  // spacing zooms, their midpoint still pans). A grab starts once a fist has
+  // been held HOLD_MS, and lets go by itself after IDLE_MS without movement;
+  // after that the hand must open before it can grab again (latched).
+  // Switching between one and two fists mid-grab needs DEBOUNCE results.
+  const GRAB = { FIST_ON: 1.3, FIST_OFF: 1.5, GAP_MS: 400, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 500, IDLE_MS: 1000, MOVE: 0.008, ZOOM_MOVE: 0.03 };
+  const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
+    pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
+  function releaseGrab(now, latch) {
+    grab.on = false; grab.mode = null; grab.endT = now; grab.pendMode = null; grab.pendN = 0;
+    if (latch) grab.latched = true;
+    onGrab('end', { ratio: grab.ratio });
+  }
   let onGrab = () => {};
 
   function curl(lm, aspect) {
@@ -472,25 +480,30 @@
 
     if (!mode) {
       grab.pendMode = null; grab.pendN = 0;
-      if (grab.on && now - grab.lastSeen > GRAB.GAP_MS) {
-        grab.on = false; grab.mode = null; grab.endT = now;
-        onGrab('end', { ratio: grab.ratio });
-      }
+      if (now - grab.lastSeen > GRAB.GAP_MS) grab.latched = false;   // hand opened: may grab again
+      if (grab.on && now - grab.lastSeen > GRAB.GAP_MS) releaseGrab(now, false);
       return;
     }
-    // Debounce: the same fist count on consecutive results before it counts.
+    if (grab.latched) { grab.lastSeen = now; return; }
     if (mode !== grab.mode) {
-      grab.pendN = grab.pendMode === mode ? grab.pendN + 1 : 1;
-      grab.pendMode = mode;
-      if (grab.pendN < GRAB.DEBOUNCE) { if (grab.on) grab.lastSeen = now; return; }
+      if (grab.on) {
+        // Mid-grab switch between one and two fists: a quick debounce.
+        grab.pendN = grab.pendMode === mode ? grab.pendN + 1 : 1;
+        grab.pendMode = mode;
+        if (grab.pendN < GRAB.DEBOUNCE) { grab.lastSeen = now; return; }
+      } else {
+        // New grab: the fist has to be held HOLD_MS first.
+        if (grab.pendMode !== mode) { grab.pendMode = mode; grab.pendT0 = now; }
+        if (now - grab.pendT0 < GRAB.HOLD_MS) return;
+      }
     }
     grab.lastSeen = now;
     const pt = mode === 'zoom' ? { x: (fists[0].x + fists[1].x) / 2, y: (fists[0].y + fists[1].y) / 2 } : fists[0];
     const dist = mode === 'zoom' ? Math.hypot(fists[0].x - fists[1].x, (fists[0].y - fists[1].y) * aspect) : 0;
     if (!grab.on || grab.mode !== mode) {
       const first = !grab.on;
-      grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y;
-      if (mode === 'zoom') { grab.d0 = Math.max(0.05, dist); grab.ratio = 1; }
+      grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y; grab.lastAction = now;
+      if (mode === 'zoom') { grab.d0 = Math.max(0.05, dist); grab.ratio = 1; grab.lastRatio = 1; }
       onGrab(first ? 'start' : 'mode', { mode, ratio: 1 });
       return;
     }
@@ -498,6 +511,13 @@
     const dx = -(pt.x - grab.px), dy = pt.y - grab.py;
     grab.px = pt.x; grab.py = pt.y;
     if (mode === 'zoom') grab.ratio = dist / grab.d0;
+    // Natural let-go: a grab that hasn't moved or zoomed for IDLE_MS releases.
+    if (Math.hypot(dx, dy) > GRAB.MOVE || Math.abs(grab.ratio - grab.lastRatio) > GRAB.ZOOM_MOVE) {
+      grab.lastAction = now; grab.lastRatio = grab.ratio;
+    } else if (now - grab.lastAction > GRAB.IDLE_MS) {
+      releaseGrab(now, true);
+      return;
+    }
     onGrab('move', { mode, ratio: grab.ratio, dx, dy });
   }
 
@@ -845,6 +865,8 @@
       g.fillStyle = armed ? '#34d399' : '#fbbf24';
       g.fillText(armed ? 'gestures: READY (fists on)' : 'gestures: paused (palm 1s = ready)', 8, H + 88);
       if (hold.active) { line(5, `palm hold ${Math.round(hold.progress * 100)}%`, '#34d399'); return; }
+      if (!grab.on && grab.pendMode && !grab.latched) { line(5, `fist hold ${Math.min(100, Math.round((performance.now() - grab.pendT0) / GRAB.HOLD_MS * 100))}%`, '#f43f5e'); return; }
+      if (grab.latched) { line(5, 'let go (idle) - open hand to grab again', '#fbbf24'); return; }
       if (grab.on) { line(5, grab.mode === 'zoom' ? `GRAB (2 fists)  zoom x${grab.ratio.toFixed(2)} + rotate` : 'GRAB (1 fist)  rotate', '#f43f5e'); return; }
       line(5, recent ? `>>> SWIPE ${ls.dir.toUpperCase()} (${ls.source}) <<<` : (ls ? `last swipe: ${ls.dir} via ${ls.source}` : 'no swipe yet'), recent ? '#f15e22' : '#e6edf7');
     };
