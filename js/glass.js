@@ -85,6 +85,8 @@
      *  since the last update (0..1 frame units, viewer's view, +x = their
      *  right, +y = down); info.ratio is fist spacing / spacing at grab start. */
     onGrab(fn) { onGrab = fn; },
+    /** fn('left' | 'right'): the viewer's hand that pinched (experimental). */
+    onPinch(fn) { onPinch = fn; },
     /** fn(state: 'hold' | 'cancel' | 'armed' | 'paused', progress 0..1). */
     onGesture(fn) { onGesture = fn; },
     get armed() { return armed; },
@@ -390,7 +392,7 @@
             let x = 0, y = 0;
             for (const i of [0, 5, 9, 13, 17]) { x += lm[i].x; y += lm[i].y; }
             const hd = hr.handedness && hr.handedness[k] && hr.handedness[k][0];
-            return { x: x / 5, y: y / 5, score: hd ? hd.score : 0, lm: lm.map((q) => [q.x, q.y]) };
+            return { x: x / 5, y: y / 5, score: hd ? hd.score : 0, label: hd ? hd.categoryName : '', lm: lm.map((q) => [q.x, q.y]) };
           });
         }
         const res = withFace ? detector.detectForVideo(src, now) : { detections: [] };
@@ -489,7 +491,7 @@
         const k = h.keypoints;
         let x = 0, y = 0;
         for (const i of [0, 5, 9, 13, 17]) { x += k[i].x; y += k[i].y; }
-        return { x: x / 5 / sw, y: y / 5 / sh, score: h.score || 0, lm: k.map((q) => [q.x / sw, q.y / sh]) };
+        return { x: x / 5 / sw, y: y / 5 / sh, score: h.score || 0, label: h.handedness || '', lm: k.map((q) => [q.x / sw, q.y / sh]) };
       });
       processHands(palms, now, sh / sw);
       liteTimer = setTimeout(liteLoop, Math.max(0, stats.handMs * (1 / LITE_BUDGET - 1)));
@@ -653,6 +655,54 @@
     }
   }
 
+  // ── Pinch (experimental): index fingertip to thumb tip ───────────────────
+  // Right hand pinch = next outage, left hand = previous. Fires once on the
+  // pinch (edge), must open again before the next; only while armed, never
+  // from a fist. Distance is measured against the hand's own size.
+  // The models label hands assuming a mirrored (selfie) image; we feed the raw
+  // camera, so the label is the viewer's OTHER hand. ?pinchswap=1 flips it.
+  const PINCH = { ON: 0.35, OFF: 0.6, HOLD_MS: 120, COOLDOWN_MS: 600 };
+  const PINCH_SWAP = qs.get('pinchswap') === '1';
+  const pinch = { left: { on: false, t0: 0, last: -Infinity }, right: { on: false, t0: 0, last: -Infinity }, ratios: [] };
+  let onPinch = () => {};
+
+  function viewerHand(label) {
+    const l = String(label || '').toLowerCase();
+    if (l !== 'left' && l !== 'right') return null;
+    const mirrored = l === 'left' ? 'right' : 'left';
+    return PINCH_SWAP ? l : mirrored;
+  }
+
+  function updatePinch(palms, now, aspect) {
+    const seen = { left: false, right: false };
+    pinch.ratios = [];
+    for (const p of palms) {
+      if (!p.lm) { pinch.ratios.push(null); continue; }
+      const lm = p.lm;
+      const size = Math.hypot(lm[0][0] - lm[9][0], (lm[0][1] - lm[9][1]) * aspect) || 1e-6;
+      const ratio = Math.hypot(lm[4][0] - lm[8][0], (lm[4][1] - lm[8][1]) * aspect) / size;
+      pinch.ratios.push(ratio);
+      const hand = viewerHand(p.label);
+      if (!hand) continue;
+      seen[hand] = true;
+      const st = pinch[hand];
+      const isFist = curl(lm, aspect) < GRAB.FIST_OFF;
+      if (!st.on) {
+        if (ratio < PINCH.ON && !isFist) {
+          if (!st.t0) st.t0 = now;
+          if (now - st.t0 >= PINCH.HOLD_MS && now - st.last >= PINCH.COOLDOWN_MS) {
+            st.on = true; st.last = now; st.t0 = 0;
+            if (armed && !grab.on) onPinch(hand);
+          }
+        } else st.t0 = 0;
+      } else if (ratio > PINCH.OFF) {
+        st.on = false;
+      }
+    }
+    // A hand that left the view resets.
+    for (const h of ['left', 'right']) if (!seen[h]) { pinch[h].on = false; pinch[h].t0 = 0; }
+  }
+
   /** Every hand result, from whichever engine, comes through here. */
   function processHands(palms, now, aspect) {
     // Debug (option 5): palm velocity from the hand model, same units as motion.
@@ -664,6 +714,7 @@
     lastPalms = palms;
     if (palms.length) lastHandSeen = now;
     updatePalmHold(palms, now, aspect || 0.5625);
+    updatePinch(palms, now, aspect || 0.5625);
     // Fist grabs only while armed by a palm hold.
     if (armed) updateGrab(palms, now, aspect || 0.5625);
     else grab.curls = palms.filter((p) => p.lm).map((p) => curl(p.lm, aspect || 0.5625));
@@ -983,7 +1034,11 @@
       const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
       const hz = stats.handHz || 0;
       line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${(stats.handMs || stats.ms).toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}@${stats.camHz || '?'}fps`, hz < 8 ? '#fbbf24' : '#9fe');
-      line(1, `hands ${palms.length}  curl ${grab.curls.map((c, i) => c.toFixed(2) + ((grab.upright || [])[i] ? '\u2191' : '\u2715')).join(' ') || '-'} (fist<${GRAB.FIST_ON} \u2191)  face ${faceBox && pose.seen ? 'y' : 'n'}`);
+      line(1, `hands ${palms.length}  ${palms.map((p, i) => {
+        const c = grab.curls[i], pr = pinch.ratios[i], hnd = viewerHand(p.label);
+        return (hnd ? hnd[0].toUpperCase() : '?') + ' ' + (c !== undefined ? c.toFixed(2) : '-') + ((grab.upright || [])[i] ? '\u2191' : '\u2715')
+          + (pr !== null && pr !== undefined ? ' p' + pr.toFixed(2) : '');
+      }).join('  ') || '-'}  face ${faceBox && pose.seen ? 'y' : 'n'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
         g.fillStyle = '#9fe'; g.fillText('hand:', 8, H + 52);

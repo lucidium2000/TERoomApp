@@ -1098,7 +1098,7 @@
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
       if (state === 'face') toast('Gestures Enabled', 'info');
-      else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
+      else if (state === 'motion') toast('Gestures Enabled', 'info');
       else if (state === 'error') toast(detail);
     });
     // Air swipe: spin the world three full turns in the swipe's direction,
@@ -1166,6 +1166,18 @@
       else setHud('dormant');   // cancel / paused
       camChip.classList.toggle('armed', state === 'armed');
       if (state === 'armed' || state === 'paused') camChip.lastChild.textContent = state === 'armed' ? 'CAMERA \u00B7 GESTURES' : 'CAMERA';
+    });
+    // Pinch (experimental): right hand = next outage, left hand = previous,
+    // in the same order as the outage list.
+    if (window.Glass.onPinch) window.Glass.onPinch((hand) => {
+      const list = S.outages.filter(outageVisible).slice().sort((a, b) => (b.active - a.active) || (b.start - a.start));
+      if (!list.length) return;
+      userInput();
+      const i = list.indexOf(S.selected);
+      const step = hand === 'right' ? 1 : -1;
+      const next = i < 0 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length;
+      showSwipe(step > 0 ? 'right' : 'left');
+      select(list[next]);
     });
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);

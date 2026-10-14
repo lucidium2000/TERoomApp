@@ -126,7 +126,7 @@ self.onmessage = async (ev) => {
           const k = h.keypoints;
           let x = 0, y = 0;
           for (const i of [0, 5, 9, 13, 17]) { x += k[i].x; y += k[i].y; }
-          palms.push({ x: x / 5 / bw, y: y / 5 / bh, score: h.score || 0, lm: k.map((q) => [q.x / bw, q.y / bh]) });
+          palms.push({ x: x / 5 / bw, y: y / 5 / bh, score: h.score || 0, label: h.handedness || '', lm: k.map((q) => [q.x / bw, q.y / bh]) });
         }
       } catch (e) { /* drop */ }
     } else if (hands) {
@@ -137,7 +137,7 @@ self.onmessage = async (ev) => {
           let x = 0, y = 0;
           for (const i of ids) { x += lm[i].x; y += lm[i].y; }
           const hd = res.handedness && res.handedness[k] && res.handedness[k][0];
-          palms.push({ x: x / ids.length, y: y / ids.length, score: hd ? hd.score : 0, lm: lm.map((q) => [q.x, q.y]) });
+          palms.push({ x: x / ids.length, y: y / ids.length, score: hd ? hd.score : 0, label: hd ? hd.categoryName : '', lm: lm.map((q) => [q.x, q.y]) });
         });
       } catch (e) { /* drop */ }
     }
