@@ -36,6 +36,12 @@
 
   const qs = new URLSearchParams(location.search);
   const MP_BASE = new URL('../vendor/mediapipe/', document.currentScript.src).href;
+  const TF_BASE = new URL('../vendor/tfjs/', document.currentScript.src).href;
+  // Hand model on the main-thread path: 'lite' = TF.js MediaPipe Hands lite
+  // (WebGL1-capable, smaller/faster), 'mediapipe' = MediaPipe Tasks full model.
+  const HAND_ENGINE = (qs.get('hands') || 'lite').toLowerCase();
+  // Share of wall time the lite loop may occupy (much of it is async GPU wait). 1 = back to back.
+  const LITE_BUDGET = Math.max(0.1, Math.min(1, parseFloat(qs.get('handbudget')) || 0.6));
   // Carry glass.js's ?v= onto the worker, so a cached old worker is never paired with new code.
   const WORKER_URL = new URL('face-worker.js' + new URL(document.currentScript.src).search, document.currentScript.src).href;
   const MIN_INTERVAL_MS = 50;      // never ask for more than ~20 Hz
@@ -58,6 +64,7 @@
   let calib = null;    // { n, sum } while calibrating, then { size }
   let busy = false, lastSend = 0, rateT0 = 0, rateN = 0, nDetect = 0;
   let recent = [], lastSize = 0, faceBox = null, swipe = null, handSwipe = null, onSwipe = () => {}, lastSwipeSample = 0;
+  let liteDet = null, liteTimer = 0, liteN = 0, liteT0 = 0;
   let handLm = null, lastSwipeAny = -Infinity, lastPalms = [], lastHandSeen = -Infinity;
   let debug = null, debugWanted = qs.get('camdebug') === '1', frameN = 0, resN = 0, resT0 = 0;
   const SWIPE_ON = qs.get('swipe') !== '0';
@@ -157,7 +164,15 @@
           } catch (e) { if (d === 'CPU') throw e; }
         }
         G.mode = 'face';
-        if (SWIPE_ON) {
+        if (SWIPE_ON && HAND_ENGINE === 'lite') {
+          try {
+            await startLiteHands();
+            stats.hands = true; stats.handDelegate = 'lite/webgl';
+          } catch (e) {
+            console.warn('[glass] TF.js lite hands unavailable, trying MediaPipe', e);
+          }
+        }
+        if (SWIPE_ON && !stats.hands) {
           for (const d of order) {
             try {
               handLm = await vision.HandLandmarker.createFromOptions(files, {
@@ -186,6 +201,7 @@
     swipe = SWIPE_ON ? makeSwipeDetector() : null;
     stats.swipe = handSwipe ? 'hands+motion' : swipe ? 'motion' : 'off';
     lastSwipeAny = -Infinity;
+    if (liteDet) liteLoop();
     debug = debugWanted ? makeDebugView() : null;
     rateT0 = performance.now(); rateN = 0;
     loop();
@@ -250,6 +266,8 @@
     if (worker) { worker.terminate(); worker = null; }
     if (detector) { try { detector.close(); } catch (_) { /* */ } detector = null; }
     if (handLm) { try { handLm.close(); } catch (_) { /* */ } handLm = null; }
+    clearTimeout(liteTimer); liteTimer = 0;
+    if (liteDet) { try { liteDet.dispose(); } catch (_) { /* */ } liteDet = null; }
     motion = null; swipe = null; handSwipe = null; G.mode = null; busy = false;
     if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
@@ -318,8 +336,10 @@
         }
         const res = withFace ? detector.detectForVideo(src, now) : { detections: [] };
         recordMs(performance.now() - t0);
-        resN++;
-        if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
+        if (handLm) {
+          resN++;
+          if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
+        }
         let best = null;
         for (const d of res.detections || []) {
           const b = d.boundingBox;
@@ -352,16 +372,77 @@
    *  keeps the GPU upload and resize per detection small whatever we're sent. */
   const SMALL_W = 320;
   let smallC = null, smallG = null;
-  function smallFrame() {
+  function smallFrame(forceCanvas) {
     const vw = video.videoWidth, vh = video.videoHeight;
-    if (vw <= SMALL_W + 16) return video;
-    const h = Math.round((SMALL_W * vh) / vw);
-    if (!smallC || smallC.height !== h) {
-      smallC = document.createElement('canvas'); smallC.width = SMALL_W; smallC.height = h;
+    if (vw <= SMALL_W + 16 && !forceCanvas) return video;
+    const w = Math.min(SMALL_W, vw), h = Math.round((w * vh) / vw);
+    if (!smallC || smallC.width !== w || smallC.height !== h) {
+      smallC = document.createElement('canvas'); smallC.width = w; smallC.height = h;
       smallG = smallC.getContext('2d');
     }
-    smallG.drawImage(video, 0, 0, SMALL_W, h);
+    smallG.drawImage(video, 0, 0, w, h);
     return smallC;
+  }
+
+  // ── TF.js MediaPipe Hands (lite) ────────────────────────────────────────
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[data-src="${src}"]`)) { resolve(); return; }
+      const el = document.createElement('script');
+      el.src = src; el.dataset.src = src; el.async = false;
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error('failed to load ' + src));
+      document.head.appendChild(el);
+    });
+  }
+
+  async function startLiteHands() {
+    for (const f of ['tf-core.min.js', 'tf-converter.min.js', 'tf-backend-webgl.min.js', 'hand-pose-detection.min.js']) {
+      await loadScript(TF_BASE + f);
+    }
+    const tf = window.tf, hpd = window.handPoseDetection;
+    await tf.setBackend('webgl');
+    await tf.ready();
+    liteDet = await hpd.createDetector(hpd.SupportedModels.MediaPipeHands, {
+      runtime: 'tfjs', modelType: 'lite', maxHands: 2,
+      detectorModelUrl: TF_BASE + 'hand-lite/detector/model.json',
+      landmarkModelUrl: TF_BASE + 'hand-lite/landmark/model.json',
+    });
+    // Warm-up run: the first call compiles shaders and would skew timing.
+    if (video && video.videoWidth) { try { await liteDet.estimateHands(smallFrame(true)); } catch (_) { /* */ } }
+  }
+
+  /** Its own loop: estimateHands is async, so it runs alongside face detection,
+   *  paced to use about BUDGET of the main thread (it blocks on GPU readback). */
+  function liteLoop() {
+    clearTimeout(liteTimer);
+    if (!G.on || !liteDet || !video) return;
+    if (video.readyState < 2 || !video.videoWidth) { liteTimer = setTimeout(liteLoop, 100); return; }
+    const t0 = performance.now();
+    // Always a canvas: TF.js sizes a <video> by its width/height ATTRIBUTES,
+    // which are 0 unless set, and then every keypoint comes back NaN.
+    const src = smallFrame(true);
+    const sw = src.width, sh = src.height;
+    liteDet.estimateHands(src, { flipHorizontal: false }).then((hands) => {
+      const now = performance.now(), ms = now - t0;
+      stats.handMs = stats.handMs ? stats.handMs * 0.8 + ms * 0.2 : ms;
+      liteN++;
+      if (!liteT0) liteT0 = now;
+      if (now - liteT0 >= 1000) { stats.handHz = Math.round((liteN * 1000) / (now - liteT0)); liteN = 0; liteT0 = now; }
+      const palms = (hands || []).map((h) => {
+        const k = h.keypoints;
+        let x = 0, y = 0;
+        for (const i of [0, 5, 9, 13, 17]) { x += k[i].x; y += k[i].y; }
+        return { x: x / 5 / sw, y: y / 5 / sh, score: h.score || 0, lm: k.map((q) => [q.x / sw, q.y / sh]) };
+      });
+      lastPalms = palms;
+      if (handSwipe) { const dir = handSwipe(palms, now); if (dir) emitSwipe(dir, 'hands'); }
+      if (debug) debug(palms);
+      liteTimer = setTimeout(liteLoop, Math.max(0, stats.handMs * (1 / LITE_BUDGET - 1)));
+    }).catch((e) => {
+      console.warn('[glass] lite hands error', e);
+      liteTimer = setTimeout(liteLoop, 500);
+    });
   }
 
   /** Both detectors report here; one swipe can't be counted twice. */
@@ -624,7 +705,7 @@
       g.font = '12px ui-monospace,Menlo,monospace';
       const line = (i, t, col) => { g.fillStyle = col || '#9fe'; g.fillText(t, 8, H + 16 + i * 18); };
       const hz = stats.handHz || 0;
-      line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${stats.ms.toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}`, hz < 8 ? '#fbbf24' : '#9fe');
+      line(0, `${stats.where} hands:${(stats.handDelegate || '-').toLowerCase()} ${hz}/s ${(stats.handMs || stats.ms).toFixed(0)}ms cam ${video.videoWidth}x${video.videoHeight}`, hz < 8 ? '#fbbf24' : '#9fe');
       line(1, `hands ${palms.length}${palms.map((p) => ` (${(p.score || 0).toFixed(2)})`).join('')}   face ${faceBox && pose.seen ? 'yes' : 'no'}`);
       if (d) {
         const ok = (v, min) => (v >= min ? '#34d399' : '#fbbf24');
