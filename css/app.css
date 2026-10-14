@@ -328,7 +328,7 @@ body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointe
 
 /* Two-fist grab: a pill showing the zoom while you hold. */
 .grab-hint {
-  position: fixed; left: 50%; top: calc(var(--gutter) + 1em); transform: translateX(-50%) scale(.9);
+  position: fixed; left: 50%; top: calc(var(--gutter) + 4.5em); transform: translateX(-50%) scale(.9);
   padding: .5em 1.2em; border-radius: 99px; font-size: 1.3em; font-weight: 700; letter-spacing: .04em;
   color: #fff; background: rgba(244, 63, 94, .85); box-shadow: 0 8px 30px rgba(244, 63, 94, .45);
   opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
@@ -338,12 +338,12 @@ body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointe
 /* Palm-hold gesture arming: hand silhouette, a ring that fills over 2 s,
    then "Ready" (green) or "Paused" (amber). */
 .gesture {
-  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.9);
+  position: fixed; left: 50%; top: var(--gutter); transform: translate(-50%, 0) scale(.9);
   display: grid; justify-items: center; gap: .4em; pointer-events: none;
   opacity: 0; transition: opacity .25s ease, transform .25s ease; color: #e6edf7;
 }
-.gesture.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-.gesture svg { filter: drop-shadow(0 0 18px rgba(0, 0, 0, .6)); }
+.gesture.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.gesture svg { width: 50px; height: 50px; filter: drop-shadow(0 0 8px rgba(0, 0, 0, .6)); }
 .gesture .g-track { fill: rgba(9, 14, 26, .7); stroke: rgba(255, 255, 255, .15); stroke-width: 5; }
 .gesture .g-ring {
   fill: none; stroke: currentColor; stroke-width: 5; stroke-linecap: round;
@@ -351,10 +351,10 @@ body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointe
 }
 .gesture .g-hand { fill: currentColor; opacity: .9; }
 .gesture .g-label {
-  font-size: 1.6em; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  font-size: .6em; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
   text-shadow: 0 2px 16px rgba(0, 0, 0, .8);
 }
 .gesture.ready { color: var(--ok); }
-.gesture.ready svg { filter: drop-shadow(0 0 26px rgba(52, 211, 153, .7)); }
+.gesture.ready svg { width: 50px; height: 50px; filter: drop-shadow(0 0 10px rgba(52, 211, 153, .7)); }
 .gesture.paused { color: var(--warn); }
 .cam-chip.armed { border-color: rgba(52, 211, 153, .7); color: #c7f9e4; }
