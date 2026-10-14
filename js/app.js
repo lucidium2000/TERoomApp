@@ -578,6 +578,16 @@
   // ── Motion: idle spin, inertia, flights, tour ────────────────────────────
   const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
+  /** Spin a whole number of turns and land on the same spot. Ease-out quartic:
+   *  most of the distance goes in the first second, then a long coast - reads
+   *  as a flick with real inertia. Lat and zoom are left alone. */
+  const SPIN_MS = 4200;
+  function spinTurns(turns) {
+    const interrupted = !!S.flight;
+    S.flight = null; S.vel.lon = S.vel.lat = 0;
+    S.spin = { from: view.lon, total: turns * 360, t0: performance.now(), dur: SPIN_MS, interrupted };
+  }
+
   function flyTo(o, durMs = 2200) {
     const pts = o.locations.map((l) => [l.lon, l.lat]);
     const centre = pts.length > 1 ? d3.geoCentroid({ type: 'MultiPoint', coordinates: pts }) : pts[0];
@@ -595,7 +605,16 @@
   }
 
   function step(now, dt) {
-    if (S.flight) {
+    if (S.spin) {
+      const sp = S.spin, t = Math.min(1, (now - sp.t0) / sp.dur);
+      view.lon = wrapLon(sp.from + sp.total * (1 - Math.pow(1 - t, 4)));
+      if (t >= 1) {
+        view.lon = sp.from;
+        S.spin = null;
+        if (S.touring) S.tourT0 = now;   // the tour waited; give this outage its full dwell
+        if (S.selected && sp.interrupted) flyTo(S.selected, 1400);   // finish the flight the spin cut short
+      }
+    } else if (S.flight) {
       const f = S.flight;
       const t = Math.min(1, (now - f.t0) / f.dur), e = ease(t);
       const c = f.interp(e);
@@ -619,7 +638,7 @@
     // Tour: start when idle, advance on a timer.
     const tourOff = CFG.tour === '0' && !CFG.signage;
     if (!S.touring && !tourOff && S.outages.length && now - S.lastInput > CFG.idleMs) setTour(true);
-    if (S.touring) {
+    if (S.touring && !S.spin) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
       el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
       if (frac >= 1) nextTour();
@@ -886,6 +905,7 @@
   canvas.addEventListener('pointerdown', (e) => {
     userInput();
     S.flight = null;
+    S.spin = null;   // grabbing the globe catches it mid-spin
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* */ }
     if (pts.size === 2) {
@@ -1071,22 +1091,11 @@
       else if (state === 'motion') toast('Glass mode on: tracking movement (face model unavailable)');
       else if (state === 'error') toast(detail);
     });
-    // Experimental arm swipe: next/previous outage while one is showing (or on
-    // tour), otherwise a flick that spins the globe.
+    // Air swipe: spin the world three full turns in the swipe's direction,
+    // launched hard and coasting to a stop exactly where it started.
     window.Glass.onSwipe((dir) => {
-      const sign = dir === 'left' ? 1 : -1;     // swipe left = move forward / spin east
       showSwipe(dir);
-      if (S.touring || S.selected) {
-        const list = tourList();
-        if (!list.length) return;
-        const i = Math.max(0, list.indexOf(S.selected));
-        if (S.touring) { S.tourIdx = (i + sign + list.length) % list.length; select(list[S.tourIdx], { fromTour: true }); }
-        else select(list[(i + sign + list.length) % list.length]);
-      } else {
-        S.flight = null;
-        S.vel.lon = 0.12 * sign; S.vel.lat = 0;
-        S.lastInput = performance.now();
-      }
+      spinTurns(dir === 'left' ? 3 : -3);   // swipe left = surface moves left = east comes round
     });
     glassBtn.addEventListener('click', () => {
       userInput();
