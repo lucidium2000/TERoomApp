@@ -518,7 +518,7 @@
   // One open hand, fingers up, held roughly still for HOLD_MS turns fist
   // gestures on ("Ready"). They pause by themselves once no hand has been seen
   // for IDLE_MS - an open palm while Ready just lets go of the globe.
-  const PALM = { OPEN: 1.6, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 5000 };
+  const PALM = { OPEN: 1.6, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 1000 };
   const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
   let armed = false, onGesture = () => {};
 
