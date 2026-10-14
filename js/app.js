@@ -16,6 +16,8 @@
  *   dpr=<n>         cap the render pixel ratio, default 1.5
  *   kiosk=1         hide the cursor
  *   signage=1       non-interactive digital signage: tour always on, no controls
+ *   mode=free       clean globe: no panels; a floating callout appears at the outage
+ *                   once the globe has zoomed in (default: hud). Remembered per device.
  *   glass=1         start Glass mode (camera parallax) on load, if the device allows it
  */
 (function () {
@@ -63,7 +65,8 @@
   // ── DOM ──────────────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const canvas = $('globe');
-  const ctx = canvas.getContext('2d');
+  // Opaque canvas: the browser can skip blending it with the page behind.
+  const ctx = canvas.getContext('2d', { alpha: false });
   const el = {
     updated: $('updated'), list: $('list'), watch: $('watch'),
     statActive: $('statActive'), statNet: $('statNet'), statApp: $('statApp'), statLoc: $('statLoc'),
@@ -76,35 +79,47 @@
   // ── State ────────────────────────────────────────────────────────────────
   const view = { lon: -40, lat: 22, zoom: 1 };       // centre of the visible face
   const S = {
-    data: null, outages: [], seen: new Set(), filter: 'all',
+    data: null, outages: [], drawOrder: [], free: false, seen: new Set(), filter: 'all',
     selected: null, hits: [],
     lastInput: performance.now(), dragging: false, vel: { lon: 0, lat: 0 },
     flight: null, touring: false, tourIdx: -1, tourT0: 0,
     land: null, borders: null, stars: null, w: 0, h: 0,
   };
 
-  const projection = d3.geoOrthographic().clipAngle(90).precision(0.6);
+  // Resampling tolerance of 1px is invisible on 110m data and roughly halves projection work.
+  const projection = d3.geoOrthographic().clipAngle(90).precision(1);
   const path = d3.geoPath(projection, ctx);
-  const graticule = d3.geoGraticule10();
+  const graticule = d3.geoGraticule().step([15, 15])();
   const SPHERE = { type: 'Sphere' };
 
   // ── Geometry helpers ─────────────────────────────────────────────────────
+  // Measured on resize / mode change only: reading the panel's size every frame
+  // forces a synchronous layout.
+  // `layCur` eases toward the target so switching modes glides the globe over.
+  let layoutCache = null, layCur = null;
   function layout() {
-    const panelOnSide = window.innerWidth > 900;
+    const tgt = layoutCache || (layoutCache = measureLayout());
+    if (!layCur) layCur = { ...tgt };
+    return layCur;
+  }
+  function easeLayout(dt) {
+    const tgt = layoutCache || (layoutCache = measureLayout());
+    if (!layCur) { layCur = { ...tgt }; return; }
+    const f = 1 - Math.pow(0.88, dt / 16);
+    for (const k of ['cx', 'cy', 'base']) layCur[k] += (tgt[k] - layCur[k]) * f;
+  }
+  function invalidateLayout(snap) { layoutCache = null; if (snap) layCur = null; }
+  function measureLayout() {
+    const panelOnSide = window.innerWidth > 900 && !S.free;
     const panelW = panelOnSide ? el.panel.getBoundingClientRect().width + 32 : 0;
     const w = window.innerWidth, h = window.innerHeight;
     const availW = w - panelW;
-    const availH = panelOnSide ? h : h * 0.62;
+    const availH = panelOnSide || S.free ? h : h * 0.62;
     return { cx: availW / 2, cy: availH / 2 + (panelOnSide ? -h * 0.02 : 0), base: Math.min(availW, availH) * 0.41 };
   }
 
   function wrapLon(l) { return ((l + 540) % 360) - 180; }
   function clampLat(l) { return Math.max(-85, Math.min(85, l)); }
-
-  function isVisible(lon, lat) {
-    const r = projection.rotate();
-    return d3.geoDistance([lon, lat], [-r[0], -r[1]]) < Math.PI / 2 - 0.02;
-  }
 
   // Sun position (low-precision almanac; good to a fraction of a degree).
   function subsolar(ms) {
@@ -123,7 +138,8 @@
   function buildStars(w, h) {
     const c = document.createElement('canvas');
     c.width = Math.round(w * CFG.dpr); c.height = Math.round(h * CFG.dpr);
-    const g = c.getContext('2d');
+    const g = c.getContext('2d', { alpha: false });
+    g.fillStyle = '#05070d'; g.fillRect(0, 0, c.width, c.height);
     g.scale(CFG.dpr, CFG.dpr);
     let seed = 0x9e3779b9;
     const rnd = () => {   // mulberry32 - deterministic, so stars don't reshuffle on resize
@@ -146,23 +162,103 @@
   // How far each depth layer slides, as a fraction of the viewport, when the
   // viewer is at the edge of the tracked range. The UI is the "glass" and never
   // moves; the stars are farthest away, so they move most.
-  const PARALLAX = { stars: 0.06, globe: 0.028, lon: 14, lat: 9, zoom: 0.12 };
+  const PARALLAX = { stars: 0.06, globe: 0.028, lon: 14, lat: 9 };
+  // Lean-to-zoom: pose.z is log2(distance ratio), so twice as close -> 2^0.85 = 1.8x.
+  const LEAN_ZOOM_GAIN = num('leanzoom', 0.85);
   const NO_POSE = { x: 0, y: 0, z: 0 };
   const pose = () => (window.Glass && window.Glass.pose) || NO_POSE;
+
+  // ── Cached artwork ───────────────────────────────────────────────────────
+  // Everything that looks the same frame to frame is drawn once into an
+  // offscreen canvas and stamped with drawImage, which the GPU does almost for
+  // free. Gradients in particular were being rebuilt per frame (and per marker).
+
+  function offscreen(w, h) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
+    return c;
+  }
+
+  /** Atmosphere halo + shaded ocean, drawn for radius R. Smooth gradients scale
+   *  without visible loss, so it's only rebuilt when R changes by >20%. */
+  let sphereSprite = null;
+  function getSphereSprite(R) {
+    const want = R * CFG.dpr;
+    if (sphereSprite && want / sphereSprite.r > 0.83 && want / sphereSprite.r < 1.2) return sphereSprite;
+    const r = Math.max(16, want), half = r * 1.24;
+    const c = offscreen(half * 2, half * 2), g = c.getContext('2d');
+    const cx = half, cy = half;
+    const halo = g.createRadialGradient(cx, cy, r * 0.96, cx, cy, r * 1.22);
+    halo.addColorStop(0, 'rgba(56,189,248,0.28)');
+    halo.addColorStop(0.35, 'rgba(56,189,248,0.08)');
+    halo.addColorStop(1, 'rgba(56,189,248,0)');
+    g.fillStyle = halo;
+    g.beginPath(); g.arc(cx, cy, r * 1.22, 0, 2 * Math.PI); g.fill();
+    const sea = g.createRadialGradient(cx - r * 0.32, cy - r * 0.44, r * 0.05, cx, cy, r * 1.05);
+    sea.addColorStop(0, '#1b2942'); sea.addColorStop(0.62, '#0f172a'); sea.addColorStop(1, '#080d18');
+    g.fillStyle = sea;
+    g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.fill();
+    sphereSprite = { canvas: c, r, half };
+    return sphereSprite;
+  }
+
+  /** Marker glow + core, one sprite per outage kind. Drawn at 4x the largest
+   *  on-screen size so scaling down stays crisp. */
+  const GLOW_PX = 96;
+  const glowSprites = {};
+  function getGlow(kind) {
+    if (glowSprites[kind]) return glowSprites[kind];
+    const c = offscreen(GLOW_PX * 2, GLOW_PX * 2), g = c.getContext('2d');
+    const m = GLOW_PX, core = GLOW_PX / 3;     // glow reaches 3x the core radius
+    const grad = g.createRadialGradient(m, m, 0, m, m, m);
+    grad.addColorStop(0, `rgba(${RGB[kind]},0.55)`);
+    grad.addColorStop(1, `rgba(${RGB[kind]},0)`);
+    g.fillStyle = grad; g.beginPath(); g.arc(m, m, m, 0, 2 * Math.PI); g.fill();
+    g.fillStyle = `rgb(${RGB[kind]})`; g.beginPath(); g.arc(m, m, core, 0, 2 * Math.PI); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(m, m, core * 0.35, 0, 2 * Math.PI); g.fill();
+    glowSprites[kind] = c;
+    return c;
+  }
+
+  /** Night-side caps around the antisolar point. The geometry is rebuilt only
+   *  when the sun has moved a quarter-degree (about once a minute). */
+  const NIGHT_RADII = [95, 89, 83, 77];
+  let night = { key: '', caps: [] };
+  function nightCaps() {
+    const sun = subsolar(Date.now());
+    const anti = [wrapLon(sun.lon + 180), -sun.lat];
+    const key = Math.round(anti[0] * 4) + ',' + Math.round(anti[1] * 4);
+    if (key !== night.key) {
+      night = { key, caps: NIGHT_RADII.map((r) => d3.geoCircle().center(anti).radius(r).precision(2)()) };
+    }
+    return night.caps;
+  }
+
+  // Location unit vectors, so the far-side test is a dot product per marker.
+  function unitVec(lon, lat) {
+    const l = lon * RAD, p = lat * RAD, c = Math.cos(p);
+    return [c * Math.cos(l), c * Math.sin(l), Math.sin(p)];
+  }
+  let viewVec = [1, 0, 0];
+  const FAR_SIDE = Math.cos(Math.PI / 2 - 0.02);
+  function isVisible(lon, lat, v) {
+    v = v || unitVec(lon, lat);
+    return v[0] * viewVec[0] + v[1] * viewVec[1] + v[2] * viewVec[2] > FAR_SIDE;
+  }
 
   // ── Rendering ────────────────────────────────────────────────────────────
   function resize() {
     S.w = window.innerWidth; S.h = window.innerHeight;
     canvas.width = Math.round(S.w * CFG.dpr); canvas.height = Math.round(S.h * CFG.dpr);
     S.stars = buildStars(S.w, S.h);
+    invalidateLayout(true);
   }
 
   function drawSky() {
     const { w, h } = S;
-    ctx.fillStyle = '#05070d';
-    ctx.fillRect(0, 0, w, h);
     // The sky drifts as the globe turns - half a screen per full revolution.
     // Plus the opposite-direction parallax shift when Glass mode is tracking.
+    // The star tile is opaque (space colour baked in), so no clear is needed.
     const P = pose();
     let ox = (-(view.lon / 360) * w * 0.5 - P.x * w * PARALLAX.stars) % w; if (ox > 0) ox -= w;
     let oy = ((view.lat / 90) * h * 0.175 + P.y * h * PARALLAX.stars) % h; if (oy > 0) oy -= h;
@@ -172,54 +268,48 @@
   function drawGlobe(now, L) {
     // Glass mode: the globe slides opposite to the viewer's head and turns to
     // show the side they are now looking from - what an object behind a window
-    // does. Render-only; the user's own view (drag/zoom/tour) is untouched.
+    // does - and leaning in zooms. Render-only; the user's own view (drag, zoom,
+    // tour) is untouched.
     const P = pose();
     L = { ...L, cx: L.cx - P.x * S.w * PARALLAX.globe, cy: L.cy + P.y * S.h * PARALLAX.globe };
-    const R = L.base * view.zoom * (1 + P.z * PARALLAX.zoom);
-    projection.translate([L.cx, L.cy]).scale(R)
-      .rotate([-(view.lon + P.x * PARALLAX.lon), -clampLat(view.lat + P.y * PARALLAX.lat)]);
+    const R = L.base * Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, view.zoom * Math.pow(2, P.z * LEAN_ZOOM_GAIN)));
+    const cLon = view.lon + P.x * PARALLAX.lon, cLat = clampLat(view.lat + P.y * PARALLAX.lat);
+    projection.translate([L.cx, L.cy]).scale(R).rotate([-cLon, -cLat]);
+    viewVec = unitVec(cLon, cLat);
+    S.R = R;
 
-    // Atmosphere halo.
-    const halo = ctx.createRadialGradient(L.cx, L.cy, R * 0.96, L.cx, L.cy, R * 1.22);
-    halo.addColorStop(0, 'rgba(56,189,248,0.28)');
-    halo.addColorStop(0.35, 'rgba(56,189,248,0.08)');
-    halo.addColorStop(1, 'rgba(56,189,248,0)');
-    ctx.fillStyle = halo;
-    ctx.beginPath(); ctx.arc(L.cx, L.cy, R * 1.22, 0, 2 * Math.PI); ctx.fill();
+    // Halo + ocean (cached sprite).
+    const sp = getSphereSprite(R);
+    const k = R / (sp.r / CFG.dpr);
+    const hs = (sp.half / CFG.dpr) * k;
+    ctx.drawImage(sp.canvas, L.cx - hs, L.cy - hs, hs * 2, hs * 2);
 
-    // Ocean - offset radial shading so it reads as a sphere, not a disc.
-    const sea = ctx.createRadialGradient(L.cx - R * 0.32, L.cy - R * 0.44, R * 0.05, L.cx, L.cy, R * 1.05);
-    sea.addColorStop(0, '#1b2942'); sea.addColorStop(0.62, '#0f172a'); sea.addColorStop(1, '#080d18');
-    ctx.fillStyle = sea;
-    ctx.beginPath(); path(SPHERE); ctx.fill();
-
+    perfMark('sphere');
     ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(148,163,184,0.16)'; ctx.lineWidth = 0.7;
     ctx.beginPath(); path(graticule); ctx.stroke();
 
     if (S.land) {
-      ctx.fillStyle = '#24344b';
-      ctx.beginPath(); path(S.land); ctx.fill();
+      // One projection of the land serves both the fill and the coastline.
+      ctx.beginPath(); path(S.land);
+      ctx.fillStyle = '#24344b'; ctx.fill();
+      ctx.strokeStyle = 'rgba(110,140,185,0.55)'; ctx.lineWidth = 0.8; ctx.stroke();
       ctx.strokeStyle = '#486084'; ctx.lineWidth = 0.7;
       ctx.beginPath(); path(S.borders); ctx.stroke();
-      ctx.strokeStyle = 'rgba(110,140,185,0.55)'; ctx.lineWidth = 0.8;
-      ctx.beginPath(); path(S.land); ctx.stroke();
     }
+    perfMark('land');
 
-    // Night side: nested caps around the antisolar point, so the terminator
-    // reads as dusk rather than a hard line.
-    const sun = subsolar(Date.now());
-    const anti = [wrapLon(sun.lon + 180), -sun.lat];
-    ctx.fillStyle = 'rgba(0,0,0,0.075)';
-    for (let r = 96; r >= 72; r -= 3) {
-      ctx.beginPath(); path(d3.geoCircle().center(anti).radius(r).precision(3)()); ctx.fill();
-    }
+    // Night side: four soft bands so the terminator reads as dusk, not a line.
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    for (const cap of nightCaps()) { ctx.beginPath(); path(cap); ctx.fill(); }
+    perfMark('night');
 
     // Limb.
     ctx.strokeStyle = 'rgba(56,189,248,0.45)'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.arc(L.cx, L.cy, R, 0, 2 * Math.PI); ctx.stroke();
 
     drawOutages(now, R);
+    perfMark('markers');
   }
 
   function outageVisible(o) { return S.filter === 'all' || o.kind === S.filter; }
@@ -235,51 +325,45 @@
       ctx.save();
       ctx.setLineDash([6 * k, 9 * k]);
       ctx.lineDashOffset = -(now / 40) % 1000;
-      for (const loc of sel.locations) {
-        if (loc === hub) continue;
-        const line = { type: 'LineString', coordinates: [[hub.lon, hub.lat], [loc.lon, loc.lat]] };
-        ctx.strokeStyle = `rgba(${RGB[sel.kind]},0.25)`; ctx.lineWidth = 5 * k;
-        ctx.beginPath(); path(line); ctx.stroke();
-        ctx.strokeStyle = `rgba(${RGB[sel.kind]},0.95)`; ctx.lineWidth = 1.6 * k;
-        ctx.beginPath(); path(line); ctx.stroke();
+      ctx.lineCap = 'round';
+      for (const [w, a] of [[5, 0.25], [1.6, 0.95]]) {
+        ctx.beginPath();
+        for (const loc of sel.locations) {
+          if (loc !== hub) path({ type: 'LineString', coordinates: [[hub.lon, hub.lat], [loc.lon, loc.lat]] });
+        }
+        ctx.strokeStyle = `rgba(${RGB[sel.kind]},${a})`; ctx.lineWidth = w * k; ctx.stroke();
       }
       ctx.restore();
     }
 
-    // Older first, so the freshest outages paint on top.
-    const list = S.outages.filter(outageVisible).slice().sort((a, b) => a.start - b.start);
-    for (const o of list) {
+    // Older first, so the freshest outages paint on top (order fixed at ingest).
+    for (const o of S.drawOrder) {
+      if (!outageVisible(o)) continue;
       const isSel = o === sel;
       const dim = sel && !isSel ? 0.35 : 1;
-      const fresh = o.active ? 1 : Math.max(0.35, 1 - o.ageMin / (24 * 60));
+      const a = (o.active ? 1 : Math.max(0.35, 1 - o.ageMin / (24 * 60))) * dim;
+      const sprite = getGlow(o.kind);
       for (const loc of o.locations) {
-        if (!isVisible(loc.lon, loc.lat)) continue;
+        if (!isVisible(loc.lon, loc.lat, loc.v)) continue;
         const p = projection([loc.lon, loc.lat]);
         if (!p) continue;
         const r = (3.2 + Math.sqrt(loc.n) * 1.6) * k * (isSel ? 1.35 : 1);
-        const a = fresh * dim;
 
         // Pulse rings on active and selected outages.
         if (o.active || isSel) {
           const period = isSel ? 1600 : 2400;
+          ctx.lineWidth = 2 * k;
           for (let i = 0; i < 2; i++) {
             // Positive modulo: a negative longitude offset must not give a negative radius.
             const t = ((((now + i * period / 2 + (loc.lon * 37 | 0)) % period) + period) % period) / period;
             ctx.strokeStyle = `rgba(${RGB[o.kind]},${((1 - t) * 0.7 * dim).toFixed(3)})`;
-            ctx.lineWidth = 2 * k;
             ctx.beginPath(); ctx.arc(p[0], p[1], r + t * 26 * k, 0, 2 * Math.PI); ctx.stroke();
           }
         }
-        // Glow + core.
-        const g = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], r * 3);
-        g.addColorStop(0, `rgba(${RGB[o.kind]},${(0.55 * a).toFixed(3)})`);
-        g.addColorStop(1, `rgba(${RGB[o.kind]},0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(p[0], p[1], r * 3, 0, 2 * Math.PI); ctx.fill();
-        ctx.fillStyle = `rgba(${RGB[o.kind]},${a.toFixed(3)})`;
-        ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 2 * Math.PI); ctx.fill();
-        ctx.fillStyle = `rgba(255,255,255,${(0.85 * a).toFixed(3)})`;
-        ctx.beginPath(); ctx.arc(p[0], p[1], Math.max(1.2, r * 0.35), 0, 2 * Math.PI); ctx.fill();
+        // Glow + core + highlight: one stamp.
+        ctx.globalAlpha = a;
+        ctx.drawImage(sprite, p[0] - r * 3, p[1] - r * 3, r * 6, r * 6);
+        ctx.globalAlpha = 1;
 
         S.hits.push({ x: p[0], y: p[1], r: Math.max(22, r * 2), o });
       }
@@ -290,20 +374,50 @@
       ctx.font = `600 ${Math.round(13 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
       const placed = [];
-      for (const loc of sel.locations.slice().sort((a, b) => b.n - a.n)) {
-        if (!isVisible(loc.lon, loc.lat)) continue;
+      for (const loc of sel.byWeight) {
+        if (!isVisible(loc.lon, loc.lat, loc.v)) continue;
         const p = projection([loc.lon, loc.lat]);
-        const label = loc.name.split(',')[0];
+        const label = loc.label;
         const x = p[0] + 14 * k, y = p[1];
-        const tw = ctx.measureText(label).width;
-        if (placed.some((q) => Math.abs(q.y - y) < 18 * k && x < q.x + q.w && x + tw > q.x)) continue;
-        placed.push({ x, y, w: tw });
+        const tw = loc.tw || (loc.tw = ctx.measureText(label).width / k);
+        const w = tw * k;
+        if (placed.some((q) => Math.abs(q.y - y) < 18 * k && x < q.x + q.w && x + w > q.x)) continue;
+        placed.push({ x, y, w });
         ctx.fillStyle = 'rgba(5,7,13,0.75)';
-        ctx.fillRect(x - 5 * k, y - 11 * k, tw + 10 * k, 22 * k);
+        ctx.fillRect(x - 5 * k, y - 11 * k, w + 10 * k, 22 * k);
         ctx.fillStyle = '#e6edf7';
         ctx.fillText(label, x, y + 0.5);
       }
     }
+  }
+
+  // ── Perf overlay (?perf=1) ───────────────────────────────────────────────
+  const PERF = qs.get('perf') === '1';
+  const perfAcc = {}; let perfT = 0, perfEl = null, perfFrames = 0, perfLast = 0;
+  function perfMark(name) {
+    if (!PERF) return;
+    const t = performance.now();
+    perfAcc[name] = (perfAcc[name] || 0) + (t - perfT);
+    perfT = t;
+  }
+  function perfFrame(t, workMs) {
+    if (!PERF) return;
+    perfFrames++;
+    perfAcc.total = (perfAcc.total || 0) + workMs;
+    if (t - perfLast < 1000) return;
+    if (!perfEl) {
+      perfEl = document.createElement('pre');
+      perfEl.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);margin:0;padding:6px 10px;'
+        + 'background:rgba(0,0,0,.75);color:#9fe;font:12px/1.35 ui-monospace,Menlo,monospace;border-radius:8px;z-index:99;pointer-events:none';
+      document.body.appendChild(perfEl);
+    }
+    const n = perfFrames, f = (k) => ((perfAcc[k] || 0) / n).toFixed(1);
+    const G = window.Glass;
+    perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | work ${f('total')}ms: `
+      + `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`
+      + (G && G.on ? `\nglass ${G.stats.where} ${G.stats.hz}Hz detect ${G.stats.ms.toFixed(1)}ms z ${G.pose.z.toFixed(2)}` : '');
+    for (const key in perfAcc) perfAcc[key] = 0;
+    perfFrames = 0; perfLast = t;
   }
 
   // ── Motion: idle spin, inertia, flights, tour ────────────────────────────
@@ -352,7 +466,7 @@
     if (!S.touring && !tourOff && S.outages.length && now - S.lastInput > CFG.idleMs) setTour(true);
     if (S.touring) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
-      el.cardProgress.style.width = Math.min(100, frac * 100).toFixed(1) + '%';
+      el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
       if (frac >= 1) nextTour();
     }
   }
@@ -375,7 +489,7 @@
     el.tourBtn.setAttribute('aria-pressed', String(on));
     el.tourBtn.querySelector('span').textContent = on ? 'Touring' : 'Tour';
     el.tourBtn.querySelector('path').setAttribute('d', on ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z');
-    el.cardProgress.style.width = '0';
+    el.cardProgress.style.transform = 'scaleX(0)';
     if (on) { S.tourIdx = -1; nextTour(); }
   }
 
@@ -401,7 +515,7 @@
 
   function select(o, { fromTour = false } = {}) {
     S.selected = o;
-    if (!o) { el.card.hidden = true; renderList(); renderTimeline(); return; }
+    if (!o) { el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
 
@@ -422,9 +536,10 @@
     el.cardLocs.innerHTML = locs.slice(0, 8).map((l) => `<li>${esc(l.name)}</li>`).join('')
       + (locs.length > 8 ? `<li>+${locs.length - 8} more</li>` : '');
     el.card.hidden = false;
+    fillFloat(o, metrics, locs);
     // Restart the entrance animation.
     el.card.style.animation = 'none'; void el.card.offsetWidth; el.card.style.animation = '';
-    if (!fromTour) el.cardProgress.style.width = '0';
+    if (!fromTour) { el.cardProgress.style.transform = 'scaleX(0)'; floatProgress.style.transform = 'scaleX(0)'; }
     renderList();
     renderTimeline();
   }
@@ -549,8 +664,12 @@
       ageMin: (nowMs - o.start) / 60000,
       // Still in progress if its last bad round is the latest (or previous) one.
       active: o.endRound >= latest - 300,
-      locations: (o.locations || []).filter((l) => isFinite(l.lat) && isFinite(l.lon)),
+      // Per-location values the renderer would otherwise recompute every frame.
+      locations: (o.locations || []).filter((l) => isFinite(l.lat) && isFinite(l.lon))
+        .map((l) => ({ ...l, v: unitVec(l.lon, l.lat), label: String(l.name).split(',')[0] })),
     })).filter((o) => o.locations.length);
+    S.outages.forEach((o) => { o.byWeight = o.locations.slice().sort((a, b) => b.n - a.n); });
+    S.drawOrder = S.outages.slice().sort((a, b) => a.start - b.start);
 
     const fresh = S.outages.filter((o) => !S.seen.has(o.id));
     S.outages.forEach((o) => S.seen.add(o.id));
@@ -727,14 +846,15 @@
   // ── Glass mode controls ──────────────────────────────────────────────────
   const glassBtn = document.getElementById('glassBtn');
   const sheen = document.getElementById('sheen');
+  const sheenGlare = sheen.querySelector('i');
   const camChip = document.getElementById('camChip');
 
   function updateSheen() {
     if (!window.Glass || (!window.Glass.on && !sheen.classList.contains('on'))) return;
     const P = pose();
     // Reflections on glass drift WITH the viewer, against the scene behind it.
-    sheen.style.setProperty('--gx', (50 + P.x * 30).toFixed(2) + '%');
-    sheen.style.setProperty('--gy', (30 - P.y * 25).toFixed(2) + '%');
+    // transform only: composited on the GPU, no full-screen repaint per frame.
+    sheenGlare.style.transform = `translate3d(${(P.x * 30).toFixed(2)}vw, ${(-P.y * 25).toFixed(2)}vh, 0)`;
     camChip.classList.toggle('seen', !!P.seen);
   }
 
@@ -757,21 +877,120 @@
     glassBtn.hidden = true;
   }
 
+  // ── Free mode + floating callout ─────────────────────────────────────────
+  const floatEl = document.getElementById('float');
+  const floatProgress = document.getElementById('floatProgress');
+  const modeBtn = document.getElementById('modeBtn');
+  let floatSize = { w: 0, h: 0 }, floatShown = false;
+
+  function fillFloat(o, metrics, locs) {
+    floatEl.className = 'float ' + o.kind;
+    document.getElementById('floatIcon').innerHTML = iconHtml(o);
+    document.getElementById('floatKind').innerHTML = (o.kind === 'network' ? 'Network outage' : 'Application outage')
+      + (o.active ? '<span class="pill">● ACTIVE</span>' : '');
+    document.getElementById('floatName').textContent = o.name;
+    document.getElementById('floatMetrics').innerHTML = metrics.slice(0, 3)
+      .map(([b, t]) => `<div><b>${esc(b)}</b><span>${esc(t)}</span></div>`).join('');
+    document.getElementById('floatLocs').textContent = locs.slice(0, 3).map((l) => l.label || l.name.split(',')[0]).join(' · ')
+      + (locs.length > 3 ? ` +${locs.length - 3}` : '');
+    // Measured once here, not per frame.
+    floatSize = { w: floatEl.offsetWidth, h: floatEl.offsetHeight };
+    floatShown = false;
+  }
+
+  function hideFloat() {
+    if (floatShown) { floatEl.classList.remove('show'); floatShown = false; }
+  }
+
+  /** Pin the callout beside the outage's main location, once the camera has
+   *  arrived. Moves by transform only, so following the globe is cheap. */
+  function updateFloat() {
+    const o = S.selected;
+    if (!S.free || !o || S.flight) { hideFloat(); return; }
+    const hub = o.byWeight[0];
+    if (!isVisible(hub.lon, hub.lat, hub.v)) { hideFloat(); return; }
+    const p = projection([hub.lon, hub.lat]);
+    if (!p) { hideFloat(); return; }
+    const { w, h } = floatSize, gap = 46, pad = 16;
+    let right = true;
+    let x = p[0] + gap, y = p[1] - h - gap * 0.6;
+    if (x + w > S.w - pad) { x = p[0] - gap - w; right = false; }
+    x = Math.max(pad, Math.min(S.w - w - pad, x));
+    y = Math.max(pad, Math.min(S.h - h - pad, y));
+    floatEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    if (!floatShown) { floatEl.classList.add('show'); floatShown = true; }
+    // Leader line from the location to the callout's nearest bottom corner.
+    const ax = right ? x : x + w, ay = Math.min(y + h, Math.max(y, p[1]));
+    ctx.strokeStyle = `rgba(${RGB[o.kind]},0.85)`; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(ax, ay); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(p[0], p[1], 2.5, 0, 2 * Math.PI); ctx.fill();
+  }
+
+  function setMode(free, save = true) {
+    S.free = free;
+    document.body.classList.toggle('free', free);
+    modeBtn.setAttribute('aria-pressed', String(free));
+    modeBtn.setAttribute('aria-label', free ? 'HUD mode: show panels' : 'Free mode: hide panels for a clean globe');
+    if (!free) hideFloat();
+    showChrome();
+    invalidateLayout(false);   // globe glides to its new centre
+    if (save) { try { localStorage.setItem('te-globe-mode', free ? 'free' : 'hud'); } catch (_) { /* */ } }
+  }
+  modeBtn.addEventListener('click', () => { userInput(); setMode(!S.free); });
+
+  // Free mode: the control column fades away when nobody is touching the
+  // screen, and any touch brings it back. Capture phase, so the reveal happens
+  // even if the touch lands on the globe.
+  const CHROME_HIDE_MS = 4000;
+  let chromeTimer = 0;
+  function showChrome() {
+    document.body.classList.remove('chrome-hidden');
+    clearTimeout(chromeTimer);
+    if (S.free) chromeTimer = setTimeout(() => { if (S.free) document.body.classList.add('chrome-hidden'); }, CHROME_HIDE_MS);
+  }
+  document.addEventListener('pointerdown', showChrome, true);
+  document.addEventListener('wheel', showChrome, { capture: true, passive: true });
+  {
+    let saved = null;
+    try { saved = localStorage.getItem('te-globe-mode'); } catch (_) { /* */ }
+    const m = qs.get('mode') || saved;
+    if (m === 'free') setMode(true, false);
+  }
+
   // ── Main loop ────────────────────────────────────────────────────────────
-  let last = now();
+  // Adaptive pacing: if a frame's work regularly overruns a 60 Hz slot, render
+  // every other vsync (30 fps) instead. Steady 30 looks far smoother than a
+  // stuttering 40-50. Steps back up when there's headroom. ?maxfps=30 forces it.
+  let last = now(), workAvg = 8, frameCap = num('maxfps', 60) <= 30 ? 30 : 60, lastDraw = 0;
+  const FORCED_CAP = num('maxfps', 0) > 0 && num('maxfps', 0) <= 30;
   function frame(t) {
     // Schedule first: one bad frame must never stop the globe (and with it, all input).
     requestAnimationFrame(frame);
+    if (frameCap === 30 && t - lastDraw < 1000 / 30 - 4) return;
+    lastDraw = t;
     const dt = Math.min(64, t - last); last = t;
+    const t0 = performance.now();
+    perfT = t0;
     try {
       step(t, dt);
+      easeLayout(dt);
       ctx.setTransform(CFG.dpr, 0, 0, CFG.dpr, 0, 0);
       drawSky();
+      perfMark('sky');
       drawGlobe(t, layout());
+      updateFloat();
       updateSheen();
     } catch (e) {
       if (!frame.warned) { frame.warned = true; console.error('[globe] frame error', e); }
     }
+    const work = performance.now() - t0;
+    workAvg += (work - workAvg) * 0.05;
+    if (!FORCED_CAP) {
+      if (frameCap === 60 && workAvg > 13) frameCap = 30;
+      else if (frameCap === 30 && workAvg < 7) frameCap = 60;
+    }
+    perfFrame(t, work);
   }
 
   // Refresh relative times without refetching.

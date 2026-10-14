@@ -7,6 +7,7 @@ A full-screen, touch-friendly globe of live Internet outages from **ThousandEyes
 - **Tap an outage** on the globe or in the list. The globe flies there, links the affected locations with great-circle arcs and labels the cities.
 - **Tour mode** runs from launch. Touch stops it, and it resumes after 30 s idle. It cycles through active and recent outages, which suits a lobby screen or a device sitting idle between meetings.
 - **"Your services"** shows at a glance whether Webex, Zoom, Microsoft 365, Google or AWS had outages, so people can tell "is it me or the internet?"
+- **HUD / Free modes:** the frame button on the left switches modes, and the device remembers the choice. HUD shows the side panel, the outage card and the timeline. Free mode is a clean globe: the panels are hidden, the controls fade away until someone touches the screen, and when the globe zooms into an outage a small floating window appears next to the affected locations.
 - **24-hour timeline** of outage starts. New outages that arrive on a refresh get a toast and a fly-to.
 
 > Unofficial community project, not affiliated with or endorsed by Cisco/ThousandEyes. The data endpoint is the one the public outage map uses. It isn't a documented API and may change.
@@ -65,7 +66,8 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 - **On-device only.** Frames are analysed in the page and discarded. Nothing is uploaded. The model and runtime are served from this repo (`vendor/mediapipe`, about 9.5 MB, loaded only when Glass mode is turned on).
 - **Releases the camera** when turned off, when the page is hidden, or when another app (such as a call) takes the camera.
 - **The device must allow web apps to use the camera.** Turn this on in the device's WebEngine settings before trying it. Without permission, the button shows an explanation and nothing else changes.
-- **Expect some lag.** Detection runs at about 15 Hz on the CPU and is smoothed, so the parallax trails your movement slightly.
+- **Lean to zoom.** Distance is calibrated to where you're sitting when tracking starts. Move closer to zoom in (twice as close is about 1.8x) and lean back to zoom out. Use `leanzoom=` to change the strength (default `0.85`, `0` to turn it off).
+- **Performance.** Detection runs in a Web Worker, on the GPU where available, so it never blocks rendering. It processes one frame at a time at up to about 20 Hz and is smoothed, so the parallax trails your movement slightly. If the worker can't start, detection runs on the main thread, limited to about 30% of the frame budget.
 
 ## URL options
 
@@ -80,6 +82,11 @@ The camera button on the left turns on head-tracked parallax. The device camera 
 | `detail` | `110m` | `50m` for sharper coastlines (heavier on the device) |
 | `dpr` | `1.5` | render pixel-ratio cap; lower it if a device struggles |
 | `glass` | off | `1` starts Glass mode on load (the device must allow camera access) |
+| `mode` | `hud` | `free` for the clean-globe mode |
+| `leanzoom` | `0.85` | Glass mode lean-to-zoom strength; `0` turns it off |
+| `glassdelegate` | auto | `cpu` forces CPU face detection if the GPU path misbehaves |
+| `maxfps` | `60` | `30` locks rendering at 30 fps (it already drops to 30 on its own if frames run long) |
+| `perf` | off | `1` shows frame timing and Glass tracking stats |
 | `signage` | off | `1` for non-interactive signage |
 | `kiosk` | off | `1` hides the cursor |
 | `data` | auto | override the outages.json URL |
