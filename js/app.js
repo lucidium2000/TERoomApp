@@ -567,7 +567,7 @@
     const n = perfFrames, f = (k) => ((perfAcc[k] || 0) / n).toFixed(1);
     const G = window.Glass;
     perfEl.textContent = `${Math.round((n * 1000) / (t - perfLast))} fps (cap ${frameCap}) | ${glr ? 'webgl' : '2d' + (S.glOff ? ' [gl off: ' + S.glOff + ']' : '')} `
-      + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) | work ${f('total')}ms: `
+      + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) rescales ${S.rescales} | work ${f('total')}ms: `
       + (glr ? `gl ${f('gl')} markers ${f('markers')}` : `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`)
       + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | lines ${S.segments || '-'} | lod ${glr.info.lod} aniso ${glr.info.aniso}` : '')
       + (G && G.on ? `\nglass ${G.stats.where} ${G.stats.hz}Hz detect ${G.stats.ms.toFixed(1)}ms z ${G.pose.z.toFixed(2)} swipe:${G.stats.swipe || '-'}` : '');
@@ -1025,7 +1025,16 @@
     if (!on) S.lastInput = now();
   });
 
-  window.addEventListener('resize', resize);
+  // Redraw in the same task as the resize: a resized canvas is blank until it
+  // is drawn again, and waiting for the next frame can show that as a flash.
+  window.addEventListener('resize', () => {
+    resize();
+    try {
+      ctx.setTransform(S.pr, 0, 0, S.pr, 0, 0);
+      if (!glr) drawSky();
+      drawGlobe(performance.now(), layout());
+    } catch (e) { /* the next frame will draw */ }
+  });
 
   // ── Glass mode controls ──────────────────────────────────────────────────
   const glassBtn = document.getElementById('glassBtn');
@@ -1178,6 +1187,7 @@
     requestAnimationFrame(frame);
     if (frameCap === 30 && t - lastDraw < 1000 / 30 - 4) return;
     lastDraw = t;
+    adaptScale(t);   // before drawing: a resized (wiped) canvas is redrawn this same frame
     const dt = Math.min(64, t - last); last = t;
     const t0 = performance.now();
     perfT = t0;
@@ -1199,23 +1209,34 @@
       if (frameCap === 60 && workAvg > 13) frameCap = 30;
       else if (frameCap === 30 && workAvg < 7) frameCap = 60;
     }
-    adaptScale(t);
     perfFrame(t, work);
   }
 
-  // Dynamic resolution: measure the real frame interval (which includes the
-  // browser's own raster/composite time, not just our JS) and step the render
-  // scale down if the device can't hold ~25 fps, back up when it has headroom.
-  let intervalAvg = 16, lastFrameT = 0, scaleCheckT = 0;
+  // Dynamic resolution, deliberately sluggish. Resizing a canvas wipes it, so
+  // every change risks a visible flash; it only steps down after two straight
+  // 3-second windows below ~22 fps (a one-off stall - a model loading, a GC
+  // pause - can't trigger it), and only steps back up after two windows above
+  // ~50 fps and at least 20 s since the last change. It runs at the START of a
+  // frame, so a resized canvas is always redrawn before it's shown.
+  let winT0 = 0, winFrames = 0, slowWins = 0, fastWins = 0, lastScaleChange = -Infinity;
+  S.rescales = 0;
   function adaptScale(t) {
-    if (lastFrameT) intervalAvg += (Math.min(500, t - lastFrameT) - intervalAvg) * 0.1;
-    lastFrameT = t;
-    if (FIXED_SCALE || t - scaleCheckT < 2500) return;
-    scaleCheckT = t;
+    if (FIXED_SCALE) return;
+    if (!winT0) { winT0 = t; winFrames = 0; return; }
+    winFrames++;
+    if (t - winT0 < 3000) return;
+    const fps = (winFrames * 1000) / (t - winT0);
+    winT0 = t; winFrames = 0;
+    if (document.hidden) { slowWins = fastWins = 0; return; }
+    slowWins = fps < 22 ? slowWins + 1 : 0;
+    fastWins = fps > 50 ? fastWins + 1 : 0;
     let next = S.scale;
-    if (intervalAvg > 40 && S.scale > 0.5) next = Math.max(0.5, S.scale * 0.8);
-    else if (intervalAvg < 24 && S.scale < 1) next = Math.min(1, S.scale * 1.15);
-    if (Math.abs(next - S.scale) > 0.01) { S.scale = next; resize(); }
+    if (slowWins >= 2 && S.scale > 0.5) next = Math.max(0.5, S.scale * 0.8);
+    else if (fastWins >= 2 && S.scale < 1 && t - lastScaleChange > 20000) next = Math.min(1, S.scale * 1.15);
+    if (Math.abs(next - S.scale) > 0.01) {
+      S.scale = next; slowWins = fastWins = 0; lastScaleChange = t; S.rescales++;
+      resize();
+    }
   }
 
   // Refresh relative times without refetching.
