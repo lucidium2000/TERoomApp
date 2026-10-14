@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=12">
+  <link rel="stylesheet" href="css/app.css?v=17">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -66,6 +66,7 @@
   </section>
 
   <section class="card" id="card" hidden>
+    <div class="card-main">
     <div class="card-head">
       <div class="card-icon" id="cardIcon"></div>
       <div class="card-title">
@@ -75,6 +76,7 @@
       <button class="card-close" id="cardClose" aria-label="Close">&times;</button>
     </div>
     <div class="card-metrics" id="cardMetrics"></div>
+    </div>
     <ul class="card-locs" id="cardLocs"></ul>
     <div class="card-progress"><i id="cardProgress"></i></div>
   </section>
@@ -97,8 +99,8 @@
   <script src="vendor/d3-array.min.js"></script>
   <script src="vendor/d3-geo.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
-  <script src="js/glglobe.js?v=12"></script>
-  <script src="js/glass.js?v=12"></script>
-  <script src="js/app.js?v=13"></script>
+  <script src="js/glglobe.js?v=17"></script>
+  <script src="js/glass.js?v=16"></script>
+  <script src="js/app.js?v=17"></script>
 </body>
 </html>

@@ -4,6 +4,12 @@
  * on a RoomOS Desk Pro it rasterises on the CPU too (~7 fps). Here the GPU
  * does it all:
  *
+ *  The camera is a real off-axis perspective ("looking through a window"): the
+ *  screen is the glass at z = 0, the viewer's eye is in front of it at z = -D
+ *  (moved by head tracking), and the globe is a sphere sitting behind the
+ *  glass. Each pixel casts a ray from the eye through itself - so moving your
+ *  head genuinely shows you around the side of the Earth.
+ *
  *  1. One full-screen fragment pass: starfield, atmosphere halo, shaded ocean,
  *     graticule, land fill (from a mipmapped equirectangular coverage texture),
  *     a smooth day/night terminator and the limb.
@@ -33,8 +39,10 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 #endif
 precision highp float;
 uniform vec2 uRes;        // drawing-buffer size, px
-uniform vec2 uC;          // globe centre, px, top-left origin
-uniform float uR;         // globe radius, px
+uniform vec3 uEye;        // eye position, px (screen plane z = 0, +z into the screen, y down)
+uniform vec3 uCtr;        // sphere centre, px
+uniform float uRw;        // sphere radius, px (scene units)
+uniform float uR;         // apparent radius on screen, px (for line widths)
 uniform mat3 uRot;        // view (x right, y up, z toward viewer) -> world
 uniform vec3 uSun;        // world unit vector toward the sun
 uniform vec2 uStarOff;    // starfield pan, px
@@ -67,9 +75,12 @@ float landAt(vec2 uv) {
 
 void main() {
   vec2 frag = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
-  vec2 d = (frag - uC) / uR;
-  float r2 = dot(d, d);
-  float r = sqrt(r2);
+  // Ray from the eye through this pixel on the glass.
+  vec3 dir = normalize(vec3(frag, 0.0) - uEye);
+  vec3 oc = uCtr - uEye;
+  float b = dot(oc, dir);
+  float c2 = max(dot(oc, oc) - b * b, 0.0);   // squared miss distance from the centre
+  float r = sqrt(c2) / uRw;                    // 1.0 exactly at the silhouette
 
   // Stars (texture holds one screen; wrap by hand - NPOT textures can't REPEAT in WebGL1).
   vec3 col = texture2D(uStars, fract((frag + uStarOff) / uRes)).rgb;
@@ -81,8 +92,11 @@ void main() {
     col = mix(col, vec3(0.2196, 0.7412, 0.9725), a);
   }
 
-  if (r2 < 1.0) {
-    vec3 pv = vec3(d.x, -d.y, sqrt(1.0 - r2));
+  if (r < 1.0) {
+    vec3 hit = uEye + dir * (b - sqrt(max(uRw * uRw - c2, 0.0)));
+    vec3 n = (hit - uCtr) / uRw;                 // surface normal, scene axes
+    vec3 pv = vec3(n.x, -n.y, -n.z);             // -> view axes (x right, y up, z toward viewer)
+    vec2 d = n.xy;                               // for the ocean shading, as before
     vec3 w = uRot * pv;
     float lat = asin(clamp(w.z, -1.0, 1.0));
     float lon = atan(w.y, w.x);
@@ -126,15 +140,19 @@ void main() {
   const LINE_VS = `
 attribute vec3 aP;
 uniform mat3 uRot;
-uniform vec2 uRes, uC;
-uniform float uR;
+uniform vec2 uRes;
+uniform vec3 uEye, uCtr;
+uniform float uRw;
 varying float vZ;
 varying vec3 vW;
 void main() {
   vec3 v = aP * uRot;                 // row-vector multiply = transpose(uRot) * aP: world -> view
-  vec2 s = uC + uR * vec2(v.x, -v.y);
-  gl_Position = vec4(s.x / uRes.x * 2.0 - 1.0, 1.0 - s.y / uRes.y * 2.0, 0.0, 1.0);
-  vZ = v.z;
+  vec3 n = vec3(v.x, -v.y, -v.z);     // -> scene axes
+  vec3 h = uCtr + uRw * n;            // point on the sphere
+  float s = -uEye.z / (h.z - uEye.z); // where the eye->point line crosses the glass (z = 0)
+  vec2 p = uEye.xy + (h.xy - uEye.xy) * s;
+  gl_Position = vec4(p.x / uRes.x * 2.0 - 1.0, 1.0 - p.y / uRes.y * 2.0, 0.0, 1.0);
+  vZ = dot(n, normalize(uEye - h));   // > 0: facing the eye
   vW = aP;
 }`;
 
@@ -192,9 +210,9 @@ void main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const Q = { aPos: gl.getAttribLocation(quadProg, 'aPos') };
-    for (const n of ['uRes', 'uC', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars']) Q[n] = gl.getUniformLocation(quadProg, n);
+    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars']) Q[n] = gl.getUniformLocation(quadProg, n);
     const Lu = { aP: gl.getAttribLocation(lineProg, 'aP') };
-    for (const n of ['uRot', 'uRes', 'uC', 'uR', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
+    for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
     gl.useProgram(quadProg);
     gl.uniform1i(Q.uLand, 0);
     gl.uniform1i(Q.uStars, 1);
@@ -294,7 +312,7 @@ void main() {
       gl.viewport(0, 0, w, h);
     }
 
-    /** p: { cx, cy, R, lon, lat, sun:[x,y,z], starX, starY, px } in drawing-buffer px. */
+    /** p: { eye:[x,y,z], ctr:[x,y,z], Rw, R, lon, lat, sun:[x,y,z], starX, starY, px }, all in drawing-buffer px. */
     function render(p) {
       const l = p.lon * Math.PI / 180, f = p.lat * Math.PI / 180;
       const sl = Math.sin(l), cl = Math.cos(l), sf = Math.sin(f), cf = Math.cos(f);
@@ -308,7 +326,9 @@ void main() {
       gl.enableVertexAttribArray(Q.aPos);
       gl.vertexAttribPointer(Q.aPos, 2, gl.FLOAT, false, 0, 0);
       gl.uniform2f(Q.uRes, canvas.width, canvas.height);
-      gl.uniform2f(Q.uC, p.cx, p.cy);
+      gl.uniform3f(Q.uEye, p.eye[0], p.eye[1], p.eye[2]);
+      gl.uniform3f(Q.uCtr, p.ctr[0], p.ctr[1], p.ctr[2]);
+      gl.uniform1f(Q.uRw, p.Rw);
       gl.uniform1f(Q.uR, p.R);
       gl.uniformMatrix3fv(Q.uRot, false, rot);
       gl.uniform3f(Q.uSun, p.sun[0], p.sun[1], p.sun[2]);
@@ -324,8 +344,9 @@ void main() {
       gl.vertexAttribPointer(Lu.aP, 3, gl.FLOAT, false, 0, 0);
       gl.uniformMatrix3fv(Lu.uRot, false, rot);
       gl.uniform2f(Lu.uRes, canvas.width, canvas.height);
-      gl.uniform2f(Lu.uC, p.cx, p.cy);
-      gl.uniform1f(Lu.uR, p.R);
+      gl.uniform3f(Lu.uEye, p.eye[0], p.eye[1], p.eye[2]);
+      gl.uniform3f(Lu.uCtr, p.ctr[0], p.ctr[1], p.ctr[2]);
+      gl.uniform1f(Lu.uRw, p.Rw);
       gl.uniform3f(Lu.uSun, p.sun[0], p.sun[1], p.sun[2]);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

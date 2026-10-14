@@ -15,9 +15,13 @@
  * The camera only starts from an explicit tap (or ?glass=1), and stops on the
  * next tap, on page hide, or if the track ends (e.g. a call takes the camera).
  *
- * Experimental arm swipe: a fast horizontal sweep of motion beside the viewer
- * (the face region is masked out, so head movement doesn't count) fires
- * onSwipe('left' | 'right'), from the viewer's point of view. ?swipe=0 disables.
+ * Experimental air swipe: MediaPipe Hand Landmarker tracks palms in the same
+ * worker; a palm that travels far enough, fast enough and mostly sideways (or
+ * that was doing so when motion blur made it vanish) fires
+ * onSwipe('left' | 'right'), from the viewer's point of view. If the hand
+ * model can't load, a masked frame-difference detector is used instead.
+ * ?swipe=0 disables; ?camdebug=1 shows a small camera preview with what's
+ * being tracked.
  *
  * Exposes window.Glass = { start(), stop(), recalibrate(), onSwipe(fn), on, mode, pose, stats }
  *   pose.x, pose.y  -1..1, the viewer's position from THEIR point of view
@@ -37,7 +41,7 @@
   const BUDGET = 0.3;              // main-thread fallback: spend at most ~30% of time detecting
   const MAX_INTERVAL_MS = 250;     // ...but never track slower than 4 Hz
   const WARMUP_FRAMES = 3;         // first GPU runs compile shaders: don't let them skew timing
-  const GAIN_XY = 1.8;             // head offset from centre -> -1..1 (lower = needs more movement)
+  const GAIN_XY = 0.6;             // head offset from centre -> -1..1 (lower = needs more movement)
   const DEADZONE_XY = 0.1;         // "play": small head movements are ignored entirely
   const DEADZONE_Z = 0.15;         // ...and small leans
   const SMOOTH_XY = 0.09;          // per-frame easing toward the measured position
@@ -52,7 +56,8 @@
   let timer = 0, raf = 0, lastSeen = 0, onState = () => {};
   let calib = null;    // { n, sum } while calibrating, then { size }
   let busy = false, lastSend = 0, rateT0 = 0, rateN = 0, nDetect = 0;
-  let recent = [], lastSize = 0, faceBox = null, swipe = null, onSwipe = () => {}, lastSwipeSample = 0;
+  let recent = [], lastSize = 0, faceBox = null, swipe = null, handSwipe = null, onSwipe = () => {}, lastSwipeSample = 0;
+  let debug = null;
   const SWIPE_ON = qs.get('swipe') !== '0';
 
   const G = {
@@ -81,7 +86,8 @@
       stream = await navigator.mediaDevices.getUserMedia({
         // Small frames: BlazeFace works at 128x128 internally, so more pixels
         // only cost upload and resize time.
-        video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15, max: 30 } },
+        // 30 fps: shorter exposure (less blur on a swiping hand) and more samples per swipe.
+        video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 30 } },
         audio: false,
       });
     } catch (e) {
@@ -140,7 +146,11 @@
     if (!G.on) { teardown(); return; }
     onState(G.mode);
     calib = null; nDetect = 0; stats.ms = 0; recent = []; lastSize = 0; faceBox = null;
-    swipe = SWIPE_ON ? makeSwipeDetector() : null;
+    // Hands when the worker loaded the model; frame-difference motion otherwise.
+    handSwipe = SWIPE_ON && stats.hands ? makeHandSwipeDetector() : null;
+    swipe = SWIPE_ON && !handSwipe ? makeSwipeDetector() : null;
+    stats.swipe = handSwipe ? 'hands' : swipe ? 'motion' : 'off';
+    debug = qs.get('camdebug') === '1' ? makeDebugView() : null;
     rateT0 = performance.now(); rateN = 0;
     loop();
     smoothLoop();
@@ -156,11 +166,12 @@
         if (m.type === 'ready') {
           clearTimeout(to);
           stats.where = 'worker/' + m.delegate.toLowerCase();
+          stats.hands = !!m.hands;
           w.onmessage = onWorkerMessage;
           resolve(w);
         } else if (m.type === 'error') { clearTimeout(to); reject(new Error(m.message)); }
       };
-      w.postMessage({ type: 'init', base: MP_BASE, delegate });
+      w.postMessage({ type: 'init', base: MP_BASE, delegate, hands: SWIPE_ON });
     });
   }
 
@@ -171,6 +182,11 @@
     recordMs(m.ms);
     const b = m.box;
     measure(b ? { cx: (b.originX + b.width / 2) / m.w, cy: (b.originY + b.height / 2) / m.h, size: b.width / m.w } : null);
+    if (handSwipe) {
+      const dir = handSwipe(m.hands || [], performance.now());
+      if (dir) onSwipe(dir);
+    }
+    if (debug) debug(m.hands || []);
   }
 
   function stop() {
@@ -192,7 +208,8 @@
     if (video) { video.srcObject = null; video = null; }
     if (worker) { worker.terminate(); worker = null; }
     if (detector) { try { detector.close(); } catch (_) { /* */ } detector = null; }
-    motion = null; swipe = null; G.mode = null; busy = false;
+    motion = null; swipe = null; handSwipe = null; G.mode = null; busy = false;
+    if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
     // smoothLoop keeps easing pose back to zero, then ends.
   }
@@ -375,6 +392,106 @@
       // Image x grows toward the viewer's LEFT (the camera faces them).
       return dx > 0 ? 'left' : 'right';
     };
+  }
+
+  /** Air swipe from tracked palms. Each palm is linked to the nearest recent
+   *  track; a track fires when, within the last ~0.45 s, it moved >= 18% of the
+   *  frame width, at >= 0.9 frame-widths/s, and at least 1.5x more sideways
+   *  than vertically. A fast-moving track that vanishes (motion blur, or the
+   *  hand leaving the frame) also fires if it had already covered 12%. */
+  function makeHandSwipeDetector() {
+    // SPEED in frame-widths/s: a deliberate swipe is well over 1; bringing the
+    // hand back afterwards, or gesturing while talking, is usually under 0.6.
+    const WINDOW_MS = 450, LINK = 0.3, GAP_MS = 350, TRAVEL = 0.18, LOST_TRAVEL = 0.12,
+      SPEED = 0.9, COOLDOWN_MS = 900, REVERSE_MS = 1600;
+    // After a swipe, the same direction re-arms after COOLDOWN_MS; the opposite
+    // direction - which is usually just the hand coming back - after REVERSE_MS.
+    let tracks = [], quietUntil = 0, lastDir = null, lastFireT = 0;
+    const judge = (pts, travel) => {
+      if (pts.length < 2) return null;
+      const a = pts[0], b = pts[pts.length - 1];
+      const dx = b.x - a.x, dy = b.y - a.y, dt = Math.max(1, b.t - a.t) / 1000;
+      if (Math.abs(dx) < travel || Math.abs(dx) < 1.5 * Math.abs(dy) || Math.abs(dx) / dt < SPEED) return null;
+      // Image x grows toward the viewer's LEFT (the camera faces them).
+      return dx > 0 ? 'left' : 'right';
+    };
+    const fire = (dir, now) => {
+      if (lastDir && dir !== lastDir && now - lastFireT < REVERSE_MS) { tracks = []; return null; }
+      tracks = []; quietUntil = now + COOLDOWN_MS; lastDir = dir; lastFireT = now;
+      return dir;
+    };
+    const fn = (palms, now) => {
+      // Cooldown: record nothing, so the rest of the same sweep can't fire again.
+      if (now < quietUntil) { tracks = []; return null; }
+      // Link palms to tracks (greedy nearest).
+      const used = new Set();
+      for (const p of palms) {
+        let best = null, bd = LINK;
+        for (const tr of tracks) {
+          if (used.has(tr)) continue;
+          const last = tr.pts[tr.pts.length - 1];
+          const d = Math.hypot(p.x - last.x, p.y - last.y);
+          if (d < bd) { bd = d; best = tr; }
+        }
+        if (best) { best.pts.push({ x: p.x, y: p.y, t: now }); used.add(best); }
+        else { const tr = { pts: [{ x: p.x, y: p.y, t: now }] }; tracks.push(tr); used.add(tr); }
+      }
+      for (const tr of tracks) tr.pts = tr.pts.filter((q) => now - q.t <= WINDOW_MS);
+      for (const tr of tracks) {
+        const lost = !used.has(tr);
+        if (lost) {
+          // Only judge a lost track once, right after it disappears.
+          if (tr.judgedLost || !tr.pts.length || now - tr.pts[tr.pts.length - 1].t > GAP_MS) continue;
+          tr.judgedLost = true;
+          const dir = judge(tr.pts, LOST_TRAVEL);
+          if (dir) return fire(dir, now);
+        } else {
+          const dir = judge(tr.pts, TRAVEL);
+          if (dir) return fire(dir, now);
+        }
+      }
+      tracks = tracks.filter((tr) => tr.pts.length && now - tr.pts[tr.pts.length - 1].t <= GAP_MS);
+      return null;
+    };
+    fn.tracks = () => tracks;
+    return fn;
+  }
+
+  /** ?camdebug=1: a small mirrored camera preview with the face box, palms and
+   *  swipe tracks, for tuning on the device. */
+  function makeDebugView() {
+    const c = document.createElement('canvas');
+    c.width = 240; c.height = 180;
+    c.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:98;border-radius:10px;'
+      + 'border:1px solid rgba(255,255,255,.3);pointer-events:none;background:#000';
+    document.body.appendChild(c);
+    const g = c.getContext('2d');
+    const view = (palms) => {
+      if (!video) return;
+      g.save(); g.translate(240, 0); g.scale(-1, 1);          // mirror, like a selfie view
+      g.drawImage(video, 0, 0, 240, 180);
+      if (faceBox) {
+        const s = faceBox.size * 240;
+        g.strokeStyle = '#16bdeb'; g.lineWidth = 2;
+        g.strokeRect(faceBox.cx * 240 - s / 2, faceBox.cy * 180 - s / 2, s, s);
+      }
+      if (handSwipe) {
+        g.strokeStyle = '#f15e22'; g.lineWidth = 2;
+        for (const tr of handSwipe.tracks()) {
+          g.beginPath();
+          tr.pts.forEach((q, i) => (i ? g.lineTo(q.x * 240, q.y * 180) : g.moveTo(q.x * 240, q.y * 180)));
+          g.stroke();
+        }
+      }
+      g.fillStyle = '#fff';
+      for (const p of palms) { g.beginPath(); g.arc(p.x * 240, p.y * 180, 5, 0, 7); g.fill(); }
+      g.restore();
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, 0, 240, 16);
+      g.fillStyle = '#9fe'; g.font = '11px ui-monospace,monospace';
+      g.fillText(`${stats.where} swipe:${stats.swipe} hands:${palms.length}`, 4, 12);
+    };
+    view.remove = () => c.remove();
+    return view;
   }
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }

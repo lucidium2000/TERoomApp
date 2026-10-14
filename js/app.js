@@ -22,6 +22,10 @@
  *   mode=free       clean globe: no panels; a floating callout appears at the outage
  *                   once the globe has zoomed in (default: hud). Remembered per device.
  *   zoom=<n>        resting zoom, default 1.2
+ *   depth=<n>       Glass mode: how far behind the screen the globe sits, in screen
+ *                   widths (default 0.6) - deeper = stronger parallax
+ *   eye=<n>         assumed viewing distance in screen widths (default 1.0)
+ *   eyerange=<n>    how far the virtual eye moves per unit of head movement (default 1.2)
  *   swipe=0         disable the experimental arm-swipe gesture in Glass mode
  *   glass=1         start Glass mode (camera parallax) on load, if the device allows it
  */
@@ -291,6 +295,76 @@
     return v[0] * viewVec[0] + v[1] * viewVec[1] + v[2] * viewVec[2] > FAR_SIDE;
   }
 
+  // ── Overlay projection ───────────────────────────────────────────────────
+  // Everything drawn on the 2D overlay (markers, arcs, labels, taps, the
+  // floating callout) goes through `proj`, so it lines up with whichever globe
+  // is underneath: d3's orthographic for the 2D renderer, or the WebGL
+  // renderer's off-axis perspective camera.
+  const SCENE = { depth: num('depth', 0.6), eye: num('eye', 1.0), range: num('eyerange', 1.2) };
+  let cam = null;   // perspective camera for this frame (WebGL), else null
+  const proj = {
+    point(lon, lat, v) {
+      if (!cam) return isVisible(lon, lat, v) ? projection([lon, lat]) : null;
+      v = v || unitVec(lon, lat);
+      const { e, n, c, C, E, Rw } = cam;
+      // world -> view -> scene axes (y down, z into the screen)
+      const vx = e[0] * v[0] + e[1] * v[1] + e[2] * v[2];
+      const vy = n[0] * v[0] + n[1] * v[1] + n[2] * v[2];
+      const vz = c[0] * v[0] + c[1] * v[1] + c[2] * v[2];
+      const nx = vx, ny = -vy, nz = -vz;
+      const hx = C[0] + Rw * nx, hy = C[1] + Rw * ny, hz = C[2] + Rw * nz;
+      // Facing the eye?
+      const tx = E[0] - hx, ty = E[1] - hy, tz = E[2] - hz;
+      if (nx * tx + ny * ty + nz * tz <= 0.02 * Math.hypot(tx, ty, tz)) return null;
+      const t = -E[2] / (hz - E[2]);
+      return [E[0] + (hx - E[0]) * t, E[1] + (hy - E[1]) * t];
+    },
+    invert(x, y) {
+      if (!cam) {
+        const ll = projection.invert([x, y]);
+        return ll && d3.geoDistance(ll, [view.lon, view.lat]) < Math.PI / 2 ? ll : null;
+      }
+      const { e, n, c, C, E, Rw } = cam;
+      let dx = x - E[0], dy = y - E[1], dz = -E[2];
+      const dl = Math.hypot(dx, dy, dz); dx /= dl; dy /= dl; dz /= dl;
+      const ox = C[0] - E[0], oy = C[1] - E[1], oz = C[2] - E[2];
+      const b = ox * dx + oy * dy + oz * dz, c2 = ox * ox + oy * oy + oz * oz - b * b;
+      if (c2 >= Rw * Rw) return null;
+      const t = b - Math.sqrt(Rw * Rw - c2);
+      const nx = (E[0] + dx * t - C[0]) / Rw, ny = (E[1] + dy * t - C[1]) / Rw, nz = (E[2] + dz * t - C[2]) / Rw;
+      const vx = nx, vy = -ny, vz = -nz;
+      const w = [e[0] * vx + n[0] * vy + c[0] * vz, e[1] * vx + n[1] * vy + c[1] * vz, e[2] * vx + n[2] * vy + c[2] * vz];
+      return [Math.atan2(w[1], w[0]) / RAD, Math.asin(Math.max(-1, Math.min(1, w[2]))) / RAD];
+    },
+    /** Great-circle arc a -> b into the current ctx path (visible runs only). */
+    arc(a, b) {
+      if (!cam) { path({ type: 'LineString', coordinates: [a, b] }); return; }
+      const ip = d3.geoInterpolate(a, b);
+      const steps = Math.max(8, Math.min(64, Math.ceil(d3.geoDistance(a, b) / RAD / 2)));
+      let pen = false;
+      for (let i = 0; i <= steps; i++) {
+        const q = ip(i / steps), p = proj.point(q[0], q[1]);
+        if (!p) { pen = false; continue; }
+        if (pen) ctx.lineTo(p[0], p[1]); else { ctx.moveTo(p[0], p[1]); pen = true; }
+      }
+    },
+  };
+
+  /** Off-axis camera: screen = glass at z=0, eye at z=-D moved by head
+   *  tracking, globe sized so that from a centred eye it looks exactly R. */
+  function makeCamera(L, R, lon, lat, P) {
+    const D = SCENE.eye * S.w, zf = SCENE.depth * S.w;
+    const sinA = Math.sin(Math.atan(R / D));
+    const Rw = sinA * (D + zf) / (1 - sinA);
+    const l = lon * RAD, f = lat * RAD, sl = Math.sin(l), cl = Math.cos(l), sf = Math.sin(f), cf = Math.cos(f);
+    return {
+      Rw, D,
+      C: [L.cx, L.cy, zf + Rw],
+      E: [L.cx + P.x * S.w * SCENE.range, L.cy - P.y * S.h * SCENE.range, -D],
+      e: [-sl, cl, 0], n: [-sf * cl, -sf * sl, cf], c: [cf * cl, cf * sl, sf],
+    };
+  }
+
   // ── Rendering ────────────────────────────────────────────────────────────
   function resize() {
     S.w = window.innerWidth; S.h = window.innerHeight;
@@ -327,20 +401,28 @@
     // does - and leaning in zooms. Render-only; the user's own view (drag, zoom,
     // tour) is untouched.
     const P = pose();
-    L = { ...L, cx: L.cx - P.x * S.w * PARALLAX.globe, cy: L.cy + P.y * S.h * PARALLAX.globe };
     const R = L.base * Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, view.zoom * Math.pow(2, P.z * LEAN_ZOOM_GAIN)));
-    const cLon = view.lon + P.x * PARALLAX.lon, cLat = clampLat(view.lat + P.y * PARALLAX.lat);
-    projection.translate([L.cx, L.cy]).scale(R).rotate([-cLon, -cLat]);
-    viewVec = unitVec(cLon, cLat);
     S.R = R;
 
     if (glr) {
-      const sun = subsolar(Date.now());
-      const so = starOffset();
+      // WebGL: a real perspective camera does the parallax - no fake offsets.
+      cam = makeCamera(L, R, view.lon, view.lat, P);
+      const sun = subsolar(Date.now()), pr = S.pr;
+      // Stars are at infinity: on the glass they move exactly with the eye.
+      const sx = -(view.lon / 360) * S.w * 0.5 + (cam.E[0] - L.cx);
+      const sy = (view.lat / 90) * S.h * 0.175 + (cam.E[1] - L.cy);
       glTry('render', () => glr.render({
-        cx: L.cx * S.pr, cy: L.cy * S.pr, R: R * S.pr, lon: cLon, lat: cLat,
-        sun: unitVec(sun.lon, sun.lat), starX: -so.x * S.pr, starY: -so.y * S.pr, px: S.pr,
+        eye: cam.E.map((v) => v * pr), ctr: cam.C.map((v) => v * pr), Rw: cam.Rw * pr, R: R * pr,
+        lon: view.lon, lat: view.lat, sun: unitVec(sun.lon, sun.lat), starX: -sx * pr, starY: -sy * pr, px: pr,
       }));
+    }
+    if (!glr) {
+      // 2D renderer: orthographic, with the simple slide-and-turn parallax.
+      cam = null;
+      L = { ...L, cx: L.cx - P.x * S.w * PARALLAX.globe, cy: L.cy + P.y * S.h * PARALLAX.globe };
+      const cLon = view.lon + P.x * PARALLAX.lon, cLat = clampLat(view.lat + P.y * PARALLAX.lat);
+      projection.translate([L.cx, L.cy]).scale(R).rotate([-cLon, -cLat]);
+      viewVec = unitVec(cLon, cLat);
     }
     if (glr) {
       ctx.clearRect(0, 0, S.w, S.h);
@@ -401,7 +483,7 @@
       for (const [w, a] of [[5, 0.25], [1.6, 0.95]]) {
         ctx.beginPath();
         for (const loc of sel.locations) {
-          if (loc !== hub) path({ type: 'LineString', coordinates: [[hub.lon, hub.lat], [loc.lon, loc.lat]] });
+          if (loc !== hub) proj.arc([hub.lon, hub.lat], [loc.lon, loc.lat]);
         }
         ctx.strokeStyle = `rgba(${RGB[sel.kind]},${a})`; ctx.lineWidth = w * k; ctx.stroke();
       }
@@ -416,8 +498,7 @@
       const a = (o.active ? 1 : Math.max(0.35, 1 - o.ageMin / (24 * 60))) * dim;
       const sprite = getGlow(o.kind);
       for (const loc of o.locations) {
-        if (!isVisible(loc.lon, loc.lat, loc.v)) continue;
-        const p = projection([loc.lon, loc.lat]);
+        const p = proj.point(loc.lon, loc.lat, loc.v);
         if (!p) continue;
         const r = (3.2 + Math.sqrt(loc.n) * 1.6) * k * (isSel ? 1.35 : 1);
 
@@ -447,8 +528,8 @@
       ctx.textBaseline = 'middle';
       const placed = [];
       for (const loc of sel.byWeight) {
-        if (!isVisible(loc.lon, loc.lat, loc.v)) continue;
-        const p = projection([loc.lon, loc.lat]);
+        const p = proj.point(loc.lon, loc.lat, loc.v);
+        if (!p) continue;
         const label = loc.label;
         const x = p[0] + 14 * k, y = p[1];
         const tw = loc.tw || (loc.tw = ctx.measureText(label).width / k);
@@ -489,7 +570,7 @@
       + `scale ${S.scale.toFixed(2)} (${canvas.width}x${canvas.height}) | work ${f('total')}ms: `
       + (glr ? `gl ${f('gl')} markers ${f('markers')}` : `sky ${f('sky')} sphere ${f('sphere')} land ${f('land')} night ${f('night')} markers ${f('markers')}`)
       + (glr ? `\ngpu: ${glr.info.renderer || '?'} | tex ${S.texW || '-'} / max ${glr.info.maxTex} | lines ${S.segments || '-'} | lod ${glr.info.lod} aniso ${glr.info.aniso}` : '')
-      + (G && G.on ? `\nglass ${G.stats.where} ${G.stats.hz}Hz detect ${G.stats.ms.toFixed(1)}ms z ${G.pose.z.toFixed(2)}` : '');
+      + (G && G.on ? `\nglass ${G.stats.where} ${G.stats.hz}Hz detect ${G.stats.ms.toFixed(1)}ms z ${G.pose.z.toFixed(2)} swipe:${G.stats.swipe || '-'}` : '');
     for (const key in perfAcc) perfAcc[key] = 0;
     perfFrames = 0; perfLast = t;
   }
@@ -877,9 +958,9 @@
       const t = now();
       if (lastTap && t - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
         lastTap = null;
-        const ll = projection.invert([e.clientX, e.clientY]);
+        const ll = proj.invert(e.clientX, e.clientY);
         bakeLean();
-        zoomTo(view.zoom * 1.8, ll && d3.geoDistance(ll, [view.lon, view.lat]) < Math.PI / 2 ? ll : null);
+        zoomTo(view.zoom * 1.8, ll);
         down = null; S.dragging = false;
         return;
       }
@@ -1037,8 +1118,7 @@
     const o = S.selected;
     if (!S.free || !o || S.flight) { hideFloat(); return; }
     const hub = o.byWeight[0];
-    if (!isVisible(hub.lon, hub.lat, hub.v)) { hideFloat(); return; }
-    const p = projection([hub.lon, hub.lat]);
+    const p = proj.point(hub.lon, hub.lat, hub.v);
     if (!p) { hideFloat(); return; }
     const { w, h } = floatSize, gap = 46, pad = 16;
     let right = true;

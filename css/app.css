@@ -306,3 +306,22 @@ body.free.chrome-hidden .tour { opacity: 0; transform: translateX(-14px); pointe
 .swipe-hint.show.right { animation: swipe-r .6s ease-out; }
 @keyframes swipe-l { 0% { opacity: 0; margin-left: 80px; } 30% { opacity: 1; } 100% { opacity: 0; margin-left: -80px; } }
 @keyframes swipe-r { 0% { opacity: 0; margin-left: -80px; } 30% { opacity: 1; } 100% { opacity: 0; margin-left: 80px; } }
+
+/* Info card: wide rather than tall. Name and metrics on the left, locations
+   in two columns to the right, divided by a hairline. */
+.card {
+  width: min(60em, calc(100vw - var(--panel-w) - 3 * var(--gutter)));
+  display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: 1.6em; align-items: center;
+}
+.card-main { min-width: 0; }
+.card-main .card-metrics { margin-bottom: 0; }
+.card .card-locs {
+  align-self: stretch; display: block; margin: 0; padding: .2em 2.2em .2em 1.4em;
+  border-left: 1px solid var(--line); columns: 2 13em; column-gap: 1.4em;   /* drops to one column when narrow */
+}
+.card .card-close { position: absolute; top: .5em; right: .5em; }
+@media (max-width: 900px) {
+  .card { grid-template-columns: 1fr; }
+  .card .card-locs { border-left: 0; padding: .6em 0 0; columns: 1; }
+}
