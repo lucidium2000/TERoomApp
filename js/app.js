@@ -1152,7 +1152,7 @@
     const gestureLabel = document.getElementById('gestureLabel');
     function setHud(state, progress) {
       if (state === 'off') { gestureEl.className = 'gesture'; return; }
-      const cls = { dormant: 'dormant', hold: 'dormant holding', ready: 'ready', drag: 'ready active', zoom: 'ready active' }[state];
+      const cls = { dormant: 'dormant', hold: 'dormant holding', ready: 'ready', drag: 'ready active drag', zoom: 'ready active zoom' }[state];
       gestureEl.className = 'gesture show ' + cls;
       gestureRing.style.strokeDashoffset = String(state === 'dormant' ? 100 : state === 'hold' ? 100 - (progress || 0) * 100 : 0);
       gestureLabel.textContent = state === 'drag' ? 'Drag'

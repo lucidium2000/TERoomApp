@@ -357,3 +357,12 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .gesture.dormant .g-label { opacity: .7; }
 .gesture.holding .g-ring { stroke: var(--ok); }
 .gesture.active .g-label { letter-spacing: .04em; }
+
+/* The badge hand mirrors the action: open hand (Ready), fist (Drag),
+   two fists pulling apart (Zoom). */
+.gesture .g-fist, .gesture .g-zoom { display: none; }
+.gesture.drag .g-open, .gesture.zoom .g-open { display: none; }
+.gesture.drag .g-fist { display: inline; }
+.gesture.zoom .g-zoom { display: inline; }
+.gesture .g-crease { fill: none; stroke: rgba(9, 14, 26, .55); stroke-width: 2.5; stroke-linecap: round; }
+.gesture .g-arrow { fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
