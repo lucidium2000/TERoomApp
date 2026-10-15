@@ -516,10 +516,29 @@ body.free .roomnet-strip .rn-chip { pointer-events: auto; }
   /* Where the outage card sits (opening a trace closes that card), so the
      globe - and the path drawn on it - stays clear. */
   position: fixed; left: var(--gutter); bottom: calc(var(--gutter) + 6.4em); z-index: 20;
-  width: min(60em, calc(100vw - var(--panel-w) - 3 * var(--gutter))); max-height: 42vh; overflow: auto;
+  width: min(60em, calc(100vw - var(--panel-w) - 3 * var(--gutter))); max-height: 42vh;
   background: var(--glass); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 16px;
   padding: 1em 1.2em 1.1em; animation: rise .4s ease-out;
+  /* The title stays put; only the body scrolls, under it. */
+  display: flex; flex-direction: column; overflow: hidden;
 }
+.pathcard > :not(.pc-body) { flex: none; }
+/* Scrolling body: a slim, rounded thumb in the panel's colours (no arrows, no
+   track), and soft fades at whichever edge has more to scroll (--ft / --fb,
+   set from js). */
+.pc-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  margin-right: -.7em; padding-right: .7em;
+  --ft: 0px; --fb: 0px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+}
+.pc-body::-webkit-scrollbar { width: 10px; }
+.pc-body::-webkit-scrollbar-track { background: transparent; }
+.pc-body::-webkit-scrollbar-button { display: none; height: 0; }
+.pc-body::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .28); border: 3px solid transparent; background-clip: padding-box; border-radius: 10px; min-height: 36px; }
+.pc-body::-webkit-scrollbar-thumb:hover, .pc-body::-webkit-scrollbar-thumb:active { background-color: rgba(52, 211, 153, .6); }
+@supports not selector(::-webkit-scrollbar) { .pc-body { scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, .35) transparent; } }
 body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
 .pathcard .card-close { position: absolute; top: .4em; right: .5em; }
 .pc-kind { font-size: .72em; color: var(--ok); text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }

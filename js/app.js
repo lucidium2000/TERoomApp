@@ -1005,6 +1005,7 @@
     pathTitle.textContent = `Path to ${p.name}`;
     pathMeta.textContent = host;
     pathBody.innerHTML = '<div class="pc-status">Starting\u2026</div>';
+    pathBody.scrollTop = 0; pcFade();
     pathCard.hidden = false;
     window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = `<div class="pc-status">${esc(msg)}</div>`; })
       .then((r) => { if (run === pathRun) showPath(p, r); })
@@ -1150,6 +1151,15 @@
     pvTip.style.left = Math.max(8, Math.min(innerWidth - tw - 8, cx - tw / 2)) + 'px';
     pvTip.style.top = (eb.top - th - 10 >= 8 ? eb.top - th - 10 : eb.bottom + 10) + 'px';
   }
+  // Soft fade at whichever edge of the body has more to scroll.
+  function pcFade() {
+    const b = pathBody, more = b.scrollHeight - b.clientHeight;
+    b.style.setProperty('--ft', more > 2 && b.scrollTop > 2 ? '22px' : '0px');
+    b.style.setProperty('--fb', more > 2 && b.scrollTop < more - 2 ? '22px' : '0px');
+  }
+  pathBody.addEventListener('scroll', () => { pcFade(); pvTipAt(null); }, { passive: true });
+  pathBody.addEventListener('toggle', () => requestAnimationFrame(pcFade), true);   // "Hop details" opened / closed
+  window.addEventListener('resize', pcFade);
   pathBody.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') pvTipAt(e.target); });
   pathBody.addEventListener('pointerleave', () => pvTipAt(null));
   pathBody.addEventListener('click', (e) => pvTipAt(e.target));
@@ -1188,6 +1198,7 @@
     end.label = (end.label ? end.label + ' · ' : '') + p.name;
     if (last && last.ms != null) end.avg = last.ms;
     S.path = { pts };
+    requestAnimationFrame(pcFade);
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
   }
   function drawPath(now, R) {
