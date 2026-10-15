@@ -612,3 +612,15 @@ body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
   .svc { grid-template-columns: .7em minmax(0, 1fr) 3.6em 4.9em; gap: .45em; }
   .svc .rn-spark, .svc > span:not(.rn-code) { display: none; }
 }
+
+/* Timeline scrubbing */
+.tl-chart { cursor: ew-resize; touch-action: none; }
+.tl-scrub {
+  position: absolute; top: .3em; bottom: 1.4em; width: 0; border-left: 2px solid #fff; pointer-events: none;
+  box-shadow: 0 0 10px rgba(255, 255, 255, .5);
+}
+.tl-scrub span {
+  position: absolute; bottom: calc(100% + 8px); left: 0; transform: translateX(-50%);
+  white-space: nowrap; padding: .35em .75em; border-radius: 99px; font-size: .85em; font-weight: 700;
+  background: rgba(9, 14, 26, .94); border: 1px solid rgba(255, 255, 255, .25); color: var(--ink);
+}

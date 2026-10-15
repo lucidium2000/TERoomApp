@@ -9,7 +9,7 @@ A full-screen, touch-friendly globe of live Internet outages from **ThousandEyes
 - **"Your services"** gives one row per service. On the left is its Internet Insights status (clear, *N in 24h*, or *active outage*, which you can tap to open that outage). On the right is this room's live connection to it: response-time sparkline, latency and HTTP result. The dot shows the worse of the two, so people can tell "is it me or the internet?" at a glance. Tap a row for a path trace.
 - **HUD / Free modes:** the frame button on the left switches modes, and the device remembers the choice. HUD shows the side panel, the outage card and the timeline. Free mode is a clean globe: the panels are hidden, the controls fade away until someone touches the screen, and when the globe zooms into an outage a small floating window appears next to the affected locations.
 - **Weather on city labels:** when an outage is selected, each city label shows the current temperature and a weather symbol (sun, sun and cloud, cloud, fog, rain, snow or storm, with a moon at night), from [Open-Meteo](https://open-meteo.com). Shown in °F by default; `units=c` switches to Celsius.
-- **24-hour timeline** of outage starts. New outages that arrive on a refresh get a toast and a fly-to.
+- **24-hour timeline** of outage starts. Drag (or tap) along it to scrub: a line and label show the time, how many outages started around then and the nearest one, while the globe and bars dim everything else. Letting go opens the outage nearest that time. New outages that arrive on a refresh get a toast and a fly-to.
 
 > Unofficial community project, not affiliated with or endorsed by Cisco/ThousandEyes. The data endpoint is the one the public outage map uses. It isn't a documented API and may change.
 

@@ -581,7 +581,10 @@
     for (const o of S.drawOrder) {
       if (!outageVisible(o)) continue;
       const isSel = o === sel;
-      const dim = sel && !isSel ? 0.35 : 1;
+      // Scrubbing the timeline: only outages that started near that time stay lit.
+      const dim = S.timeFocus != null
+        ? (Math.abs(o.start - S.timeFocus) <= SCRUB_WINDOW_MS ? 1 : 0.15)
+        : (sel && !isSel ? 0.35 : 1);
       const a = (o.active ? 1 : Math.max(0.35, 1 - o.ageMin / (24 * 60))) * dim;
       const sprite = getGlow(o.kind);
       for (const loc of o.locations) {
@@ -1124,9 +1127,17 @@
     if (t && probes) openPath(probes[+t.dataset.i]);
   }));
 
+  /** End of the data's 24 h window: when it was published (or now). */
+  function dataNow() {
+    const g = S.data && Date.parse(S.data.generatedAt);
+    return g && isFinite(g) ? Math.min(Date.now(), g) : Date.now();
+  }
+
   function renderTimeline() {
     const svg = el.timeline;
-    const W = 1000, H = 100, BINS = 48, now = Date.now(), span = 24 * 3600e3;
+    // The window ends when the data was published, not "now": if refreshes
+    // ever stall, the last 24 hours of data still fill the timeline.
+    const W = 1000, H = 100, BINS = 48, now = dataNow(), span = 24 * 3600e3;
     const bins = Array.from({ length: BINS }, () => ({ network: 0, application: 0 }));
     for (const o of S.outages) {
       const i = Math.floor((o.start - (now - span)) / (span / BINS));
@@ -1134,15 +1145,19 @@
     }
     const max = Math.max(1, ...bins.map((b) => b.network + b.application));
     const bw = W / BINS;
+    // While scrubbing, bars near the scrub time stay bright and the rest fade.
+    const near = (i) => S.timeFocus == null
+      || Math.abs((now - span) + (i + 0.5) * (span / BINS) - S.timeFocus) <= SCRUB_WINDOW_MS + span / BINS / 2;
     let out = '';
     bins.forEach((b, i) => {
       const hn = (b.network / max) * (H - 6), ha = (b.application / max) * (H - 6);
       const x = (i * bw + 1.5).toFixed(1), w = (bw - 3).toFixed(1);
-      if (hn) out += `<rect x="${x}" y="${(H - hn).toFixed(1)}" width="${w}" height="${hn.toFixed(1)}" rx="2" fill="${COLORS.network}" opacity=".85"/>`;
-      if (ha) out += `<rect x="${x}" y="${(H - hn - ha).toFixed(1)}" width="${w}" height="${ha.toFixed(1)}" rx="2" fill="${COLORS.application}" opacity=".85"/>`;
+      const op = near(i) ? '.85' : '.25';
+      if (hn) out += `<rect x="${x}" y="${(H - hn).toFixed(1)}" width="${w}" height="${hn.toFixed(1)}" rx="2" fill="${COLORS.network}" opacity="${op}"/>`;
+      if (ha) out += `<rect x="${x}" y="${(H - hn - ha).toFixed(1)}" width="${w}" height="${ha.toFixed(1)}" rx="2" fill="${COLORS.application}" opacity="${op}"/>`;
       if (!hn && !ha) out += `<rect x="${x}" y="${H - 2}" width="${w}" height="2" rx="1" fill="rgba(148,163,184,.18)"/>`;
     });
-    if (S.selected) {
+    if (S.selected && S.timeFocus == null) {
       const x = ((S.selected.start - (now - span)) / span) * W;
       out += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="-4" y2="${H}" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>`
         + `<circle cx="${x.toFixed(1)}" cy="-4" r="5" fill="#fff"/>`;
@@ -1150,6 +1165,60 @@
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = out;
   }
+
+  // ── Timeline scrubbing ───────────────────────────────────────────────────
+  // Drag (or tap) along the timeline: a line + time label follow the finger,
+  // the globe and bars dim everything that didn't start near that time, and
+  // releasing selects the outage nearest to it.
+  const SCRUB_WINDOW_MS = 30 * 60e3;
+  const tlChart = document.getElementById('tlChart'), tlScrub = document.getElementById('tlScrub'), tlLabel = document.getElementById('tlScrubLabel');
+  let scrubbing = false;
+  function scrubTimeAt(clientX) {
+    const r = el.timeline.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    return { t: dataNow() - 24 * 3600e3 + f * 24 * 3600e3, x: clientX - tlChart.getBoundingClientRect().left };
+  }
+  function nearestOutage(t) {
+    let best = null, bd = Infinity;
+    for (const o of S.outages) {
+      if (!outageVisible(o)) continue;
+      const d = Math.abs(o.start - t);
+      if (d < bd) { bd = d; best = o; }
+    }
+    return best;
+  }
+  function scrubTo(clientX) {
+    const { t, x } = scrubTimeAt(clientX);
+    S.timeFocus = t;
+    const count = S.outages.filter((o) => outageVisible(o) && Math.abs(o.start - t) <= SCRUB_WINDOW_MS).length;
+    const n = nearestOutage(t);
+    tlScrub.hidden = false;
+    tlScrub.style.left = x + 'px';
+    tlLabel.textContent = `${fmtTime(t)} \u00B7 ${count} outage${count === 1 ? '' : 's'}`
+      + (n && Math.abs(n.start - t) <= SCRUB_WINDOW_MS ? ` \u00B7 ${n.name}${n.locations[0] ? ', ' + n.locations[0].label : ''}` : '');
+    // Keep the label on screen near the ends; the line itself stays exact.
+    const cw = tlChart.clientWidth, lw = tlLabel.offsetWidth;
+    const shift = Math.max(lw / 2 - x, Math.min(0, cw - x - lw / 2));
+    tlLabel.style.transform = `translateX(calc(-50% + ${shift}px))`;
+    renderTimeline();
+  }
+  tlChart.addEventListener('pointerdown', (e) => {
+    scrubbing = true; userInput();
+    try { tlChart.setPointerCapture(e.pointerId); } catch (_) { /* */ }
+    scrubTo(e.clientX);
+  });
+  tlChart.addEventListener('pointermove', (e) => { if (scrubbing) { S.lastInput = performance.now(); scrubTo(e.clientX); } });
+  const endScrub = (e) => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    const { t } = scrubTimeAt(e.clientX);
+    S.timeFocus = null;
+    tlScrub.hidden = true;
+    const n = nearestOutage(t);
+    if (n) { closePath(); select(n); } else renderTimeline();
+  };
+  tlChart.addEventListener('pointerup', endScrub);
+  tlChart.addEventListener('pointercancel', endScrub);
 
   let toastTimer = 0;
   function toast(msg, kind) {

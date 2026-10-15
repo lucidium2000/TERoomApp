@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=86">
+  <link rel="stylesheet" href="css/app.css?v=87">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -88,8 +88,9 @@
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
       <span>Tour</span>
     </button>
-    <div class="tl-chart">
+    <div class="tl-chart" id="tlChart" title="Drag to scrub through the last 24 hours">
       <svg id="timeline" preserveAspectRatio="none"></svg>
+      <div class="tl-scrub" id="tlScrub" hidden><span id="tlScrubLabel"></span></div>
       <div class="tl-axis"><span>24h ago</span><span>12h</span><span>now</span></div>
     </div>
   </footer>
@@ -202,7 +203,7 @@
   <script src="js/pathtrace.js?v=77"></script>
   <script src="js/glglobe.js?v=17"></script>
   <script src="js/glass.js?v=74"></script>
-  <script src="js/app.js?v=85"></script>
+  <script src="js/app.js?v=88"></script>
   <script src="js/devlab.js?v=74"></script>
 </body>
 </html>
