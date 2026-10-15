@@ -628,21 +628,23 @@ body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
 /* ── Hand cursor (gestures v2) ───────────────────────────────────────────
    A silhouette of the viewer's own hand (palm + finger strokes from the 21
    tracked points). The group's opacity applies to the merged shape, so where
-   fingers overlap the palm there's no darker seam - one even shadow. The
-   brighter dot at the palm centre is the pointer. */
+   fingers overlap the palm there's no darker seam - one even shadow. It's kept
+   barely there - soft-edged and screen-blended, so it only lightens what's
+   behind it, like a reflection in the glass. The dot at the palm centre is
+   the pointer and stays clearly visible. */
 .hand-cursor { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; }
 .hand-cursor svg { position: absolute; left: 0; top: 0; overflow: visible; }
-.hand-cursor .hc-hand { opacity: .24; fill: #fff; stroke: #fff; stroke-linecap: round; stroke-linejoin: round;
-  filter: drop-shadow(0 0 6px rgba(255, 255, 255, .9)); transition: opacity .2s ease, fill .25s ease, stroke .25s ease; }
+.hand-cursor .hc-hand { opacity: .07; fill: #fff; stroke: #fff; stroke-linecap: round; stroke-linejoin: round;
+  filter: blur(3px); mix-blend-mode: screen; transition: opacity .25s ease, fill .25s ease, stroke .25s ease; }
 .hand-cursor .hc-palm { stroke-width: 26px; }
 .hand-cursor .hc-finger { fill: none; stroke-width: 19px; }
 .hand-cursor .hc-thumb { stroke-width: 21px; }
 .hand-cursor .hc-pinky { stroke-width: 15px; }
 .hand-cursor .hc-dot { fill: rgba(255, 255, 255, 0.85); stroke: rgba(9, 14, 26, 0.5); stroke-width: 1.5;
   transition: fill .15s ease, r .15s ease; }
-.hand-cursor.idle { opacity: .55; }
+.hand-cursor.idle { opacity: .6; }
 .hand-cursor.over .hc-dot { fill: #38bdf8; r: 9; }
-.hand-cursor .hc-hand.arming { fill: #9adffb; stroke: #9adffb; }
-.hand-cursor.grab .hc-hand { fill: #38bdf8; stroke: #38bdf8; opacity: .3; filter: drop-shadow(0 0 5px rgba(56, 189, 248, .9)); }
+.hand-cursor .hc-hand.arming { fill: #9adffb; stroke: #9adffb; opacity: .1; }
+.hand-cursor.grab .hc-hand { fill: #38bdf8; stroke: #38bdf8; opacity: .14; }
 .hand-cursor.clicked .hc-dot { animation: hc-click .35s ease-out; }
 @keyframes hc-click { 0% { r: 16; fill: #fff; } 100% { r: 7; } }
