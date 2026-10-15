@@ -481,6 +481,7 @@
 
   function drawOutages(now, R) {
     S.hits = [];
+    drawPath(now, R);
     const k = Math.max(0.7, Math.min(1.6, R / 430));
     const sel = S.selected;
 
@@ -654,7 +655,7 @@
 
     // Tour: start when idle, advance on a timer.
     const tourOff = CFG.tour === '0' && !CFG.signage;
-    if (!S.touring && !tourOff && !S.guideOpen && S.outages.length && now - S.lastInput > CFG.idleMs) setTour(true);
+    if (!S.touring && !tourOff && !S.guideOpen && !S.pathOpen && S.outages.length && now - S.lastInput > CFG.idleMs) setTour(true);
     if (S.touring && !S.spin) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
       el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
@@ -705,6 +706,7 @@
   }
 
   function select(o, { fromTour = false } = {}) {
+    if (o && S.pathOpen) closePath();
     const had = S.selected;
     S.selected = o;
     if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
@@ -808,14 +810,101 @@
     const title = (p) => `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '');
     rnRows.innerHTML = probes.map((p) => {
       const o = rnOutage(p.term);
-      return `<div class="rn-row rn-${p.status}" title="${esc(title(p))}"><i></i><span class="rn-name">${esc(p.name)}</span>`
+      return `<div class="rn-row rn-${p.status}" data-i="${probes.indexOf(p)}" title="${esc(title(p))} - click for path"><i></i><span class="rn-name">${esc(p.name)}</span>`
         + `${rnSpark(p)}<b>${ms(p)}</b>${o ? `<em class="rn-o rn-o-${o}">outage</em>` : '<em></em>'}</div>`;
     }).join('');
     rnStrip.innerHTML = probes.map((p) => {
       const o = rnOutage(p.term);
-      return `<span class="rn-chip rn-${p.status}${o === 'active' ? ' rn-has-outage' : ''}"><i></i>${esc(p.name)} <b>${ms(p)}</b></span>`;
+      return `<span class="rn-chip rn-${p.status}${o === 'active' ? ' rn-has-outage' : ''}" data-i="${probes.indexOf(p)}"><i></i>${esc(p.name)} <b>${ms(p)}</b></span>`;
     }).join('');
   }
+
+  // ── Path trace (click a "From this room" row) ──────────────────────────
+  // MTR from a Globalping probe on this room's ISP (js/pathtrace.js), drawn on
+  // the globe from the probe through the geolocated hops to the service.
+  const pathCard = document.getElementById('pathCard');
+  const pathTitle = document.getElementById('pathTitle'), pathMeta = document.getElementById('pathMeta'), pathBody = document.getElementById('pathBody');
+  let pathRun = 0;
+  function openPath(p) {
+    if (!window.PathTrace) return;
+    const run = ++pathRun;
+    userInput(); select(null); setTour(false);
+    S.pathOpen = true; S.path = null;
+    sfx('select');
+    const host = new URL(p.url).host;
+    pathTitle.textContent = `Path to ${p.name}`;
+    pathMeta.textContent = host;
+    pathBody.innerHTML = '<div class="pc-status">Starting\u2026</div>';
+    pathCard.hidden = false;
+    window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = `<div class="pc-status">${esc(msg)}</div>`; })
+      .then((r) => { if (run === pathRun) showPath(p, r); })
+      .catch((e) => { if (run === pathRun) pathBody.innerHTML = `<div class="pc-status pc-err">Trace failed: ${esc(e.message || e)}</div>`; });
+  }
+  function closePath() {
+    pathRun++; S.pathOpen = false; S.path = null;
+    if (!pathCard.hidden) sfx('close');
+    pathCard.hidden = true;
+  }
+  function showPath(p, r) {
+    const scopeTxt = { isp: `on ${r.room.org || 'your ISP'} (same ISP as this room)`, city: `in ${r.room.city} (same city)`, country: `in ${r.room.country}`, any: 'elsewhere' }[r.scope];
+    const last = r.hops[r.hops.length - 1];
+    pathMeta.innerHTML = `${esc(r.target.host)} &middot; ${esc(r.target.ip || '')}<br>`
+      + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))}, ${esc(r.probe.network || '')} &mdash; ${esc(scopeTxt)}`
+      + (last && last.avg != null ? `<br><b>End to end ~${Math.round(last.avg)} ms</b> over ${r.hops.length} hops` : '');
+    pathBody.innerHTML = '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>avg</th><th>loss</th></tr>'
+      + r.hops.map((h) => `<tr class="${h.ip ? '' : 'pc-silent'}"><td>${h.n}</td>`
+        + `<td title="${esc(h.ip || '')}">${esc(h.host || h.ip || '* (no reply)')}</td>`
+        + `<td>${h.asn ? 'AS' + h.asn + ' ' : ''}${esc(h.org || '')}</td><td>${esc([h.city, h.country].filter(Boolean).join(', '))}</td>`
+        + `<td>${h.avg != null ? h.avg.toFixed(1) + ' ms' : '-'}</td><td class="${h.loss > 0 && h.loss < 100 ? 'pc-loss' : ''}">${h.loss != null ? Math.round(h.loss) + '%' : '-'}</td></tr>`).join('')
+      + '</table><div class="pc-note">Loss at middle hops usually means a router deprioritises trace replies, not real packet loss. Only loss that carries through to the last hop matters.</div>';
+    // Globe: probe -> located hops -> service (merging hops in the same place).
+    const pts = [{ lon: r.probe.lon, lat: r.probe.lat, label: r.probe.city || 'probe', kind: 'start' }];
+    for (const h of r.hops) {
+      if (h.lat == null) continue;
+      const prev = pts[pts.length - 1];
+      if (d3.geoDistance([prev.lon, prev.lat], [h.lon, h.lat]) * 6371 < 40) continue;
+      pts.push({ lon: h.lon, lat: h.lat, label: h.city || '' });
+    }
+    pts[pts.length - 1].kind = 'end';
+    pts[pts.length - 1].label = (pts[pts.length - 1].label ? pts[pts.length - 1].label + ' \u00B7 ' : '') + p.name;
+    S.path = { pts };
+    flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
+  }
+  function drawPath(now, R) {
+    if (!S.path) return;
+    const pts = S.path.pts, k = Math.max(0.7, Math.min(1.6, R / 430));
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const [w, a, dash] of [[6, 0.22, null], [2, 0.95, [7 * k, 7 * k]]]) {
+      ctx.beginPath();
+      for (let i = 0; i + 1 < pts.length; i++) proj.arc([pts[i].lon, pts[i].lat], [pts[i + 1].lon, pts[i + 1].lat]);
+      ctx.setLineDash(dash || []);
+      ctx.lineDashOffset = -(now / 30) % 1000;
+      ctx.strokeStyle = `rgba(52,211,153,${a})`; ctx.lineWidth = w * k; ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.font = `600 ${Math.round(12 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.textBaseline = 'middle';
+    for (const q of pts) {
+      const s2 = proj.point(q.lon, q.lat);
+      if (!s2) continue;
+      const big = q.kind === 'start' || q.kind === 'end';
+      ctx.fillStyle = q.kind === 'end' ? '#16bdeb' : '#34d399';
+      ctx.beginPath(); ctx.arc(s2[0], s2[1], (big ? 6 : 3.5) * k, 0, 2 * Math.PI); ctx.fill();
+      if (big && q.label) {
+        const tw = ctx.measureText(q.label).width;
+        ctx.fillStyle = 'rgba(5,7,13,0.75)'; ctx.fillRect(s2[0] + 10 * k, s2[1] - 10 * k, tw + 10 * k, 20 * k);
+        ctx.fillStyle = '#e6edf7'; ctx.fillText(q.label, s2[0] + 15 * k, s2[1] + 0.5);
+      }
+    }
+    ctx.restore();
+  }
+  document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
+  [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-i]');
+    const probes = window.RoomNet && window.RoomNet.probes;
+    if (t && probes) openPath(probes[+t.dataset.i]);
+  }));
 
   function renderTimeline() {
     const svg = el.timeline;

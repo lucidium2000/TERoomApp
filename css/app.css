@@ -505,3 +505,37 @@ body.free .roomnet-strip {
 .rn-chip b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .rn-chip.rn-has-outage { border-color: rgba(244, 63, 94, .55); }
 @media (max-width: 900px) { .roomnet, body.free .roomnet-strip { display: none; } }
+
+/* Clickable room rows/chips */
+.rn-row, .rn-chip { cursor: pointer; }
+.rn-row:hover { background: rgba(255,255,255,.04); border-radius: 6px; }
+body.free .roomnet-strip .rn-chip { pointer-events: auto; }
+
+/* Path trace card */
+.pathcard {
+  /* Where the outage card sits (opening a trace closes that card), so the
+     globe - and the path drawn on it - stays clear. */
+  position: fixed; left: var(--gutter); bottom: calc(var(--gutter) + 6.4em); z-index: 20;
+  width: min(60em, calc(100vw - var(--panel-w) - 3 * var(--gutter))); max-height: 42vh; overflow: auto;
+  background: var(--glass); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 16px;
+  padding: 1em 1.2em 1.1em; animation: rise .4s ease-out;
+}
+body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
+.pathcard .card-close { position: absolute; top: .4em; right: .5em; }
+.pc-kind { font-size: .72em; color: var(--ok); text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+.pathcard h3 { margin: .1em 0 .2em; font-size: 1.45em; }
+.pc-meta { color: var(--ink-2); font-size: .86em; line-height: 1.5; }
+.pc-meta b { color: var(--ink); }
+.pc-status { margin-top: .8em; color: var(--ink-2); }
+.pc-err { color: var(--bad); }
+.pc-hops { width: 100%; margin-top: .8em; border-collapse: collapse; font-size: .82em; font-variant-numeric: tabular-nums; }
+.pc-hops th { text-align: left; color: var(--ink-3); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: .85em; padding: .2em .4em; }
+.pc-hops td { padding: .25em .4em; border-top: 1px solid var(--line); max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-hops td:nth-child(5), .pc-hops td:nth-child(6), .pc-hops th:nth-child(5), .pc-hops th:nth-child(6) { text-align: right; }
+.pc-silent td { color: var(--ink-3); }
+.pc-loss { color: var(--warn); }
+.pc-note { margin-top: .7em; color: var(--ink-3); font-size: .78em; }
+@media (max-width: 900px) {
+  .pathcard { left: 12px; right: 12px; width: auto; bottom: calc(38vh + 10px); max-height: calc(62vh - 9em); }
+  .pc-hops td:nth-child(4), .pc-hops th:nth-child(4) { display: none; }
+}
