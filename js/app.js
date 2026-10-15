@@ -740,6 +740,19 @@
     v.lon = sp > 0 ? Math.sign(v.lon) * sp : 0;
     v.lat *= Math.exp(-dt / TILT_TAU_MS);
   }
+  /** On letting go: a globe that was barely moving stays put - a slow drift
+   *  at release is almost always the hand settling, not a flick. Speed is
+   *  judged on screen (px/ms) so it means the same at any zoom: below
+   *  FLING_MIN it stops, up to twice that it eases in, above it flies freely.
+   *  ?flingmin= tunes it (px per second, default 250). */
+  const FLING_MIN = num('flingmin', 250) / 1000;
+  function releaseFling() {
+    const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
+    const sp = Math.hypot(S.vel.lon, S.vel.lat) / degPerPx;   // px per ms
+    const k = sp <= FLING_MIN ? 0 : sp >= 2 * FLING_MIN ? 1 : (sp - FLING_MIN) / FLING_MIN;
+    S.vel.lon *= k; S.vel.lat *= k;
+    capSpin();
+  }
   function capSpin() {
     const v = S.vel;
     v.lon = Math.max(-MAX_SPIN, Math.min(MAX_SPIN, v.lon));
@@ -1502,6 +1515,7 @@
       select(best ? best.o : null);
     }
     if (down && now() - down.lt > 80) S.vel.lon = S.vel.lat = 0;   // held still before release: no flick
+    else if (down) releaseFling();
     down = null; S.dragging = false;
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -1659,7 +1673,7 @@
         S.grab = null;
         S.dragging = false;
         S.grabTarget = null;
-        capSpin();
+        releaseFling();
       }
       if (state === 'start') sfx('grab');
       if (state === 'end') { sfx('release'); setHud(window.Glass.armed ? 'ready' : 'dormant'); }
