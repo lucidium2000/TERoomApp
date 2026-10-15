@@ -18,6 +18,7 @@
  *   scale=<0.4-1>   fix the render resolution scale (default: adapts to keep >= ~25 fps)
  *   tex=<px>        WebGL land texture width, default 4096
  *   kiosk=1         hide the cursor
+ *   units=c         weather on city labels in Celsius (default Fahrenheit)
  *   autoupdate=0    don't reload by itself when a new version is published
  *   signage=1       non-interactive digital signage: tour always on, no controls
  *   mode=free       clean globe: no panels; a floating callout appears at the outage
@@ -477,6 +478,79 @@
     perfMark('markers');
   }
 
+  // ── Weather on city labels (Open-Meteo: free, no key, CORS) ────────────
+  // Fetched for a selected outage's locations in one batched request, cached
+  // 15 minutes, drawn as temperature + a small vector symbol (no emoji font
+  // needed on the device).
+  const WX_C = qs.get('units') === 'c';
+  const wx = new Map();   // "lat,lon" -> { t, code, day, at } | 'pending'
+  const wxKey = (l) => `${l.lat.toFixed(2)},${l.lon.toFixed(2)}`;
+  function fetchWeather(locs) {
+    const now = Date.now();
+    const need = locs.filter((l) => { const w = wx.get(wxKey(l)); return !w || (w !== 'pending' && now - w.at > 15 * 60e3); }).slice(0, 40);
+    if (!need.length) return;
+    need.forEach((l) => wx.set(wxKey(l), 'pending'));
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + need.map((l) => l.lat.toFixed(3)).join(',')
+      + '&longitude=' + need.map((l) => l.lon.toFixed(3)).join(',')
+      + '&current=temperature_2m,weather_code,is_day' + (WX_C ? '' : '&temperature_unit=fahrenheit');
+    fetch(url).then((r) => r.json()).then((d) => {
+      const arr = Array.isArray(d) ? d : [d];
+      arr.forEach((x, i) => { if (x && x.current) wx.set(wxKey(need[i]), { t: x.current.temperature_2m, code: x.current.weather_code, day: x.current.is_day === 1, at: Date.now() }); });
+    }).catch(() => need.forEach((l) => wx.delete(wxKey(l))));
+  }
+  /** WMO weather code -> simple symbol, drawn centred at (x, y), size s. */
+  function drawWx(code, day, x, y, s) {
+    const kind = code === 0 ? 'clear' : code <= 2 ? 'partly' : code === 3 ? 'cloud' : code <= 48 ? 'fog'
+      : code <= 67 || (code >= 80 && code <= 82) ? 'rain' : code <= 77 || code <= 86 ? 'snow' : 'storm';
+    const sun = (cx, cy, r) => {
+      if (day) {
+        ctx.strokeStyle = ctx.fillStyle = '#fbbf24'; ctx.lineWidth = Math.max(1, r * 0.28);
+        ctx.beginPath(); ctx.arc(cx, cy, r * 0.55, 0, 2 * Math.PI); ctx.fill();
+        for (let i = 0; i < 8; i++) {
+          const a = i * Math.PI / 4;
+          ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r * 0.8, cy + Math.sin(a) * r * 0.8); ctx.lineTo(cx + Math.cos(a) * r * 1.1, cy + Math.sin(a) * r * 1.1); ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = '#cbd5e1';
+        ctx.beginPath(); ctx.arc(cx, cy, r * 0.75, 0, 2 * Math.PI); ctx.fill();
+        ctx.fillStyle = 'rgba(5,7,13,1)';
+        ctx.beginPath(); ctx.arc(cx + r * 0.35, cy - r * 0.25, r * 0.62, 0, 2 * Math.PI); ctx.fill();
+      }
+    };
+    const cloud = (cx, cy, w, color) => {
+      ctx.fillStyle = color || '#cbd5e1';
+      ctx.beginPath();
+      ctx.arc(cx - w * 0.25, cy + w * 0.05, w * 0.22, 0, 2 * Math.PI);
+      ctx.arc(cx + w * 0.02, cy - w * 0.1, w * 0.3, 0, 2 * Math.PI);
+      ctx.arc(cx + w * 0.28, cy + w * 0.06, w * 0.2, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillRect(cx - w * 0.25, cy + w * 0.05, w * 0.53, w * 0.21);
+    };
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (kind === 'clear') sun(x, y, s * 0.5);
+    else if (kind === 'partly') { sun(x + s * 0.18, y - s * 0.18, s * 0.38); cloud(x - s * 0.05, y + s * 0.08, s * 0.8); }
+    else if (kind === 'cloud') cloud(x, y, s);
+    else if (kind === 'fog') {
+      ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = s * 0.12;
+      for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(x - s * 0.4, y + i * s * 0.25); ctx.lineTo(x + s * 0.4, y + i * s * 0.25); ctx.stroke(); }
+    } else {
+      cloud(x, y - s * 0.12, s * 0.9);
+      if (kind === 'rain') {
+        ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = s * 0.1;
+        for (const dx of [-0.22, 0, 0.22]) { ctx.beginPath(); ctx.moveTo(x + dx * s, y + s * 0.22); ctx.lineTo(x + dx * s - s * 0.07, y + s * 0.45); ctx.stroke(); }
+      } else if (kind === 'snow') {
+        ctx.fillStyle = '#f8fafc';
+        for (const dx of [-0.22, 0, 0.22]) { ctx.beginPath(); ctx.arc(x + dx * s, y + s * 0.36, s * 0.07, 0, 2 * Math.PI); ctx.fill(); }
+      } else {
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath(); ctx.moveTo(x + s * 0.05, y + s * 0.12); ctx.lineTo(x - s * 0.12, y + s * 0.38); ctx.lineTo(x + s * 0.02, y + s * 0.38);
+        ctx.lineTo(x - s * 0.06, y + s * 0.58); ctx.lineTo(x + s * 0.16, y + s * 0.3); ctx.lineTo(x + s * 0.02, y + s * 0.3); ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   function outageVisible(o) { return S.filter === 'all' || o.kind === S.filter; }
 
   function drawOutages(now, R) {
@@ -545,13 +619,23 @@
         const label = loc.label;
         const x = p[0] + 14 * k, y = p[1];
         const tw = loc.tw || (loc.tw = ctx.measureText(label).width / k);
-        const w = tw * k;
+        const wxv = wx.get(wxKey(loc)), hasWx = wxv && wxv !== 'pending';
+        const temp = hasWx ? `${Math.round(wxv.t)}\u00B0` : '';
+        const tempW = hasWx ? ctx.measureText(temp).width : 0;
+        const extra = hasWx ? 8 * k + 16 * k + 4 * k + tempW : 0;   // gap, icon, gap, temperature
+        const w = tw * k + extra;
         if (placed.some((q) => Math.abs(q.y - y) < 18 * k && x < q.x + q.w && x + w > q.x)) continue;
         placed.push({ x, y, w });
         ctx.fillStyle = 'rgba(5,7,13,0.75)';
         ctx.fillRect(x - 5 * k, y - 11 * k, w + 10 * k, 22 * k);
         ctx.fillStyle = '#e6edf7';
         ctx.fillText(label, x, y + 0.5);
+        if (hasWx) {
+          const ix = x + tw * k + 8 * k + 8 * k;
+          drawWx(wxv.code, wxv.day, ix, y, 16 * k);
+          ctx.fillStyle = '#e6edf7';
+          ctx.fillText(temp, ix + 8 * k + 4 * k, y + 0.5);
+        }
       }
     }
   }
@@ -711,6 +795,7 @@
     S.selected = o;
     if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
     if (!fromTour) sfx('select');   // tour steps are silent
+    fetchWeather(o.locations);
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
 

@@ -8,6 +8,7 @@ A full-screen, touch-friendly globe of live Internet outages from **ThousandEyes
 - **Tour mode** runs from launch. Touch stops it, and it resumes after 10 s idle (HUD or Free mode). It cycles through active and recent outages, which suits a lobby screen or a device sitting idle between meetings.
 - **"Your services"** shows at a glance whether Webex, Zoom, Microsoft 365, Google or AWS had outages, so people can tell "is it me or the internet?"
 - **HUD / Free modes:** the frame button on the left switches modes, and the device remembers the choice. HUD shows the side panel, the outage card and the timeline. Free mode is a clean globe: the panels are hidden, the controls fade away until someone touches the screen, and when the globe zooms into an outage a small floating window appears next to the affected locations.
+- **Weather on city labels:** when an outage is selected, each city label shows the current temperature and a weather symbol (sun, sun and cloud, cloud, fog, rain, snow or storm, with a moon at night), from [Open-Meteo](https://open-meteo.com). Shown in °F by default; `units=c` switches to Celsius.
 - **24-hour timeline** of outage starts. New outages that arrive on a refresh get a toast and a fly-to.
 
 > Unofficial community project, not affiliated with or endorsed by Cisco/ThousandEyes. The data endpoint is the one the public outage map uses. It isn't a documented API and may change.
@@ -138,6 +139,7 @@ The page checks for a new published version about once a minute. When it finds o
 | `volume` | `1` | interface sound volume, 0–2 |
 | `hfov` | `71` | camera horizontal field of view in degrees, for Device Lab distance estimates |
 | `roomnet` | on | `0` turns off the room response-time probes |
+| `units` | `f` | `c` shows weather temperatures in Celsius |
 | `perf` | off | `1` shows frame timing and Glass tracking stats |
 | `autoupdate` | on | `0` stops the page reloading itself when a new version is published |
 | `signage` | off | `1` for non-interactive signage |
