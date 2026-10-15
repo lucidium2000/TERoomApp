@@ -468,3 +468,40 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .dl-bar i { display: block; height: 100%; background: #16bdeb; }
 .dl-acts { display: flex; gap: 6px; margin-top: 5px; }
 .dl-btn { padding: 6px 12px; min-height: 36px; border-radius: 8px; border: 1px solid rgba(22,189,235,.5); color: #c9f1ff; background: rgba(22,189,235,.12); font: 600 12px system-ui, sans-serif; }
+
+/* "From this room": live response times with a per-service baseline. */
+.roomnet h2 {
+  margin: 0 0 .45em; font-size: .78em; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .12em; font-weight: 700;
+}
+.roomnet h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: .4em; }
+.rn-row {
+  display: grid; grid-template-columns: .6em minmax(0, 1fr) 56px 4.6em 3.6em; gap: .55em;
+  align-items: center; font-size: .88em; padding: .12em 0;
+}
+.rn-row i, .rn-chip i { width: .6em; height: .6em; border-radius: 50%; background: var(--ink-3); display: inline-block; }
+.rn-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rn-row b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.rn-spark { width: 56px; height: 14px; display: block; }
+.rn-spark path { fill: none; stroke: var(--app); stroke-width: 1.4; vector-effect: non-scaling-stroke; opacity: .8; }
+.rn-o { font-style: normal; font-size: .72em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; text-align: right; }
+.rn-o-active { color: var(--bad); } .rn-o-recent { color: var(--warn); }
+.rn-ok i { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.rn-warn i { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.rn-slow i, .rn-down i { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+.rn-down b { color: var(--bad); }
+
+/* Free mode: a slim row of chips at the bottom centre instead. */
+.roomnet-strip { display: none; }
+body.free .roomnet-strip {
+  position: fixed; left: 50%; bottom: var(--gutter); transform: translateX(-50%);
+  display: flex; gap: .45em; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 2 * var(--gutter) - 9em);
+  pointer-events: none;
+}
+.rn-chip {
+  display: inline-flex; align-items: center; gap: .45em; padding: .35em .75em; border-radius: 99px;
+  font-size: .85em; color: var(--ink-2); background: rgba(9, 14, 26, .72); border: 1px solid var(--line);
+}
+.rn-chip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.rn-chip.rn-has-outage { border-color: rgba(244, 63, 94, .55); }
+@media (max-width: 900px) { .roomnet, body.free .roomnet-strip { display: none; } }

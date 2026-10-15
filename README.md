@@ -58,6 +58,10 @@ xConfiguration Standby Signage Mode: On
 xConfiguration Standby Signage Url: "https://<you>.github.io/<repo>/?signage=1"
 ```
 
+## From this room
+
+A small, in-browser take on a ThousandEyes agent. Every 30 seconds the page measures response time from this device to Webex, Microsoft 365, Zoom, Google and AWS. Each service gets a warm-up request so the connection is open, then one timed request; this is HTTP response time as the browser sees it, not ping. Each service is colored against its own recent baseline, so a service that's always around 370 ms is green there and only turns amber or red when it's noticeably slower than usual, or red when it doesn't reply. Each service also shows a sparkline of recent samples, and an **outage** tag when the same provider has an outage on the globe. It appears in the side panel in HUD mode and as a slim row of chips in Free mode. While the camera is on, the globe renders at 1x to leave GPU time for hand tracking. `roomnet=0` turns the probes off.
+
 ## Sounds
 
 Short, soft interface sounds are synthesized in the browser (no audio files) for button taps, selecting outages (tour steps are silent), new-outage alerts, camera on/off, and each gesture: ready, grab and let go, pinch, swipe, and opening and closing the guide. Browsers only allow sound after the first touch, so an untouched signage screen stays silent. `sound=0` mutes everything and `volume=` (0–2) scales it.
@@ -133,6 +137,7 @@ The page checks for a new published version about once a minute. When it finds o
 | `sound` | on | `0` mutes interface sounds |
 | `volume` | `1` | interface sound volume, 0–2 |
 | `hfov` | `71` | camera horizontal field of view in degrees, for Device Lab distance estimates |
+| `roomnet` | on | `0` turns off the room response-time probes |
 | `perf` | off | `1` shows frame timing and Glass tracking stats |
 | `autoupdate` | on | `0` stops the page reloading itself when a new version is published |
 | `signage` | off | `1` for non-interactive signage |

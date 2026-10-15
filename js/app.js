@@ -377,7 +377,9 @@
   // ── Rendering ────────────────────────────────────────────────────────────
   function resize() {
     S.w = window.innerWidth; S.h = window.innerHeight;
-    S.pr = CFG.dpr * S.scale;
+    // While the camera is on, render at 1x: the globe shares the GPU with the
+    // face/hand models, and on a 4K (2x) screen 1.5x is 2.25x the pixels.
+    S.pr = (S.camOn ? Math.min(1, CFG.dpr) : CFG.dpr) * S.scale;
     canvas.width = Math.round(S.w * S.pr); canvas.height = Math.round(S.h * S.pr);
     S.stars = buildStars(S.w, S.h);
     sphereSprite = null;
@@ -778,6 +780,43 @@
     }).join('');
   }
 
+  // ── "From this room" (js/roomnet.js) ───────────────────────────────────
+  // Live response times from this browser, each judged against its own
+  // baseline, tagged when the same provider also has an outage on the globe.
+  const rnRows = document.getElementById('roomNetRows'), rnStrip = document.getElementById('roomNetStrip');
+  function rnOutage(term) {
+    if (!S.outages.length) return null;
+    const { hits } = watchMatches(term);
+    return hits.some((o) => o.active) ? 'active' : hits.length ? 'recent' : null;
+  }
+  function rnSpark(p) {
+    const pts = p.samples.map((x) => x.ms);
+    const vals = pts.filter((v) => v != null);
+    if (vals.length < 2) return '<svg class="rn-spark" viewBox="0 0 56 14"></svg>';
+    const max = Math.max(...vals) * 1.1, min = Math.min(...vals) * 0.9, n = Math.max(pts.length - 1, 1);
+    let d = '', pen = false;
+    pts.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      const x = (i / n) * 56, y = 13 - ((v - min) / (max - min || 1)) * 12;
+      d += (pen ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1); pen = true;
+    });
+    return `<svg class="rn-spark" viewBox="0 0 56 14" preserveAspectRatio="none"><path d="${d}"/></svg>`;
+  }
+  function renderRoomNet(probes) {
+    probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
+    const ms = (p) => (p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
+    const title = (p) => (p.baseline ? `usually ~${Math.round(p.baseline)} ms` : 'measuring');
+    rnRows.innerHTML = probes.map((p) => {
+      const o = rnOutage(p.term);
+      return `<div class="rn-row rn-${p.status}" title="${esc(title(p))}"><i></i><span class="rn-name">${esc(p.name)}</span>`
+        + `${rnSpark(p)}<b>${ms(p)}</b>${o ? `<em class="rn-o rn-o-${o}">outage</em>` : '<em></em>'}</div>`;
+    }).join('');
+    rnStrip.innerHTML = probes.map((p) => {
+      const o = rnOutage(p.term);
+      return `<span class="rn-chip rn-${p.status}${o === 'active' ? ' rn-has-outage' : ''}"><i></i>${esc(p.name)} <b>${ms(p)}</b></span>`;
+    }).join('');
+  }
+
   function renderTimeline() {
     const svg = el.timeline;
     const W = 1000, H = 100, BINS = 48, now = Date.now(), span = 24 * 3600e3;
@@ -871,7 +910,7 @@
     const staleMin = (nowMs - gen.getTime()) / 60000;
     el.updated.textContent = `updated ${fmtTime(gen.getTime())}` + (staleMin > 30 ? ` (${Math.round(staleMin)}m old)` : '');
 
-    renderStats(); renderWatch(); renderList(); renderTimeline();
+    renderStats(); renderWatch(); renderList(); renderTimeline(); renderRoomNet();
 
     // Something new since the last refresh: call it out and go there.
     if (!firstLoad && fresh.length) {
@@ -1070,14 +1109,16 @@
 
   // Redraw in the same task as the resize: a resized canvas is blank until it
   // is drawn again, and waiting for the next frame can show that as a flash.
-  window.addEventListener('resize', () => {
+  /** Resize and redraw in the same task, so the wiped canvas is never shown. */
+  function resizeAndDraw() {
     resize();
     try {
       ctx.setTransform(S.pr, 0, 0, S.pr, 0, 0);
       if (!glr) drawSky();
       drawGlobe(performance.now(), layout());
     } catch (e) { /* the next frame will draw */ }
-  });
+  }
+  window.addEventListener('resize', resizeAndDraw);
 
   // ── Glass mode controls ──────────────────────────────────────────────────
   const glassBtn = document.getElementById('glassBtn');
@@ -1109,6 +1150,8 @@
       if (state === 'face' || state === 'motion') { if (!camWasOn) sfx('camOn'); camWasOn = true; }
       else if (state === 'off') { if (camWasOn) sfx('camOff'); camWasOn = false; }
       else if (state === 'error') { sfx('error'); camWasOn = false; }
+      // Render resolution follows the camera (1x while it's on).
+      if (S.camOn !== camWasOn) { S.camOn = camWasOn; resizeAndDraw(); }
       const on = state === 'starting' || state === 'face' || state === 'motion';
       glassBtn.setAttribute('aria-pressed', String(on));
       glassBtn.classList.toggle('busy', state === 'starting');
@@ -1462,5 +1505,6 @@
     try { resumeGlass = sessionStorage.getItem('te-resume-glass') === '1'; sessionStorage.removeItem('te-resume-glass'); } catch (_) { /* */ }
     if ((qs.get('glass') === '1' || resumeGlass) && window.Glass) window.Glass.start();
     startAutoUpdate();
+    if (window.RoomNet) window.RoomNet.start({ onUpdate: renderRoomNet });
   })();
 })();
