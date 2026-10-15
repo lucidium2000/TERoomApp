@@ -18,6 +18,7 @@
  *   scale=<0.4-1>   fix the render resolution scale (default: adapts to keep >= ~25 fps)
  *   tex=<px>        WebGL land texture width, default 4096
  *   kiosk=1         hide the cursor
+ *   pathhigh=<ms>   path trace: latency a link must add to show red (amber at half), default 30
  *   units=c         weather on city labels in Celsius (default Fahrenheit)
  *   autoupdate=0    don't reload by itself when a new version is published
  *   signage=1       non-interactive digital signage: tour always on, no controls
@@ -930,56 +931,156 @@
     if (!pathCard.hidden) sfx('close');
     pathCard.hidden = true;
   }
+  // Link colouring thresholds (added latency, ms): amber at half, red at full.
+  const PATH_HIGH = Math.max(5, num('pathhigh', 30));
+  const linkClass = (d) => (d == null ? 'pv-silent' : d >= PATH_HIGH ? 'pv-bad' : d >= PATH_HIGH / 2 ? 'pv-warn' : 'pv-ok');
+  const shortHost = (h) => (h.host ? h.host.split('.')[0] : h.ip || '*');
+
+  /** ThousandEyes-style path visualization: source -> hops -> destination,
+   *  links labelled with the latency each adds, red/amber when high, red rings
+   *  on hops with loss, dashed grey for hops that don't answer, and bands
+   *  grouping consecutive hops on the same network. */
+  function pathSvg(r) {
+    const nodes = [{ kind: 'src', label: 'Probe', sub: r.probe.city || '', avg: 0, loss: 0, asn: r.probe.asn, org: r.probe.network }]
+      .concat(r.hops.map((h, i) => ({
+        kind: i === r.hops.length - 1 ? 'dst' : h.ip ? 'hop' : 'silent',
+        label: i === r.hops.length - 1 ? r.target.host.split('.')[0] : shortHost(h), sub: h.city || '',
+        avg: h.avg, loss: h.ip ? h.loss : null, asn: h.asn, org: h.org, ip: h.ip, host: h.host,
+      })));
+    const GAP = 90, X0 = 46, Y = 74, W = X0 * 2 + GAP * (nodes.length - 1), H = 150;
+    const xs = nodes.map((_, i) => X0 + i * GAP);
+    let out = `<svg class="pv" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Path visualization">`;
+    // Network bands: hops without an ASN (private LAN hops, silent hops)
+    // belong to the network around them, so each network is one band.
+    const bandAsn = [];
+    nodes.forEach((n, k) => { bandAsn[k] = n.asn || bandAsn[k - 1] || null; });
+    for (let k = nodes.length - 1; k >= 0; k--) if (!nodes[k].asn && bandAsn[k] !== bandAsn[k + 1] && bandAsn[k + 1] && !bandAsn[k]) bandAsn[k] = bandAsn[k + 1];
+    let i = 0;
+    while (i < nodes.length) {
+      const a = bandAsn[i];
+      let j = i;
+      while (j + 1 < nodes.length && bandAsn[j + 1] === a) j++;
+      if (a) {
+        const x1 = xs[i] - GAP * 0.42, x2 = xs[j] + GAP * 0.42;
+        const name = (nodes.slice(i, j + 1).find((n) => n.org) || {}).org || '';
+        out += `<rect class="pv-band" x="${x1}" y="18" width="${x2 - x1}" height="${H - 26}" rx="10"/>`
+          + `<text class="pv-band-t" x="${(x1 + x2) / 2}" y="32">${esc((name.split(/[ ,]/)[0] || 'AS') + ' \u00B7 AS' + a)}</text>`;
+      }
+      i = j + 1;
+    }
+    // Links, labelled with the latency added since the previous answering hop.
+    let lastAvg = 0, lastIdx = 0;
+    for (let k = 1; k < nodes.length; k++) {
+      const n = nodes[k], silent = n.kind === 'silent' || nodes[k - 1].kind === 'silent' || n.avg == null;
+      const delta = n.avg != null ? Math.max(0, n.avg - lastAvg) : null;
+      const cls = silent && n.avg == null ? 'pv-silent' : linkClass(delta);
+      out += `<line class="pv-link ${cls}" x1="${xs[k - 1] + 12}" y1="${Y}" x2="${xs[k] - 12}" y2="${Y}"/>`;
+      if (n.avg != null) {
+        const mx = (xs[lastIdx] + xs[k]) / 2;
+        out += `<text class="pv-lat ${cls}" x="${mx}" y="${Y - 14}">+${delta.toFixed(delta < 10 ? 1 : 0)} ms</text>`;
+        lastAvg = n.avg; lastIdx = k;
+      }
+    }
+    // Nodes
+    nodes.forEach((n, k) => {
+      const x = xs[k];
+      const lossy = n.loss != null && n.loss > 0 && n.loss < 100;
+      const cls = `pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}`;
+      const title = esc([n.host || n.ip || '', n.org, n.sub, n.avg != null ? n.avg.toFixed(1) + ' ms' : '', n.loss != null ? Math.round(n.loss) + '% loss' : ''].filter(Boolean).join(' · '));
+      out += `<g class="${cls}"><title>${title}</title>`;
+      if (n.kind === 'src') out += `<rect x="${x - 11}" y="${Y - 11}" width="22" height="22" rx="5"/>`;
+      else out += `<circle cx="${x}" cy="${Y}" r="${n.kind === 'silent' ? 7 : 11}"/>`;
+      if (lossy) out += `<circle class="pv-ring" cx="${x}" cy="${Y}" r="17"/>`;
+      out += `<text class="pv-l1" x="${x}" y="${Y + 30}">${esc(n.label.slice(0, 14))}</text>`
+        + `<text class="pv-l2" x="${x}" y="${Y + 44}">${esc(lossy ? Math.round(n.loss) + '% loss' : (n.sub || '').slice(0, 14))}</text></g>`;
+    });
+    return out + '</svg>';
+  }
+
   function showPath(p, r) {
     const scopeTxt = { isp: `on ${r.room.org || 'your ISP'} (same ISP as this room)`, city: `in ${r.room.city} (same city)`, country: `in ${r.room.country}`, any: 'elsewhere' }[r.scope];
     const last = r.hops[r.hops.length - 1];
-    pathMeta.innerHTML = `${esc(r.target.host)} &middot; ${esc(r.target.ip || '')}<br>`
-      + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))}, ${esc(r.probe.network || '')} &mdash; ${esc(scopeTxt)}`
-      + (last && last.avg != null ? `<br><b>End to end ~${Math.round(last.avg)} ms</b> over ${r.hops.length} hops` : '');
-    pathBody.innerHTML = '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>avg</th><th>loss</th></tr>'
+    pathMeta.innerHTML = `${esc(r.target.host)} &middot; ${esc(r.target.ip || '')} &middot; `
+      + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))} &mdash; ${esc(scopeTxt)}`
+      + (last && last.avg != null ? ` &middot; <b>end to end ~${Math.round(last.avg)} ms over ${r.hops.length} hops</b>` : '');
+    pathBody.innerHTML = `<div class="pc-viz">${pathSvg(r)}</div>`
+      + `<div class="pc-legend"><span class="lg-ok">+&lt;${PATH_HIGH / 2} ms</span><span class="lg-warn">+${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-silent">no reply</span></div>`
+      + '<details class="pc-details"><summary>Hop details</summary>'
+      + '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>avg</th><th>loss</th></tr>'
       + r.hops.map((h) => `<tr class="${h.ip ? '' : 'pc-silent'}"><td>${h.n}</td>`
         + `<td title="${esc(h.ip || '')}">${esc(h.host || h.ip || '* (no reply)')}</td>`
         + `<td>${h.asn ? 'AS' + h.asn + ' ' : ''}${esc(h.org || '')}</td><td>${esc([h.city, h.country].filter(Boolean).join(', '))}</td>`
         + `<td>${h.avg != null ? h.avg.toFixed(1) + ' ms' : '-'}</td><td class="${h.loss > 0 && h.loss < 100 ? 'pc-loss' : ''}">${h.loss != null ? Math.round(h.loss) + '%' : '-'}</td></tr>`).join('')
-      + '</table><div class="pc-note">Loss at middle hops usually means a router deprioritises trace replies, not real packet loss. Only loss that carries through to the last hop matters.</div>';
-    // Globe: probe -> located hops -> service (merging hops in the same place).
-    const pts = [{ lon: r.probe.lon, lat: r.probe.lat, label: r.probe.city || 'probe', kind: 'start' }];
+      + '</table><div class="pc-note">Loss at middle hops is often a router deprioritising trace replies rather than real packet loss; loss that carries through to the destination is what matters.</div></details>';
+    // Globe: probe -> located hops -> service, keeping each point's latency and
+    // loss so segments and rings use the same colours as the diagram.
+    const pts = [{ lon: r.probe.lon, lat: r.probe.lat, label: r.probe.city || 'probe', kind: 'start', avg: 0, loss: 0 }];
     for (const h of r.hops) {
       if (h.lat == null) continue;
       const prev = pts[pts.length - 1];
-      if (d3.geoDistance([prev.lon, prev.lat], [h.lon, h.lat]) * 6371 < 40) continue;
-      pts.push({ lon: h.lon, lat: h.lat, label: h.city || '' });
+      if (d3.geoDistance([prev.lon, prev.lat], [h.lon, h.lat]) * 6371 < 40) {
+        if (h.avg != null) prev.avg = h.avg;
+        if (h.loss > 0 && h.loss < 100) prev.loss = Math.max(prev.loss || 0, h.loss);
+        continue;
+      }
+      pts.push({ lon: h.lon, lat: h.lat, label: h.city || '', avg: h.avg, loss: h.loss > 0 && h.loss < 100 ? h.loss : 0 });
     }
-    pts[pts.length - 1].kind = 'end';
-    pts[pts.length - 1].label = (pts[pts.length - 1].label ? pts[pts.length - 1].label + ' \u00B7 ' : '') + p.name;
+    const end = pts[pts.length - 1];
+    end.kind = 'end';
+    end.label = (end.label ? end.label + ' · ' : '') + p.name;
+    if (last && last.avg != null) end.avg = last.avg;
     S.path = { pts };
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
   }
   function drawPath(now, R) {
     if (!S.path) return;
     const pts = S.path.pts, k = Math.max(0.7, Math.min(1.6, R / 430));
+    const COL = { 'pv-ok': '52,211,153', 'pv-warn': '251,191,36', 'pv-bad': '244,63,94' };
     ctx.save();
     ctx.lineCap = 'round';
-    for (const [w, a, dash] of [[6, 0.22, null], [2, 0.95, [7 * k, 7 * k]]]) {
-      ctx.beginPath();
-      for (let i = 0; i + 1 < pts.length; i++) proj.arc([pts[i].lon, pts[i].lat], [pts[i + 1].lon, pts[i + 1].lat]);
-      ctx.setLineDash(dash || []);
-      ctx.lineDashOffset = -(now / 30) % 1000;
-      ctx.strokeStyle = `rgba(52,211,153,${a})`; ctx.lineWidth = w * k; ctx.stroke();
+    ctx.font = `700 ${Math.round(11 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    let prevAvg = 0;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const delta = b.avg != null ? Math.max(0, b.avg - (a.avg != null ? a.avg : prevAvg)) : null;
+      if (a.avg != null) prevAvg = a.avg;
+      const rgb = COL[linkClass(delta)] || '148,163,184';
+      for (const [w, al, dash] of [[6, 0.22, null], [2.2, 0.95, [7 * k, 7 * k]]]) {
+        ctx.beginPath(); proj.arc([a.lon, a.lat], [b.lon, b.lat]);
+        ctx.setLineDash(dash || []); ctx.lineDashOffset = -(now / 30) % 1000;
+        ctx.strokeStyle = `rgba(${rgb},${al})`; ctx.lineWidth = w * k; ctx.stroke();
+      }
+      // Latency timer at the segment's midpoint.
+      if (delta != null) {
+        const m = d3.geoInterpolate([a.lon, a.lat], [b.lon, b.lat])(0.5), sm = proj.point(m[0], m[1]);
+        if (sm) {
+          const t = `+${Math.round(delta)} ms`, tw = ctx.measureText(t).width;
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(5,7,13,0.8)'; ctx.fillRect(sm[0] - tw / 2 - 5 * k, sm[1] - 9 * k, tw + 10 * k, 18 * k);
+          ctx.fillStyle = `rgb(${rgb})`; ctx.fillText(t, sm[0], sm[1] + 0.5);
+        }
+      }
     }
     ctx.setLineDash([]);
+    ctx.textAlign = 'left';
     ctx.font = `600 ${Math.round(12 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.textBaseline = 'middle';
     for (const q of pts) {
       const s2 = proj.point(q.lon, q.lat);
       if (!s2) continue;
       const big = q.kind === 'start' || q.kind === 'end';
-      ctx.fillStyle = q.kind === 'end' ? '#16bdeb' : '#34d399';
-      ctx.beginPath(); ctx.arc(s2[0], s2[1], (big ? 6 : 3.5) * k, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = q.kind === 'end' ? '#16bdeb' : q.kind === 'start' ? '#34d399' : '#cbd5e1';
+      if (q.kind === 'start') ctx.fillRect(s2[0] - 6 * k, s2[1] - 6 * k, 12 * k, 12 * k);
+      else { ctx.beginPath(); ctx.arc(s2[0], s2[1], (big ? 6 : 4) * k, 0, 2 * Math.PI); ctx.fill(); }
+      if (q.loss > 0) {   // red ring on loss, pulsing gently
+        const pr = (big ? 11 : 9) * k + Math.sin(now / 300) * 1.5 * k;
+        ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 2.5 * k;
+        ctx.beginPath(); ctx.arc(s2[0], s2[1], pr, 0, 2 * Math.PI); ctx.stroke();
+      }
       if (big && q.label) {
         const tw = ctx.measureText(q.label).width;
-        ctx.fillStyle = 'rgba(5,7,13,0.75)'; ctx.fillRect(s2[0] + 10 * k, s2[1] - 10 * k, tw + 10 * k, 20 * k);
-        ctx.fillStyle = '#e6edf7'; ctx.fillText(q.label, s2[0] + 15 * k, s2[1] + 0.5);
+        ctx.fillStyle = 'rgba(5,7,13,0.75)'; ctx.fillRect(s2[0] + 12 * k, s2[1] - 10 * k, tw + 10 * k, 20 * k);
+        ctx.fillStyle = '#e6edf7'; ctx.fillText(q.label, s2[0] + 17 * k, s2[1] + 0.5);
       }
     }
     ctx.restore();
