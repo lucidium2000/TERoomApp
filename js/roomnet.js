@@ -19,22 +19,30 @@
   // Lightweight SERVICE endpoints, not marketing sites (www.webex.com sits
   // behind bot protection and answers 403 after extra steps; office.com
   // redirects to a 60 KB sign-in page; zoom.us / aws.amazon.com aren't cached).
+  // All five allow cross-origin reads (CORS), so the real HTTP status of the
+  // HTTPS (443) request is visible - in no-cors mode browsers hide it.
   const TARGETS = [
     { name: 'Webex', term: 'webex', url: 'https://wdm-a.wbx2.com/wdm/api/v1/ping', what: 'Webex device management service health check' },
-    { name: 'Microsoft 365', term: 'microsoft', url: 'https://login.microsoftonline.com/favicon.ico', what: 'Microsoft Entra ID sign-in (M365 dependency)' },
+    { name: 'Microsoft 365', term: 'microsoft', url: 'https://graph.microsoft.com/v1.0/', what: 'Microsoft Graph API (Microsoft 365)' },
     { name: 'Zoom', term: 'zoom', url: 'https://st1.zoom.us/favicon.ico', what: 'Zoom static content network' },
-    { name: 'Google', term: 'google', url: 'https://www.gstatic.com/generate_204', what: "Google's connectivity check" },
+    { name: 'Google', term: 'google', url: 'https://www.googleapis.com/discovery/v1/apis?name=drive&preferred=true', what: 'Google APIs front end' },
     { name: 'AWS', term: 'amazon', url: 'https://ec2.us-east-1.amazonaws.com/ping', what: 'AWS EC2 us-east-1 health check' },
   ];
+  const REASON = { 200: 'OK', 201: 'Created', 204: 'No Content', 301: 'Moved', 302: 'Found', 304: 'Not Modified', 307: 'Redirect',
+    400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Not Allowed', 429: 'Too Many Requests',
+    500: 'Server Error', 502: 'Bad Gateway', 503: 'Unavailable', 504: 'Gateway Timeout' };
 
-  const probes = TARGETS.map((t) => ({ ...t, samples: [], baseline: null, status: 'pending', last: null }));
+  const probes = TARGETS.map((t) => ({ ...t, samples: [], baseline: null, status: 'pending', last: null, code: null, reason: '' }));
   let opts = {}, timer = 0;
 
   async function timeOnce(url) {
-    const u = url + (url.includes('?') ? '&' : '?') + 'rn=' + Date.now() + Math.random().toString(36).slice(2, 6);
+    // No cache-busting query string: some APIs reject unknown parameters
+    // (EC2's /ping answers 400). cache: 'no-store' already bypasses the cache.
     const t0 = performance.now();
-    await fetch(u, { mode: 'no-cors', cache: 'no-store' });
-    return performance.now() - t0;
+    const r = await fetch(url, { mode: 'cors', cache: 'no-store', credentials: 'omit' });
+    const ms = performance.now() - t0;
+    r.body && r.body.cancel && r.body.cancel().catch(() => {});
+    return { ms, code: r.status, reason: r.statusText || REASON[r.status] || '' };
   }
 
   function median(a) {
@@ -47,6 +55,7 @@
     if (recent.length === 2 && recent.every((s) => s.ms == null)) return 'down';
     const last = p.samples[p.samples.length - 1];
     if (!last || last.ms == null) return p.status === 'pending' ? 'pending' : p.status;
+    if (p.code >= 500) return 'slow';   // reachable but the service itself is erroring
     if (p.baseline == null) return 'ok';
     const r = last.ms / p.baseline, extra = last.ms - p.baseline;
     if (r > 1.8 && extra > 150) return 'slow';
@@ -58,8 +67,9 @@
     let ms = null;
     try {
       await timeOnce(p.url).catch(() => {});   // warm-up: DNS, TCP, TLS
-      ms = await timeOnce(p.url);
-    } catch (_) { ms = null; }
+      const t = await timeOnce(p.url);
+      ms = t.ms; p.code = t.code; p.reason = t.reason;
+    } catch (_) { ms = null; p.code = null; p.reason = ''; }
     // Baseline from the good samples BEFORE this one, so a spike can't hide itself.
     const good = p.samples.filter((s) => s.ms != null).slice(-BASE_N).map((s) => s.ms);
     p.baseline = good.length >= 3 ? median(good) : (good.length ? Math.min(...good) : null);

@@ -894,15 +894,15 @@
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
     const ms = (p) => (p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
     const title = (p) => `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '');
-    rnRows.innerHTML = probes.map((p) => {
+    // HTTP result of the 443 request, then a dot linking to a correlated outage.
+    const code = (p) => (p.code ? `<span class="rn-code rn-c${String(p.code)[0]}">${p.code} ${esc(p.reason || '')}</span>` : '<span class="rn-code">\u2014</span>');
+    const dot = (p) => {
       const o = rnOutage(p.term);
-      return `<div class="rn-row rn-${p.status}" data-i="${probes.indexOf(p)}" title="${esc(title(p))} - click for path"><i></i><span class="rn-name">${esc(p.name)}</span>`
-        + `${rnSpark(p)}<b>${ms(p)}</b>${o ? `<em class="rn-o rn-o-${o}">outage</em>` : '<em></em>'}</div>`;
-    }).join('');
-    rnStrip.innerHTML = probes.map((p) => {
-      const o = rnOutage(p.term);
-      return `<span class="rn-chip rn-${p.status}${o === 'active' ? ' rn-has-outage' : ''}" data-i="${probes.indexOf(p)}"><i></i>${esc(p.name)} <b>${ms(p)}</b></span>`;
-    }).join('');
+      return o ? `<button class="rn-odot rn-odot-${o}" data-term="${esc(p.term)}" title="${esc(p.name)} outage (${o}) - tap to view" aria-label="View ${esc(p.name)} outage"></button>` : '';
+    };
+    rnRows.innerHTML = probes.map((p) => `<div class="rn-row rn-${p.status}" data-i="${probes.indexOf(p)}" title="${esc(title(p))} - click for path">`
+      + `<i></i><span class="rn-name">${esc(p.name)}</span>${rnSpark(p)}<b>${ms(p)}</b><em>${code(p)}${dot(p)}</em></div>`).join('');
+    rnStrip.innerHTML = probes.map((p) => `<span class="rn-chip rn-${p.status}" data-i="${probes.indexOf(p)}"><i></i>${esc(p.name)} <b>${ms(p)}</b>${dot(p)}</span>`).join('');
   }
 
   // ── Path trace (click a "From this room" row) ──────────────────────────
@@ -1101,6 +1101,15 @@
   }
   document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
   [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
+    // The outage dot jumps to that provider's outage (active first, then latest).
+    const od = e.target.closest('.rn-odot');
+    if (od) {
+      e.stopPropagation(); userInput();
+      const { hits } = watchMatches(od.dataset.term);
+      const o = hits.slice().sort((a, b) => (b.active - a.active) || (b.start - a.start))[0];
+      if (o) { closePath(); select(o); }
+      return;
+    }
     const t = e.target.closest('[data-i]');
     const probes = window.RoomNet && window.RoomNet.probes;
     if (t && probes) openPath(probes[+t.dataset.i]);
