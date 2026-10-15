@@ -627,6 +627,9 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .svc .rn-code { text-align: right; }
 .svc-down .svc-ms { color: var(--bad); }
 .rn-chip .svc-dot { width: .6em; height: .6em; }
+/* A dot that leads to an outage gets a finger-sized tap area around it. */
+.svc-dot[data-term] { position: relative; cursor: pointer; }
+.svc-dot[data-term]::after { content: ""; position: absolute; inset: -.9em; border-radius: 50%; }
 @media (max-width: 900px) { .services { display: none; } }
 /* Narrow panels: drop the sparkline before the names/status get squeezed. */
 .services { container-type: inline-size; }

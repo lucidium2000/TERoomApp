@@ -982,11 +982,11 @@
       return { term, label: preset.label, p, ii, iiText, lvl, title, idx: p ? probes.indexOf(p) : -1, hits: hits.length };
     });
     rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
-      + `<i class="svc-dot"></i>`
+      + `<i class="svc-dot"${r.hits ? ` data-term="${esc(r.term)}" title="tap to go to the latest ${esc(r.label)} outage"` : ''}></i>`
       + `<div class="svc-main"><span class="svc-name">${esc(r.label)}</span>`
       + `<button class="svc-ii ii-${r.ii}" data-term="${esc(r.term)}"${r.hits ? ' title="tap to view the outage"' : ''}>${esc(r.iiText)}</button></div>`
       + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b>${code(r.p)}</div>`).join('');
-    rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
+    rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"${r.hits ? ` data-term="${esc(r.term)}"` : ''}></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
   }
 
   // ── Path trace (click a "From this room" row) ──────────────────────────
@@ -1245,9 +1245,10 @@
   }
   document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
   [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
-    // The Internet Insights status jumps to that provider's outage (active
-    // first, then latest); the rest of the row opens the path trace.
-    const ii = e.target.closest('.svc-ii');
+    // The Internet Insights status - or the red / amber status dot - jumps to
+    // that provider's most recent outage in the list (an active one first);
+    // the rest of the row opens the path trace.
+    const ii = e.target.closest('.svc-ii, .svc-dot[data-term]');
     if (ii) {
       e.stopPropagation(); userInput(); sfx('tap');
       const { preset, hits } = watchMatches(ii.dataset.term);
