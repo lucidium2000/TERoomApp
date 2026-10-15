@@ -1812,8 +1812,8 @@
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
       // The gesture guide opens with the camera; the palm hold (or ✕) closes it.
-      // (v2 has no guide yet - it's a different scheme; the info line is hidden too.)
-      if ((state === 'face' || state === 'motion') && window.Glass.version === 'v1') openGuide();
+      // The gesture guide opens with the camera; an open palm (or the X) closes it.
+      if (state === 'face' || state === 'motion') openGuide();
       else if (state === 'off' || state === 'error') { if (S.guideOpen) closeGuide(); }
       if (state === 'face') toast('Gestures Enabled', 'info');
       else if (state === 'motion') toast('Gestures Enabled', 'info');
@@ -2081,7 +2081,7 @@
       userInput();
       clickAt(x, y);
     });
-    if (window.Glass.version !== 'v1') document.getElementById('gestureInfoBtn').hidden = true;
+    guide.dataset.v = window.Glass.version;
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);
       sfx('whoosh');

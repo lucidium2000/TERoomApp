@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=103">
+  <link rel="stylesheet" href="css/app.css?v=104">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -176,18 +176,22 @@
     <section class="guide-card" role="dialog" aria-labelledby="guideTitle">
       <button class="guide-close" id="guideClose" aria-label="Close">&times;</button>
       <h2 id="guideTitle">Gestures</h2>
-      <p class="guide-sub">Use your hands in view of the camera.</p>
-      <div class="guide-grid">
-        <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Palm up &middot; half a second</b><span>Activates gestures. The badge at the top turns green: <em>Ready</em>.</span></div></div>
-        <div class="gi"><svg><use href="#sFist"/></svg><div><b>Fist &middot; hold still, then move</b><span>Grabs the globe. Move your fist to turn the world.</span></div></div>
-        <div class="gi"><svg><use href="#sTwoFists"/></svg><div><b>Two fists</b><span>Pull apart to zoom in, push together to zoom out. Move both to turn.</span></div></div>
-        <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Open your hand</b><span>Lets go of the globe. It keeps spinning with your momentum.</span></div></div>
-        <div class="gi"><svg><use href="#sSwipe"/></svg><div><b>Swipe sideways</b><span>A quick sweep spins the world three full turns.</span></div></div>
-        <div class="gi"><svg><use href="#sPinch"/></svg><div><b>Pinch &middot; experimental</b><span>Right hand: next outage. Left hand: previous outage.</span></div></div>
-        <div class="gi"><svg><use href="#sHead"/></svg><div><b>Move your head</b><span>The globe shifts as if you're looking through glass.</span></div></div>
+      <div class="guide-grid gv2">
+        <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Hold up an open palm</b><span>Starts gestures. Your hand becomes the pointer.</span></div></div>
+        <div class="gi"><svg><use href="#sPinch"/></svg><div><b>Pinch</b><span>Clicks whatever the dot is on.</span></div></div>
+        <div class="gi"><svg><use href="#sFist"/></svg><div><b>Fist, hold, then move</b><span>Grabs and turns the globe. Open to let go.</span></div></div>
+        <div class="gi"><svg><use href="#sTwoFists"/></svg><div><b>Two fists</b><span>Apart to zoom in, together to zoom out.</span></div></div>
+        <div class="gi"><svg><use href="#sSwipe"/></svg><div><b>Swipe</b><span>Spins the globe.</span></div></div>
       </div>
-      <p class="guide-tip">Keep hands upright and inside the camera view. Gestures pause on their own when your hands leave the view; lift your palm again to resume.</p>
-      <p class="guide-start"><svg><use href="#sOpen"/></svg>Lift your open palm to close this and start</p>
+      <div class="guide-grid gv1">
+        <div class="gi"><svg><use href="#sOpen"/></svg><div><b>Palm up &middot; half a second</b><span>Activates gestures.</span></div></div>
+        <div class="gi"><svg><use href="#sFist"/></svg><div><b>Fist &middot; hold, then move</b><span>Grabs and turns the globe.</span></div></div>
+        <div class="gi"><svg><use href="#sTwoFists"/></svg><div><b>Two fists</b><span>Apart to zoom in, together to zoom out.</span></div></div>
+        <div class="gi"><svg><use href="#sSwipe"/></svg><div><b>Swipe</b><span>Spins the globe.</span></div></div>
+        <div class="gi"><svg><use href="#sPinch"/></svg><div><b>Pinch</b><span>Right hand next outage, left hand previous.</span></div></div>
+      </div>
+      <p class="guide-tip">Gestures pause when your hands leave the view.</p>
+      <p class="guide-start"><svg><use href="#sOpen"/></svg>Hold up an open palm to start</p>
     </section>
   </div>
 
@@ -211,7 +215,7 @@
   <script src="js/pathtrace.js?v=78"></script>
   <script src="js/glglobe.js?v=17"></script>
   <script src="js/glass.js?v=82"></script>
-  <script src="js/app.js?v=121"></script>
+  <script src="js/app.js?v=122"></script>
   <script src="js/devlab.js?v=76"></script>
 </body>
 </html>

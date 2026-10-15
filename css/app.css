@@ -405,6 +405,8 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
   background: rgba(2, 4, 10, .6);
 }
 .guide[hidden] { display: none; }
+/* One guide per gesture scheme (v2 is the default; ?gestures=v1 the old one). */
+.guide:not([data-v="v1"]) .gv1, .guide[data-v="v1"] .gv2 { display: none; }
 .guide-card {
   position: relative; width: min(56em, 100%); max-height: calc(100vh - 32px); overflow: auto;
   background: rgba(9, 14, 26, .94); border: 1px solid rgba(255, 255, 255, .14); border-radius: 20px;
@@ -413,7 +415,7 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .guide-card h2 { margin: 0; font-size: 1.6em; }
 .guide-sub { margin: .3em 0 1.1em; color: var(--ink-2); }
 .guide-close { position: absolute; top: .5em; right: .6em; font-size: 2em; line-height: 1; color: var(--ink-3); width: 48px; height: 48px; }
-.guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19em, 1fr)); gap: .8em 1.4em; }
+.guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17em, 1fr)); gap: .8em 1.4em; margin-top: 1em; }
 .gi { display: flex; gap: .9em; align-items: center; }
 .gi svg { width: 3.4em; height: 3.4em; flex: none; fill: var(--ok); color: var(--ok); }
 .gi b { display: block; font-size: 1.02em; }
