@@ -76,8 +76,12 @@ async function init(base, want, wantHands, handEngine, tfBase) {
         runningMode: 'VIDEO',
         numHands: 2,
         // Lenient: a swiping hand is blurred and partly out of frame.
-        minHandDetectionConfidence: 0.4,
-        minHandPresenceConfidence: 0.4,
+        // Detection/presence 0.5: fewer phantom hands. Tracking (box overlap with
+        // the last frame) stays low at 0.3: at ~6 results a second a moving hand
+        // shifts a lot between frames, and a failed track re-runs the slower
+        // palm detector.
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
         minTrackingConfidence: 0.3,
       }, want);
       hands = h.task; handsOk = true; handDelegate = h.delegate;
@@ -145,6 +149,6 @@ self.onmessage = async (ev) => {
     ms = performance.now() - t0;
     const w = bmp.width, h = bmp.height;
     bmp.close();
-    self.postMessage({ type: 'result', box: m.face === false ? undefined : box, faces: m.face === false ? undefined : faces, hands: palms, ms, w, h });
+    self.postMessage({ type: 'result', box: m.face === false ? undefined : box, faces: m.face === false ? undefined : faces, hands: palms, ms, w, h, ts: m.ts });
   }
 };

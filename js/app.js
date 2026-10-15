@@ -1712,12 +1712,21 @@
     // Each hand in view gets a silhouette drawn from its 21 tracked points: the
     // palm as one rounded shape and each finger as a rounded stroke through its
     // joints, all in one group so the overlaps merge into a single seamless
-    // shadow. Points glide between hand samples. The dot rides the pointer hand.
+    // shadow. The dot rides the pointer hand.
+    //
+    // Motion: hand results arrive only ~6-15 times a second, so the cursor is
+    // drawn slightly in the past and glides between the last two samples at
+    // constant speed (snapshot interpolation, as network games do), timed by
+    // each frame's CAPTURE time. If the next sample is late it carries on
+    // briefly at the same speed, then waits. A light final smoothing rounds the
+    // corners. ?handlag= (sample intervals, default 0.9) trades smoothness for
+    // latency.
+    const HC_LAG = num('handlag', 0.9), HC_EXTRAP = 0.35;
     const HC_SIZE = num('handsize', 80);   // px from wrist to middle knuckle on screen
     const SVGNS = 'http://www.w3.org/2000/svg';
     const hcSvg = handCursor.querySelector('svg'), hcDot = handCursor.querySelector('.hc-dot');
     const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
-    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map() };
+    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map(), latency: 150, every: 150, lastT: 0 };
     function hcHand(key) {
       let h = hc.hands.get(key);
       if (h) return h;
@@ -1733,17 +1742,26 @@
         return f;
       });
       hcSvg.insertBefore(g, hcDot);
-      h = { g, palm, fingers, x: 0, y: 0, tx: 0, ty: 0, shape: null, tshape: null, fresh: true };
+      h = { g, palm, fingers, x: 0, y: 0, shape: null, buf: [], fresh: true };
       hc.hands.set(key, h);
       return h;
     }
     function hcFrame(t) {
       const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
-      const k = 1 - Math.exp(-dt / 110);
+      const k = 1 - Math.exp(-dt / 35);
+      const rt = performance.now() - hc.latency - hc.every * HC_LAG;   // render time, in capture-time terms
       for (const h of hc.hands.values()) {
-        h.x += (h.tx - h.x) * k; h.y += (h.ty - h.y) * k;
-        if (!h.shape) h.shape = h.tshape.map((q) => q.slice());
-        else h.shape.forEach((q, i) => { q[0] += (h.tshape[i][0] - q[0]) * k; q[1] += (h.tshape[i][1] - q[1]) * k; });
+        const b = h.buf, n = b.length;
+        let A = b[Math.max(0, n - 2)], B = b[n - 1];
+        for (let i = n - 1; i > 0; i--) if (b[i - 1].t <= rt) { A = b[i - 1]; B = b[i]; break; }
+        const span = Math.max(1, B.t - A.t);
+        const u = A === B ? 1 : Math.max(0, Math.min(1 + HC_EXTRAP, (rt - A.t) / span));
+        const px = A.x + (B.x - A.x) * u, py = A.y + (B.y - A.y) * u;
+        const us = Math.min(1, u);   // the shape never extrapolates
+        const tshape = A.shape.map((q, i) => [q[0] + (B.shape[i][0] - q[0]) * us, q[1] + (B.shape[i][1] - q[1]) * us]);
+        if (!h.shape) { h.shape = tshape; h.x = px; h.y = py; }
+        h.x += (px - h.x) * k; h.y += (py - h.y) * k;
+        h.shape.forEach((q, i) => { q[0] += (tshape[i][0] - q[0]) * k; q[1] += (tshape[i][1] - q[1]) * k; });
         const p = h.shape;
         const pt = (i) => `${(h.x + p[i][0] * HC_SIZE).toFixed(1)},${(h.y + p[i][1] * HC_SIZE).toFixed(1)}`;
         h.palm.setAttribute('points', [0, 1, 5, 9, 13, 17].map(pt).join(' '));
@@ -1779,12 +1797,21 @@
         hc.hands.clear();
         return;
       }
-      const seen = new Set();
+      const seen = new Set(), arrive = performance.now(), ct = c.t || arrive;
+      // How far behind real time results arrive, and how often (both smoothed).
+      // Latency follows the SLOW frames quickly and the fast ones only slowly,
+      // so the render clock stays steady instead of wobbling with each frame.
+      const lat = arrive - ct;
+      hc.latency += (lat - hc.latency) * (lat > hc.latency ? 0.5 : 0.03);
+      if (hc.lastT && ct > hc.lastT) hc.every += (Math.min(500, ct - hc.lastT) - hc.every) * 0.2;
+      hc.lastT = ct;
       for (const d of c.hands) {
         const h = hcHand(d.key);
         seen.add(d.key);
-        h.tx = d.x * innerWidth; h.ty = d.y * innerHeight; h.tshape = d.shape; h.primary = !!d.primary;
-        if (h.fresh) { h.x = h.tx; h.y = h.ty; h.fresh = false; if (h.primary && !hc.on) { hc.x = h.x; hc.y = h.y; } }
+        h.buf.push({ t: ct, x: d.x * innerWidth, y: d.y * innerHeight, shape: d.shape });
+        if (h.buf.length > 4) h.buf.shift();
+        h.primary = !!d.primary;
+        if (h.fresh) { h.fresh = false; if (h.primary && !hc.on) { hc.x = d.x * innerWidth; hc.y = d.y * innerHeight; } }
         h.g.classList.toggle('fist', !!d.fist);
         h.g.classList.toggle('arming', !!d.fist && c.arming > 0 && !c.grabbing);   // the fist that's about to grab
       }

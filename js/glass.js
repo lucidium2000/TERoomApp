@@ -241,7 +241,7 @@
             handLm = await vision.HandLandmarker.createFromOptions(files, {
               baseOptions: { modelAssetPath: MP_BASE + 'hand_landmarker.task', delegate: d },
               runningMode: 'VIDEO', numHands: 2,
-              minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.3,
+              minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.3,
             });
             stats.hands = true; stats.handDelegate = d;
             break;
@@ -314,7 +314,7 @@
     const now = performance.now();
     resN++;
     if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
-    processHands(m.hands || [], now, m.w && m.h ? m.h / m.w : 0.5625);
+    processHands(m.hands || [], now, m.w && m.h ? m.h / m.w : 0.5625, m.ts);
   }
 
   function stop() {
@@ -703,7 +703,10 @@
   // from a fist. Distance is measured against the hand's own size.
   // Which hand is which: the model's own label is used as-is (swapped from the
   // first version after testing on the device). ?pinchswap=1 flips it back.
-  const PINCH = { ON: 0.35, OFF: 0.6, HOLD_MS: 120, COOLDOWN_MS: 600 };
+  // MIN_FRAMES: seen pinched in this many hand results in a row (one noisy
+  // frame never clicks). STILL: the palm must be moving slower than this
+  // (frame widths/s) - a click lands where the hand is pointing, not mid-sweep.
+  const PINCH = { ON: 0.35, OFF: 0.6, HOLD_MS: 120, COOLDOWN_MS: 600, MIN_FRAMES: 2, STILL: 0.8 };
   const PINCH_SWAP = qs.get('pinchswap') === '1';
   const pinch = { left: { on: false, t0: 0, last: -Infinity }, right: { on: false, t0: 0, last: -Infinity }, ratios: [] };
   let onPinch = () => {};
@@ -731,8 +734,11 @@
       const isFist = curl(lm, aspect) < GRAB.FIST_OFF;
       if (!st.on) {
         if (ratio < PINCH.ON && !isFist) {
-          if (!st.t0) st.t0 = now;
-          if (now - st.t0 >= PINCH.HOLD_MS && now - st.last >= PINCH.COOLDOWN_MS) {
+          if (!st.t0) { st.t0 = now; st.n = 0; }
+          st.n = (st.n || 0) + 1;
+          const still = !GESTURES_V1 ? (p.speed || 0) < PINCH.STILL : true;
+          if (!still) { st.t0 = now; st.n = 1; }
+          if (still && st.n >= PINCH.MIN_FRAMES && now - st.t0 >= PINCH.HOLD_MS && now - st.last >= PINCH.COOLDOWN_MS) {
             st.on = true; st.last = now; st.t0 = 0;
             // v2: a pinch (either hand) is an instant click under the cursor.
             if (armed && !grab.on) { if (GESTURES_V1) onPinch(hand); else onClick(); }
@@ -749,7 +755,7 @@
   /** Gestures v2: the hand cursor follows the palm centre (mirrored) - the
    *  wrist and knuckles, which barely move when the fingers pinch, so a click
    *  lands where the hand was pointing. */
-  function updateCursor(palms, now, aspect) {
+  function updateCursor(palms, now, aspect, capT) {
     const hands = palms.filter((p) => p.lm);
     if (!hands.length) {
       if (cur.visible && now - lastHandSeen > 300) { cur.visible = false; onCursor({ visible: false }); }
@@ -766,7 +772,7 @@
       // (wrist to middle knuckle) so it's the same size at any distance.
       const size = Math.hypot(lm[0][0] - lm[9][0], (lm[0][1] - lm[9][1]) * aspect) || 1e-6;
       return {
-        key: String(p.label || i),
+        key: p.key || String(p.label || i),
         x: clamp((CURSOR.X1 - cx) / (CURSOR.X1 - CURSOR.X0), 0, 1),
         y: clamp((cy - CURSOR.Y0) / (CURSOR.Y1 - CURSOR.Y0), 0, 1),
         shape: lm.map((q) => [-(q[0] - cx) / size, (q[1] - cy) * aspect / size]),
@@ -777,11 +783,57 @@
     cur.key = prim.key; prim.primary = true;
     cur.x = prim.x; cur.y = prim.y; cur.visible = true;
     const arming = !grab.on && grab.pendMode ? Math.min(1, (now - grab.pendT0) / Math.max(1, GRAB.HOLD_MS)) : 0;
-    onCursor({ visible: true, x: cur.x, y: cur.y, hands: out, armed, grabbing: grab.on, arming });
+    onCursor({ visible: true, t: capT, x: cur.x, y: cur.y, hands: out, armed, grabbing: grab.on, arming });
   }
 
   /** Every hand result, from whichever engine, comes through here. */
-  function processHands(palms, now, aspect) {
+  // ── Landmark smoothing: One Euro filter (Casiez et al., CHI 2012) ─────────
+  // Low cutoff when the hand is still (kills jitter that reads as a half-fist
+  // or a pinch), rising with speed so fast moves don't lag. Driven by the
+  // frame's CAPTURE time, so uneven inference times don't look like motion.
+  // Tuned for ~6 results/s: 0.5 Hz / beta 4 halves still-hand jitter with
+  // ~30-70 ms lag (vs 60% jitter, 45-85 ms at the textbook 1.0 / 2.0).
+  // ?handcutoff= (Hz) and ?handbeta= tune it.
+  const EURO = { MIN_CUTOFF: parseFloat(qs.get('handcutoff')) || 0.5, BETA: parseFloat(qs.get('handbeta')) || 4.0, D_CUTOFF: 1.0, RESET_MS: 500 };
+  const euroAlpha = (fc, dt) => 1 / (1 + 1 / (2 * Math.PI * fc * dt));
+  function makeEuro() {
+    let x = null, dx = 0;
+    return (v, dt) => {
+      if (x == null || !(dt > 0)) { x = v; dx = 0; return v; }
+      const d = (v - x) / dt;
+      dx += euroAlpha(EURO.D_CUTOFF, dt) * (d - dx);
+      x += euroAlpha(EURO.MIN_CUTOFF + EURO.BETA * Math.abs(dx), dt) * (v - x);
+      return x;
+    };
+  }
+  const euroHands = new Map();   // key (handedness) -> { t, f: [42 filters], cx, cy }
+  function smoothHands(palms, capT) {
+    const used = new Set();
+    const out = palms.map((p, i) => {
+      if (!p.lm) return p;
+      let key = String(p.label || i);
+      if (used.has(key)) key += '#' + i;   // two hands with the same label: keep them apart
+      used.add(key);
+      let st = euroHands.get(key);
+      if (!st || capT - st.t > EURO.RESET_MS) { st = { t: capT, f: p.lm.map(() => [makeEuro(), makeEuro()]) }; euroHands.set(key, st); }
+      const dt = Math.max(0, (capT - st.t) / 1000);
+      st.t = capT;
+      const lm = p.lm.map((q, k) => [st.f[k][0](q[0], dt), st.f[k][1](q[1], dt)]);
+      let x = 0, y = 0;
+      for (const k of [0, 5, 9, 13, 17]) { x += lm[k][0]; y += lm[k][1]; }
+      x /= 5; y /= 5;
+      // Palm speed (frame widths per second) for gestures that need a steady hand.
+      const speed = st.cx != null && dt > 0 ? Math.hypot(x - st.cx, y - st.cy) / dt : 0;
+      st.cx = x; st.cy = y;
+      return { ...p, x, y, lm, speed, key };
+    });
+    for (const [k, st] of euroHands) if (capT - st.t > EURO.RESET_MS * 4) euroHands.delete(k);
+    return out;
+  }
+
+  function processHands(rawPalms, now, aspect, capT) {
+    capT = capT || now;
+    const palms = smoothHands(rawPalms, capT);
     // Debug (option 5): palm velocity from the hand model, same units as motion.
     if (palms.length && lastPalms.length) {
       const dt = Math.max(1, now - (processHands.t || now)) / 1000;
@@ -795,10 +847,10 @@
     // Fist grabs only while armed by a palm hold.
     if (armed) updateGrab(palms, now, aspect || 0.5625);
     else grab.curls = palms.filter((p) => p.lm).map((p) => curl(p.lm, aspect || 0.5625));
-    if (!GESTURES_V1) updateCursor(palms, now, aspect || 0.5625);
+    if (!GESTURES_V1) updateCursor(palms, now, aspect || 0.5625, capT);
     // While grabbing (and just after), two-handed movement must not swipe.
     if (handSwipe) {
-      const dir = handSwipe(grab.on ? [] : palms, now);
+      const dir = handSwipe(grab.on ? [] : rawPalms, now);   // swipes want the raw, unsmoothed motion
       if (dir) emitSwipe(dir, 'hands');
     }
     if (debug) debug(palms);
