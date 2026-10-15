@@ -16,12 +16,15 @@
 
   const qs = new URLSearchParams(location.search);
   const CYCLE_MS = 30000, KEEP = 24, BASE_N = 10;
+  // Lightweight SERVICE endpoints, not marketing sites (www.webex.com sits
+  // behind bot protection and answers 403 after extra steps; office.com
+  // redirects to a 60 KB sign-in page; zoom.us / aws.amazon.com aren't cached).
   const TARGETS = [
-    { name: 'Webex', term: 'webex', url: 'https://www.webex.com/favicon.ico' },
-    { name: 'Microsoft 365', term: 'microsoft', url: 'https://www.office.com/favicon.ico' },
-    { name: 'Zoom', term: 'zoom', url: 'https://zoom.us/favicon.ico' },
-    { name: 'Google', term: 'google', url: 'https://www.google.com/favicon.ico' },
-    { name: 'AWS', term: 'amazon', url: 'https://aws.amazon.com/favicon.ico' },
+    { name: 'Webex', term: 'webex', url: 'https://wdm-a.wbx2.com/wdm/api/v1/ping', what: 'Webex device management service health check' },
+    { name: 'Microsoft 365', term: 'microsoft', url: 'https://login.microsoftonline.com/favicon.ico', what: 'Microsoft Entra ID sign-in (M365 dependency)' },
+    { name: 'Zoom', term: 'zoom', url: 'https://st1.zoom.us/favicon.ico', what: 'Zoom static content network' },
+    { name: 'Google', term: 'google', url: 'https://www.gstatic.com/generate_204', what: "Google's connectivity check" },
+    { name: 'AWS', term: 'amazon', url: 'https://ec2.us-east-1.amazonaws.com/ping', what: 'AWS EC2 us-east-1 health check' },
   ];
 
   const probes = TARGETS.map((t) => ({ ...t, samples: [], baseline: null, status: 'pending', last: null }));

@@ -805,7 +805,7 @@
   function renderRoomNet(probes) {
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
     const ms = (p) => (p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
-    const title = (p) => (p.baseline ? `usually ~${Math.round(p.baseline)} ms` : 'measuring');
+    const title = (p) => `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '');
     rnRows.innerHTML = probes.map((p) => {
       const o = rnOutage(p.term);
       return `<div class="rn-row rn-${p.status}" title="${esc(title(p))}"><i></i><span class="rn-name">${esc(p.name)}</span>`
