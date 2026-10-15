@@ -624,3 +624,28 @@ body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
   white-space: nowrap; padding: .35em .75em; border-radius: 99px; font-size: .85em; font-weight: 700;
   background: rgba(9, 14, 26, .94); border: 1px solid rgba(255, 255, 255, .25); color: var(--ink);
 }
+
+/* ── Hand cursor (gestures v2) ───────────────────────────────────────────
+   A translucent hand that follows the open palm; the brighter centre dot is
+   the pointer. Positioned by transform so the dot (60,68 of 120) sits on it. */
+.hand-cursor {
+  position: fixed; left: -60px; top: -68px; width: 120px; height: 120px; z-index: 1000;
+  pointer-events: none; will-change: transform;
+}
+.hand-cursor svg { width: 100%; height: 100%; overflow: visible; }
+.hand-cursor use { fill: rgba(255, 255, 255, 0.16); stroke: rgba(255, 255, 255, 0.35); stroke-width: 1.5;
+  transition: opacity .15s ease; }
+.hand-cursor .hc-fist { opacity: 0; }
+.hand-cursor.fist .hc-open { opacity: 0; }
+.hand-cursor.fist .hc-fist { opacity: 1; }
+.hand-cursor .hc-dot { fill: rgba(255, 255, 255, 0.85); stroke: rgba(9, 14, 26, 0.5); stroke-width: 1.5;
+  transition: fill .15s ease, r .15s ease; }
+.hand-cursor .hc-ring { fill: none; stroke: #38bdf8; stroke-width: 4; stroke-linecap: round;
+  stroke-dasharray: 100; stroke-dashoffset: 100; transform: rotate(-90deg); transform-origin: 60px 68px;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, .6)); }
+.hand-cursor.idle { opacity: .55; }
+.hand-cursor.over .hc-dot { fill: #38bdf8; r: 9; }
+.hand-cursor.over use { stroke: rgba(56, 189, 248, .6); }
+.hand-cursor.grab use { fill: rgba(56, 189, 248, 0.18); stroke: rgba(56, 189, 248, .55); }
+.hand-cursor.clicked .hc-dot { animation: hc-click .35s ease-out; }
+@keyframes hc-click { 0% { r: 16; fill: #fff; } 100% { r: 7; } }

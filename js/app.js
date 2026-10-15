@@ -1557,7 +1557,8 @@
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
       // The gesture guide opens with the camera; the palm hold (or ✕) closes it.
-      if (state === 'face' || state === 'motion') openGuide();
+      // (v2 has no guide yet - it's a different scheme; the info line is hidden too.)
+      if ((state === 'face' || state === 'motion') && window.Glass.version === 'v1') openGuide();
       else if (state === 'off' || state === 'error') { if (S.guideOpen) closeGuide(); }
       if (state === 'face') toast('Gestures Enabled', 'info');
       else if (state === 'motion') toast('Gestures Enabled', 'info');
@@ -1657,6 +1658,60 @@
       sfx(step > 0 ? 'next' : 'prev');
       select(list[next]);
     });
+    // Hand cursor (gestures v2): a translucent hand follows the open palm; its
+    // centre dot is the pointer. A still fist held 1 s clicks under the dot -
+    // the same pointer events a finger tap makes, so every button, row, chip,
+    // timeline and globe marker works. Hand results come ~6-15 times a second;
+    // the cursor glides between them.
+    const handCursor = document.getElementById('handCursor');
+    const hcRing = document.getElementById('hcRing');
+    const hc = { tx: 0, ty: 0, x: 0, y: 0, on: false, raf: 0, t: 0 };
+    function hcFrame(t) {
+      const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
+      const k = 1 - Math.exp(-dt / 110);
+      hc.x += (hc.tx - hc.x) * k; hc.y += (hc.ty - hc.y) * k;
+      handCursor.style.transform = `translate3d(${hc.x.toFixed(1)}px, ${hc.y.toFixed(1)}px, 0)`;
+      hc.raf = hc.on ? requestAnimationFrame(hcFrame) : 0;
+    }
+    function clickable(x, y) {
+      const elx = document.elementFromPoint(x, y);
+      if (!elx) return false;
+      if (elx === canvas) return S.hits.some((h) => Math.hypot(h.x - x, h.y - y) < h.r);
+      return !!elx.closest('button, a, li, .chip, .svc, [role="button"], #tlChart, .rn-row, [data-id]');
+    }
+    function clickAt(x, y) {
+      const elx = document.elementFromPoint(x, y);
+      if (!elx) return;
+      const o = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, screenX: x, screenY: y,
+        pointerId: 77, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, view: window };
+      elx.dispatchEvent(new PointerEvent('pointerdown', o));
+      elx.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 }));
+      elx.dispatchEvent(new MouseEvent('click', { ...o, buttons: 0 }));
+    }
+    if (window.Glass.onCursor) window.Glass.onCursor((c) => {
+      if (!c.visible) {
+        hc.on = false; handCursor.hidden = true; return;
+      }
+      hc.tx = c.x * innerWidth; hc.ty = c.y * innerHeight;
+      if (!hc.on) {
+        hc.on = true; handCursor.hidden = false;
+        if (!hc.raf) { hc.x = hc.tx; hc.y = hc.ty; hc.t = 0; hc.raf = requestAnimationFrame(hcFrame); }
+      }
+      S.lastInput = performance.now();
+      handCursor.classList.toggle('fist', !!c.fist);
+      handCursor.classList.toggle('grab', !!c.grabbing);
+      handCursor.classList.toggle('idle', !c.armed);
+      handCursor.classList.toggle('over', !c.grabbing && clickable(hc.x, hc.y));
+      hcRing.style.strokeDashoffset = String(100 - (c.progress || 0) * 100);
+    });
+    if (window.Glass.onClick) window.Glass.onClick(() => {
+      const x = hc.x, y = hc.y;
+      handCursor.classList.remove('clicked'); void handCursor.offsetWidth; handCursor.classList.add('clicked');
+      sfx('tap');
+      userInput();
+      clickAt(x, y);
+    });
+    if (window.Glass.version !== 'v1') document.getElementById('gestureInfoBtn').hidden = true;
     window.Glass.onSwipe((dir) => {
       showSwipe(dir);
       sfx('whoosh');
