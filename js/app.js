@@ -820,10 +820,7 @@
     if (S.touring && !S.spin) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
       el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
-      // With speech on, an outage whose summary is still being said stays up
-      // past its dwell (up to a minute extra) instead of being cut off.
-      const talking = window.Tts && window.Tts.enabled && window.Tts.busy && now - S.tourT0 < CFG.dwellMs + 60000;
-      if (frac >= 1 && !talking) nextTour();
+      if (frac >= 1) nextTour();
     }
   }
 
@@ -837,6 +834,7 @@
     const list = tourList();
     if (!list.length) return;
     S.tourIdx = (S.tourIdx + 1) % list.length;
+    if (S.tourIdx === 0 && performance.now() - (S.overviewT || -Infinity) > 10 * 60000) speakOverview();
     select(list[S.tourIdx], { fromTour: true });
   }
 
@@ -846,7 +844,7 @@
     el.tourBtn.querySelector('span').textContent = on ? 'Touring' : 'Tour';
     el.tourBtn.querySelector('path').setAttribute('d', on ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z');
     el.cardProgress.style.transform = 'scaleX(0)';
-    if (on) { S.tourIdx = -1; S.tourSpoke = false; S.tourNoted = new Set(); S.tourPrev = null; nextTour(); }
+    if (on) { S.tourIdx = -1; S.overviewT = -Infinity; nextTour(); }
   }
 
   function userInput() {
@@ -871,10 +869,9 @@
   const sayAs = (text) => SAY_AS.reduce((t, [re, to]) => t.replace(re, to), text);
   const tts = (text) => { if (window.Tts && window.Tts.enabled) window.Tts.speak(sayAs(text)); };
   // Narration: said the way a person would mention it in passing, not read
-  // off the card. Tour: an opening line, then a sentence or two per outage
-  // (who, where, how it's going, maybe whether this room feels it). Tapped: a
-  // little more about that one. Short sentences also come out sooner on a
-  // slow CPU.
+  // off the card. The tour gets one overall synopsis (see overviewSpeech);
+  // picking an outage gets a line or two about it. Short sentences also come
+  // out sooner on a slow CPU.
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
   const numW = (n) => (n >= 0 && n < NUMW.length ? NUMW[n] : String(n));
@@ -914,40 +911,51 @@
     }
     return '';
   }
-  function repeatNote(o) {
-    if (S.touring) { S.tourNoted = S.tourNoted || new Set(); if (S.tourNoted.has(o.name)) return ''; }
-    const n = S.outages.filter((q) => q.name === o.name).length;
-    if (n < 3) return '';
-    if (S.touring) S.tourNoted.add(o.name);
-    return pick([`It's had a rough day.`, `Not its first one, either.`, `That one keeps coming back.`]);
+  /** The tour's one spoken piece: an overall synopsis, under a paragraph -
+   *  how the internet is doing, which services have had the worst of it, and
+   *  whether this room is affected. Not outage by outage. */
+  function overviewSpeech() {
+    const all = S.outages, act = all.filter((q) => q.active).length;
+    const health = act === 0 ? pick(["The internet's in good shape right now.", 'Things are calm on the internet right now.'])
+      : act <= 2 ? pick([`Mostly calm on the internet right now, with ${act === 1 ? 'one outage' : 'two outages'} still going.`, `The internet's mostly healthy right now; ${act === 1 ? 'just one outage is' : 'two outages are'} still going.`])
+      : pick([`It's a busy time on the internet, with ${numW(act)} outages going right now.`, `There's a fair bit going on right now: ${numW(act)} active outages.`]);
+    // Services with the worst of the last day: active first, then how often
+    // and how widely.
+    const by = new Map();
+    for (const q of all) {
+      const k = nameOf(q), g = by.get(k) || { name: k, n: 0, active: false, spread: 0, kind: q.kind };
+      g.n++; g.active = g.active || q.active; g.spread += q.locations.length;
+      by.set(k, g);
+    }
+    const top = [...by.values()].sort((a, b) => (b.active - a.active) || (b.n - a.n) || (b.spread - a.spread)).slice(0, 3);
+    let worst = '';
+    if (top.length) {
+      const t = top[0];
+      worst = t.active
+        ? (t.n > 2 ? `${t.name} is having the hardest time, on and off all day and still going now.` : `${t.name} is the one to watch, with a problem going on now.`)
+        : (t.n > 2 ? `${t.name} has had the roughest day, on and off.` : `${t.name} had the biggest outage, though it's cleared now.`);
+      // "Microsoft Office 365 ... and Microsoft" sounds like a repeat: a second
+      // entry from the same company is named by what it is ("Microsoft's network").
+      const said = new Set([t.name.split(' ')[0]]);
+      const rest = top.slice(1).map((g) => {
+        const first = g.name.split(' ')[0], dup = said.has(first);
+        said.add(first);
+        return dup ? `${first}'s ${g.kind === 'network' ? 'network' : 'other services'}` : g.name;
+      });
+      if (rest.length) worst += ` ${rest.join(' and ')} had ${pick(['a few hiccups too', 'some shorter blips', 'brief trouble as well'])}.`;
+    }
+    // This room's own view of the services it uses.
+    const probes = ((window.RoomNet && window.RoomNet.probes) || []).filter((p) => p.status !== 'pending');
+    const bad = probes.filter((p) => ['down', 'slow', 'warn'].includes(p.status));
+    const room = !probes.length ? ''
+      : !bad.length ? pick(['Everything this room relies on is answering normally.', "From here, all the services you use look fine."])
+      : `From this room, ${bad[0].name} ${bad[0].status === 'down' ? "isn't answering" : 'is slower than usual'}${bad.length > 1 ? `, and so ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}` : ''}.`;
+    return [health, worst, room].filter(Boolean).join(' ');
   }
-  function blurb(o) {
-    const nm = nameOf(o), at = where(o), around = at ? pick([` around ${at}`, ` near ${at}`, ` in ${at}`]) : '';
-    if (o.active) {
-      const long = lastedS(o) > 20 * 60 ? `, for ${spokenFor(lastedS(o))} now` : '';
-      return pick([`${nm} is having trouble right now${around}${long}.`, `${nm} is down${around} at the moment${long}.`, `Right now, ${nm} has a problem${around}${long}.`]);
-    }
-    const short = (o.durationS || 0) < 15 * 60;
-    // Same provider as the stop before: say it like a person would.
-    if (S.touring && S.tourPrev === o.name) {
-      return pick([`${nm} again${around}, ${spokenWhen(o.start)}.`, `Another ${short ? 'short one' : 'one'} for ${nm}${around}.`]);
-    }
-    return short
-      ? pick([`${nm} had a quick blip${around} ${spokenWhen(o.start)}.`, `${spokenWhen(o.start) === 'earlier today' ? 'Earlier' : cap(spokenWhen(o.start))}, a short hiccup at ${nm}${around}.`])
-      : pick([`${nm} was down${around} for ${spokenFor(o.durationS)} ${dataNow() - o.start < 3600e3 ? 'a little earlier' : 'earlier today'}.`, `${nm} had a longer outage${around} ${spokenWhen(o.start)}. It's cleared now.`]);
-  }
-  /** Tour: an opening line, then a sentence or two per outage. */
-  function tourSpeech(o, first) {
-    const extra = (o.active && roomTie(o)) || repeatNote(o);
-    let intro = '';
-    if (first) {
-      const act = S.outages.filter((q) => q.active).length;
-      intro = pick([`Here's the last day on the internet.`, `Let's look at the last twenty-four hours.`]) + ' '
-        + (act ? `${act === 1 ? 'One outage is' : cap(numW(act)) + ' outages are'} still going.` : 'Everything has cleared for now.') + ' ';
-    }
-    const line = (intro + blurb(o) + (extra ? ' ' + extra : '')).trim();
-    S.tourPrev = o.name;
-    return line;
+  function speakOverview() {
+    if (!(window.Tts && window.Tts.enabled) || !S.outages.length) return;
+    S.overviewT = performance.now();
+    tts(overviewSpeech());
   }
   /** Tapped: a little more about this one, still short. */
   function outageSpeech(o, isNew) {
@@ -976,8 +984,9 @@
     S.selected = o;
     if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); if (window.Tts) window.Tts.stop(); return; }
     if (!fromTour) sfx('select');   // tour steps are silent
-    if (!select.quiet) tts(fromTour ? tourSpeech(o, S.tourIdx === 0 && !S.tourSpoke) : outageSpeech(o, false));
-    if (fromTour) S.tourSpoke = true;
+    // Tour steps are silent (the tour gets one overall synopsis instead);
+    // picking an outage yourself gets a short line about it.
+    if (!select.quiet && !fromTour) tts(outageSpeech(o, false));
     fetchWeather(o.locations);
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
@@ -2124,7 +2133,7 @@
       if (state === 'ready') {
         sfx('ready');
         toast(`Speech ready (${T.info.device === 'webgpu' ? 'GPU' : 'CPU'})`, 'info');
-        if (S.selected) tts(outageSpeech(S.selected, false));
+        if (S.selected && !S.touring) tts(outageSpeech(S.selected, false)); else speakOverview();
       } else if (state === 'error') { sfx('error'); toast('Speech failed to load: ' + T.error); T.setEnabled(false); }
     });
     const ttsStats = () => {
