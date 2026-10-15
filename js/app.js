@@ -688,13 +688,19 @@
     S.spin = { from: view.lon, total: turns * 360, t0: performance.now(), dur: SPIN_MS, interrupted };
   }
 
-  function flyTo(o, durMs = 2200) {
+  /** Where the camera should sit to frame an outage's locations. */
+  function framing(o) {
     const pts = o.locations.map((l) => [l.lon, l.lat]);
     const centre = pts.length > 1 ? d3.geoCentroid({ type: 'MultiPoint', coordinates: pts }) : pts[0];
     const spread = Math.max(0, ...pts.map((p) => d3.geoDistance(p, centre)));
     const zoom = Math.max(DEFAULT_ZOOM, Math.min(2.6, 1.05 / (spread + 0.32)));
+    return { lon: centre[0], lat: clampLat(centre[1] - 6 / zoom), zoom };   // sit it a touch above centre
+  }
+
+  function flyTo(o, durMs = 2200) {
+    const fr = framing(o), zoom = fr.zoom;
     const from = [view.lon, view.lat];
-    const to = [centre[0], clampLat(centre[1] - 6 / zoom)];   // sit it a touch above centre
+    const to = [fr.lon, fr.lat];
     const hop = d3.geoDistance(from, to);
     S.flight = {
       interp: d3.geoInterpolate(from, to), z0: view.zoom, z1: zoom,
@@ -704,7 +710,23 @@
     S.vel.lon = S.vel.lat = 0;
   }
 
+  // Lazy follow while scrubbing the timeline: a soft, critically damped
+  // spring toward the nearest outage. It starts from rest (very slow), keeps
+  // its velocity when the target changes (no jolt), and eases in on arrival.
+  const FOLLOW_HZ = 0.22;
+  function stepFollow(dt) {
+    const f = S.follow, sec = Math.min(0.05, dt / 1000), w = 2 * Math.PI * FOLLOW_HZ;
+    const dLon = wrapLon(f.lon - view.lon), dLat = f.lat - view.lat, dZ = f.zoom - view.zoom;   // shortest way round
+    f.vlon += (w * w * dLon - 2 * w * f.vlon) * sec;
+    f.vlat += (w * w * dLat - 2 * w * f.vlat) * sec;
+    f.vz += (w * w * dZ - 2 * w * f.vz) * sec;
+    view.lon = wrapLon(view.lon + f.vlon * sec);
+    view.lat = clampLat(view.lat + f.vlat * sec);
+    view.zoom = clampZoom(view.zoom + f.vz * sec);
+  }
+
   function step(now, dt) {
+    if (S.follow && S.follow.lon != null) { stepFollow(dt); return; }
     if (S.grabTarget) view.zoom += (S.grabTarget - view.zoom) * (1 - Math.pow(0.8, dt / 16));
     if (S.pan && (Math.abs(S.pan.x) > 0.05 || Math.abs(S.pan.y) > 0.05)) {
       const f = 1 - Math.pow(0.75, dt / 16);
@@ -1190,6 +1212,13 @@
   function scrubTo(clientX) {
     const { t, x } = scrubTimeAt(clientX);
     S.timeFocus = t;
+    // Start drifting toward the nearest outage (keeping any current velocity).
+    const target = nearestOutage(t);
+    if (target) {
+      const fr = framing(target);
+      S.follow = S.follow || { vlon: 0, vlat: 0, vz: 0 };
+      S.follow.lon = fr.lon; S.follow.lat = fr.lat; S.follow.zoom = fr.zoom;
+    }
     const count = S.outages.filter((o) => outageVisible(o) && Math.abs(o.start - t) <= SCRUB_WINDOW_MS).length;
     const n = nearestOutage(t);
     tlScrub.hidden = false;
@@ -1204,6 +1233,8 @@
   }
   tlChart.addEventListener('pointerdown', (e) => {
     scrubbing = true; userInput();
+    S.flight = null; S.spin = null; S.vel.lon = S.vel.lat = 0;
+    S.follow = { vlon: 0, vlat: 0, vz: 0, lon: null };
     try { tlChart.setPointerCapture(e.pointerId); } catch (_) { /* */ }
     scrubTo(e.clientX);
   });
@@ -1213,6 +1244,7 @@
     scrubbing = false;
     const { t } = scrubTimeAt(e.clientX);
     S.timeFocus = null;
+    S.follow = null;   // the fly-to takes over from wherever the drift got to
     tlScrub.hidden = true;
     const n = nearestOutage(t);
     if (n) { closePath(); select(n); } else renderTimeline();
