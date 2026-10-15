@@ -117,7 +117,7 @@
   window.addEventListener('error', (e) => reportError(e.error || e.message, 'error'));
   window.addEventListener('unhandledrejection', (e) => reportError(e.reason, 'promise'));
   const el = {
-    updated: $('updated'), list: $('list'), watch: $('watch'),
+    updated: $('updated'), list: $('list'),
     statActive: $('statActive'), statNet: $('statNet'), statApp: $('statApp'), statLoc: $('statLoc'),
     card: $('card'), cardIcon: $('cardIcon'), cardKind: $('cardKind'), cardName: $('cardName'),
     cardMetrics: $('cardMetrics'), cardLocs: $('cardLocs'), cardProgress: $('cardProgress'),
@@ -858,16 +858,6 @@
     return { preset, hits };
   }
 
-  function renderWatch() {
-    el.watch.innerHTML = CFG.watch.map((term) => {
-      const { preset, hits } = watchMatches(term);
-      const active = hits.some((o) => o.active);
-      const cls = active ? 'bad' : hits.length ? 'warn' : '';
-      const note = active ? 'active' : hits.length ? `${hits.length} in 24h` : 'clear';
-      return `<button class="watch-pill ${cls}" data-term="${esc(term)}"><i></i>${esc(preset.label)} <small>${note}</small></button>`;
-    }).join('');
-  }
-
   // ── "From this room" (js/roomnet.js) ───────────────────────────────────
   // Live response times from this browser, each judged against its own
   // baseline, tagged when the same provider also has an outage on the globe.
@@ -890,19 +880,37 @@
     });
     return `<svg class="rn-spark" viewBox="0 0 56 14" preserveAspectRatio="none"><path d="${d}"/></svg>`;
   }
+  /** "Your services": one row per watched service, combining its Internet
+   *  Insights status (outages on the globe) with this room's live connection
+   *  to it (latency, sparkline, HTTP result). The dot is the worse of the two. */
+  const LEVEL = { ok: 0, warn: 1, bad: 2 };
+  function probeFor(term, probes) {
+    const t = term.toLowerCase();
+    const alias = { aws: 'amazon', teams: 'microsoft' }[t] || t;
+    return probes.find((p) => p.term === alias) || null;
+  }
   function renderRoomNet(probes) {
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
-    const ms = (p) => (p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
-    const title = (p) => `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '');
-    // HTTP result of the 443 request, then a dot linking to a correlated outage.
-    const code = (p) => (p.code ? `<span class="rn-code rn-c${String(p.code)[0]}">${p.code} ${esc(p.reason || '')}</span>` : '<span class="rn-code">\u2014</span>');
-    const dot = (p) => {
-      const o = rnOutage(p.term);
-      return o ? `<button class="rn-odot rn-odot-${o}" data-term="${esc(p.term)}" title="${esc(p.name)} outage (${o}) - tap to view" aria-label="View ${esc(p.name)} outage"></button>` : '';
-    };
-    rnRows.innerHTML = probes.map((p) => `<div class="rn-row rn-${p.status}" data-i="${probes.indexOf(p)}" title="${esc(title(p))} - click for path">`
-      + `<i></i><span class="rn-name">${esc(p.name)}</span>${rnSpark(p)}<b>${ms(p)}</b><em>${code(p)}${dot(p)}</em></div>`).join('');
-    rnStrip.innerHTML = probes.map((p) => `<span class="rn-chip rn-${p.status}" data-i="${probes.indexOf(p)}"><i></i>${esc(p.name)} <b>${ms(p)}</b>${dot(p)}</span>`).join('');
+    const ms = (p) => (!p ? '\u2014' : p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
+    const code = (p) => (p && p.code ? `<span class="rn-code rn-c${String(p.code)[0]}">${p.code} ${esc(p.reason || '')}</span>` : '<span class="rn-code">\u2014</span>');
+    const rows = CFG.watch.map((term) => {
+      const { preset, hits } = watchMatches(term);
+      const p = probeFor(term, probes);
+      const active = hits.some((o) => o.active);
+      const ii = active ? 'active' : hits.length ? 'recent' : 'clear';
+      const iiText = active ? 'active outage' : hits.length ? `${hits.length} in 24h` : 'clear';
+      const iiLvl = active ? 'bad' : hits.length ? 'warn' : 'ok';
+      const netLvl = p ? ({ slow: 'bad', down: 'bad', warn: 'warn' }[p.status] || 'ok') : 'ok';
+      const lvl = LEVEL[iiLvl] >= LEVEL[netLvl] ? iiLvl : netLvl;
+      const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '') + ' - tap for path' : 'no local probe';
+      return { term, label: preset.label, p, ii, iiText, lvl, title, idx: p ? probes.indexOf(p) : -1, hits: hits.length };
+    });
+    rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
+      + `<i class="svc-dot"></i>`
+      + `<div class="svc-main"><span class="svc-name">${esc(r.label)}</span>`
+      + `<button class="svc-ii ii-${r.ii}" data-term="${esc(r.term)}"${r.hits ? ' title="tap to view the outage"' : ''}>${esc(r.iiText)}</button></div>`
+      + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b>${code(r.p)}</div>`).join('');
+    rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
   }
 
   // ── Path trace (click a "From this room" row) ──────────────────────────
@@ -1101,13 +1109,14 @@
   }
   document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
   [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
-    // The outage dot jumps to that provider's outage (active first, then latest).
-    const od = e.target.closest('.rn-odot');
-    if (od) {
-      e.stopPropagation(); userInput();
-      const { hits } = watchMatches(od.dataset.term);
+    // The Internet Insights status jumps to that provider's outage (active
+    // first, then latest); the rest of the row opens the path trace.
+    const ii = e.target.closest('.svc-ii');
+    if (ii) {
+      e.stopPropagation(); userInput(); sfx('tap');
+      const { preset, hits } = watchMatches(ii.dataset.term);
       const o = hits.slice().sort((a, b) => (b.active - a.active) || (b.start - a.start))[0];
-      if (o) { closePath(); select(o); }
+      if (o) { closePath(); select(o); } else toast(`${preset.label}: no outages in the last 24 hours`);
       return;
     }
     const t = e.target.closest('[data-i]');
@@ -1208,7 +1217,7 @@
     const staleMin = (nowMs - gen.getTime()) / 60000;
     el.updated.textContent = `updated ${fmtTime(gen.getTime())}` + (staleMin > 30 ? ` (${Math.round(staleMin)}m old)` : '');
 
-    renderStats(); renderWatch(); renderList(); renderTimeline(); renderRoomNet();
+    renderStats(); renderList(); renderTimeline(); renderRoomNet();
 
     // Something new since the last refresh: call it out and go there.
     if (!firstLoad && fresh.length) {
@@ -1385,16 +1394,6 @@
     if (S.selected && !outageVisible(S.selected)) select(null);
     renderList();
   }));
-
-  el.watch.addEventListener('click', (e) => {
-    if (e.target.closest('.watch-pill')) sfx('tap');
-    const b = e.target.closest('.watch-pill');
-    if (!b) return;
-    userInput();
-    const { preset, hits } = watchMatches(b.dataset.term);
-    if (!hits.length) { toast(`${preset.label}: no outages detected in the last 24 hours`); return; }
-    select(hits.sort((a, c) => (c.active - a.active) || (c.start - a.start))[0]);
-  });
 
   el.cardClose.addEventListener('click', () => { userInput(); select(null); });
   el.tourBtn.addEventListener('click', () => {

@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=83">
+  <link rel="stylesheet" href="css/app.css?v=86">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -29,13 +29,10 @@
       <div class="stat"><b id="statLoc">–</b><span>Locations</span></div>
     </div>
 
-    <section class="watch">
-      <h2>Your services</h2>
-      <div class="watch-list" id="watch"></div>
-    </section>
-
-    <section class="roomnet" id="roomNet">
-      <h2>From this room <small>response time</small></h2>
+    <!-- One row per service: its Internet Insights status (left) and this
+         room's live connection to it (right). -->
+    <section class="services" id="services">
+      <h2>Your services <small>Internet Insights &middot; from this room</small></h2>
       <div id="roomNetRows"></div>
     </section>
 
@@ -205,7 +202,7 @@
   <script src="js/pathtrace.js?v=77"></script>
   <script src="js/glglobe.js?v=17"></script>
   <script src="js/glass.js?v=74"></script>
-  <script src="js/app.js?v=83"></script>
+  <script src="js/app.js?v=85"></script>
   <script src="js/devlab.js?v=74"></script>
 </body>
 </html>

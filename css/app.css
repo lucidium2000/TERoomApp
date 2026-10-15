@@ -577,3 +577,38 @@ body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
 .rn-odot-recent { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
 .rn-odot-active { animation: blink 1.4s infinite; }
 .rn-chip .rn-odot { width: .9em; height: .9em; min-width: 14px; min-height: 14px; margin-left: .2em; }
+
+/* "Your services": Internet Insights (left) + this room's connection (right). */
+.services h2 {
+  margin: 0 0 .4em; font-size: .78em; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .12em; font-weight: 700;
+}
+.services h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: .4em; }
+.svc {
+  display: grid; grid-template-columns: .7em minmax(0, 1fr) 56px 3.9em 5.4em; gap: .55em;
+  align-items: center; padding: .28em .3em; border-radius: 8px; cursor: pointer;
+}
+.svc + .svc { border-top: 1px solid rgba(148, 163, 184, .08); }
+.svc:hover { background: rgba(255, 255, 255, .04); }
+.svc-dot { width: .7em; height: .7em; border-radius: 50%; display: inline-block; background: var(--ink-3); }
+.svc-ok .svc-dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.svc-warn .svc-dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.svc-bad .svc-dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); animation: blink 1.4s infinite; }
+.svc-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.svc-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.svc-ii { align-self: flex-start; padding: 0; font-size: .74em; font-weight: 600; color: var(--ink-3); cursor: pointer; }
+.svc-ii.ii-active { color: var(--bad); }
+.svc-ii.ii-recent { color: var(--warn); }
+.svc-ii.ii-clear { color: var(--ok); opacity: .8; }
+.svc-ms { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.svc .rn-code { text-align: right; }
+.svc-down .svc-ms { color: var(--bad); }
+.rn-chip .svc-dot { width: .6em; height: .6em; }
+@media (max-width: 900px) { .services { display: none; } }
+/* Narrow panels: drop the sparkline before the names/status get squeezed. */
+.services { container-type: inline-size; }
+.svc-ii { white-space: nowrap; }
+@container (max-width: 360px) {
+  .svc { grid-template-columns: .7em minmax(0, 1fr) 3.6em 4.9em; gap: .45em; }
+  .svc .rn-spark, .svc > span:not(.rn-code) { display: none; }
+}
