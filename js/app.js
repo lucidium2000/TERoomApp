@@ -1750,6 +1750,9 @@
     // latency.
     const HC_LAG = num('handlag', 0.9), HC_EXTRAP = 0.35;
     const HC_SIZE = num('handsize', 140);
+    // ?handviz=0: pointer dot only, no hand silhouettes (for slow screens -
+    // the blurred, blended silhouettes are recomposited every frame).
+    const HC_VIZ = qs.get('handviz') !== '0';
     // ?handalpha= sets how visible the silhouette is (default .035; grab/arming stay a touch stronger).
     if (qs.get('handalpha')) handCursor.style.setProperty('--hc-alpha', String(num('handalpha', 0.035)));   // px from wrist to middle knuckle on screen
     const SVGNS = 'http://www.w3.org/2000/svg';
@@ -1770,7 +1773,7 @@
         g.appendChild(f);
         return f;
       });
-      hcSvg.insertBefore(g, hcDot);
+      if (HC_VIZ) hcSvg.insertBefore(g, hcDot);
       h = { g, palm, fingers, x: 0, y: 0, shape: null, buf: [], fresh: true };
       hc.hands.set(key, h);
       return h;
@@ -1786,6 +1789,7 @@
         const span = Math.max(1, B.t - A.t);
         const u = A === B ? 1 : Math.max(0, Math.min(1 + HC_EXTRAP, (rt - A.t) / span));
         const px = A.x + (B.x - A.x) * u, py = A.y + (B.y - A.y) * u;
+        if (!HC_VIZ) { h.x += (px - h.x) * k; h.y += (py - h.y) * k; if (h.primary) { hc.x = h.x; hc.y = h.y; } continue; }
         const us = Math.min(1, u);   // the shape never extrapolates
         const tshape = A.shape.map((q, i) => [q[0] + (B.shape[i][0] - q[0]) * us, q[1] + (B.shape[i][1] - q[1]) * us]);
         if (!h.shape) { h.shape = tshape; h.x = px; h.y = py; }
