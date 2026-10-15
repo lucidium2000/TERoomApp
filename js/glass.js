@@ -555,7 +555,12 @@
   const cur = { x: 0.5, y: 0.5, visible: false };
   let onCursor = () => {}, onClick = () => {};
 
-  const GRAB = { FIST_ON: 1.2, FIST_OFF: 1.35, UPRIGHT_DEG: 40, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250, HOLD_DRIFT: 0.06,
+  // Starting a grab is deliberate: a tight fist (FIST_ON), upright, held still
+  // (within HOLD_DRIFT) for HOLD_MS AND seen closed in MIN_FRAMES hand results
+  // in a row - a hand passing through a half-closed pose, or one stray frame,
+  // never grabs. ?grabhold=<ms> tunes the hold.
+  const GRAB = { FIST_ON: 1.1, FIST_OFF: 1.35, UPRIGHT_DEG: 35, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2,
+    HOLD_MS: Math.max(0, parseInt(qs.get('grabhold'), 10) || 500), HOLD_DRIFT: 0.04, MIN_FRAMES: 3,
     MAX_SPEED: 2.5, MAX_STEP: 0.3, MAX_ZOOM_STEP: 0.35 };
   const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
     pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
@@ -605,9 +610,10 @@
         // New grab: the fist has to be held HOLD_MS, and held still.
         const c = mode === 'zoom' ? { x: (fists[0].x + fists[1].x) / 2, y: (fists[0].y + fists[1].y) / 2 } : fists[0];
         if (grab.pendMode !== mode || Math.hypot(c.x - grab.pendX, c.y - grab.pendY) > GRAB.HOLD_DRIFT) {
-          grab.pendMode = mode; grab.pendT0 = now; grab.pendX = c.x; grab.pendY = c.y;
+          grab.pendMode = mode; grab.pendT0 = now; grab.pendX = c.x; grab.pendY = c.y; grab.pendFrames = 0;
         }
-        if (now - grab.pendT0 < GRAB.HOLD_MS) return;
+        grab.pendFrames = (grab.pendFrames || 0) + 1;
+        if (now - grab.pendT0 < GRAB.HOLD_MS || grab.pendFrames < GRAB.MIN_FRAMES) return;
       }
     }
     grab.lastSeen = now;
@@ -749,20 +755,29 @@
       if (cur.visible && now - lastHandSeen > 300) { cur.visible = false; onCursor({ visible: false }); }
       return;
     }
-    const lm = hands[0].lm, ids = [0, 5, 9, 13, 17];
-    const cx = ids.reduce((a, i) => a + lm[i][0], 0) / ids.length;
-    const cy = ids.reduce((a, i) => a + lm[i][1], 0) / ids.length;
-    cur.x = clamp((CURSOR.X1 - cx) / (CURSOR.X1 - CURSOR.X0), 0, 1);
-    cur.y = clamp((cy - CURSOR.Y0) / (CURSOR.Y1 - CURSOR.Y0), 0, 1);
-    // The hand's shape for the on-screen silhouette: all 21 points around the
-    // palm centre, mirrored (viewer's view), square pixels, in units of the
-    // hand's own size (wrist to middle knuckle) so it's the same size at any
-    // distance from the camera.
-    const size = Math.hypot(lm[0][0] - lm[9][0], (lm[0][1] - lm[9][1]) * aspect) || 1e-6;
-    const shape = lm.map((q) => [-(q[0] - cx) / size, (q[1] - cy) * aspect / size]);
-    cur.visible = true;
-    const fist = grab.on || (grab.curls[0] != null && grab.curls[0] < GRAB.FIST_ON);
-    onCursor({ visible: true, x: cur.x, y: cur.y, shape, fist, armed, grabbing: grab.on });
+    // Every hand in view gets a silhouette; the pointer stays with one of them
+    // (the same hand as last time while it's still in view).
+    const out = hands.map((p, i) => {
+      const lm = p.lm, ids = [0, 5, 9, 13, 17];
+      const cx = ids.reduce((a, k) => a + lm[k][0], 0) / ids.length;
+      const cy = ids.reduce((a, k) => a + lm[k][1], 0) / ids.length;
+      // The hand's shape: all 21 points around the palm centre, mirrored
+      // (viewer's view), square pixels, in units of the hand's own size
+      // (wrist to middle knuckle) so it's the same size at any distance.
+      const size = Math.hypot(lm[0][0] - lm[9][0], (lm[0][1] - lm[9][1]) * aspect) || 1e-6;
+      return {
+        key: String(p.label || i),
+        x: clamp((CURSOR.X1 - cx) / (CURSOR.X1 - CURSOR.X0), 0, 1),
+        y: clamp((cy - CURSOR.Y0) / (CURSOR.Y1 - CURSOR.Y0), 0, 1),
+        shape: lm.map((q) => [-(q[0] - cx) / size, (q[1] - cy) * aspect / size]),
+        fist: grab.curls[i] != null && grab.curls[i] < GRAB.FIST_ON,
+      };
+    });
+    const prim = out.find((h) => h.key === cur.key) || out[0];
+    cur.key = prim.key; prim.primary = true;
+    cur.x = prim.x; cur.y = prim.y; cur.visible = true;
+    const arming = !grab.on && grab.pendMode ? Math.min(1, (now - grab.pendT0) / Math.max(1, GRAB.HOLD_MS)) : 0;
+    onCursor({ visible: true, x: cur.x, y: cur.y, hands: out, armed, grabbing: grab.on, arming });
   }
 
   /** Every hand result, from whichever engine, comes through here. */

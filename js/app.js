@@ -1709,32 +1709,48 @@
     // timeline and globe marker works. Hand results come ~6-15 times a second;
     // the cursor glides between them.
     const handCursor = document.getElementById('handCursor');
-    // The silhouette is drawn from the tracked hand's 21 points: the palm as one
-    // rounded shape and each finger as a rounded stroke through its joints, all
-    // in one group so the overlaps merge into a single seamless shadow. Points
-    // glide between hand samples like the cursor itself.
-    const HC_SIZE = 62;   // px from wrist to middle knuckle on screen
-    const hcPalm = document.getElementById('hcPalm');
-    const hcFingers = [...document.querySelectorAll('#handCursor .hc-finger')];
+    // Each hand in view gets a silhouette drawn from its 21 tracked points: the
+    // palm as one rounded shape and each finger as a rounded stroke through its
+    // joints, all in one group so the overlaps merge into a single seamless
+    // shadow. Points glide between hand samples. The dot rides the pointer hand.
+    const HC_SIZE = num('handsize', 80);   // px from wrist to middle knuckle on screen
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const hcSvg = handCursor.querySelector('svg'), hcDot = handCursor.querySelector('.hc-dot');
     const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
-    const hc = { tx: 0, ty: 0, x: 0, y: 0, on: false, raf: 0, t: 0, shape: null, tshape: null };
-    function hcDrawShape() {
-      const p = hc.shape;
-      if (!p) return;
-      const pt = (i) => `${(p[i][0] * HC_SIZE).toFixed(1)},${(p[i][1] * HC_SIZE).toFixed(1)}`;
-      hcPalm.setAttribute('points', [0, 1, 5, 9, 13, 17].map(pt).join(' '));
-      FINGERS.forEach((f, i) => hcFingers[i].setAttribute('points', f.map(pt).join(' ')));
+    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map() };
+    function hcHand(key) {
+      let h = hc.hands.get(key);
+      if (h) return h;
+      const g = document.createElementNS(SVGNS, 'g');
+      g.setAttribute('class', 'hc-hand');
+      const palm = document.createElementNS(SVGNS, 'polygon');
+      palm.setAttribute('class', 'hc-palm');
+      g.appendChild(palm);
+      const fingers = FINGERS.map((_, i) => {
+        const f = document.createElementNS(SVGNS, 'polyline');
+        f.setAttribute('class', 'hc-finger' + (i === 0 ? ' hc-thumb' : i === 4 ? ' hc-pinky' : ''));
+        g.appendChild(f);
+        return f;
+      });
+      hcSvg.insertBefore(g, hcDot);
+      h = { g, palm, fingers, x: 0, y: 0, tx: 0, ty: 0, shape: null, tshape: null, fresh: true };
+      hc.hands.set(key, h);
+      return h;
     }
     function hcFrame(t) {
       const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
       const k = 1 - Math.exp(-dt / 110);
-      hc.x += (hc.tx - hc.x) * k; hc.y += (hc.ty - hc.y) * k;
-      if (hc.tshape) {
-        if (!hc.shape) hc.shape = hc.tshape.map((q) => q.slice());
-        else hc.shape.forEach((q, i) => { q[0] += (hc.tshape[i][0] - q[0]) * k; q[1] += (hc.tshape[i][1] - q[1]) * k; });
-        hcDrawShape();
+      for (const h of hc.hands.values()) {
+        h.x += (h.tx - h.x) * k; h.y += (h.ty - h.y) * k;
+        if (!h.shape) h.shape = h.tshape.map((q) => q.slice());
+        else h.shape.forEach((q, i) => { q[0] += (h.tshape[i][0] - q[0]) * k; q[1] += (h.tshape[i][1] - q[1]) * k; });
+        const p = h.shape;
+        const pt = (i) => `${(h.x + p[i][0] * HC_SIZE).toFixed(1)},${(h.y + p[i][1] * HC_SIZE).toFixed(1)}`;
+        h.palm.setAttribute('points', [0, 1, 5, 9, 13, 17].map(pt).join(' '));
+        FINGERS.forEach((f, i) => h.fingers[i].setAttribute('points', f.map(pt).join(' ')));
+        if (h.primary) { hc.x = h.x; hc.y = h.y; }
       }
-      handCursor.style.transform = `translate3d(${hc.x.toFixed(1)}px, ${hc.y.toFixed(1)}px, 0)`;
+      hcDot.setAttribute('cx', hc.x.toFixed(1)); hcDot.setAttribute('cy', hc.y.toFixed(1));
       if (t - (hc.overT || 0) > 120) {   // what's under the dot, a few times a second
         hc.overT = t;
         handCursor.classList.toggle('over', !hc.grabbing && clickable(hc.x, hc.y));
@@ -1758,16 +1774,26 @@
     }
     if (window.Glass.onCursor) window.Glass.onCursor((c) => {
       if (!c.visible) {
-        hc.on = false; handCursor.hidden = true; hc.shape = null; return;
+        hc.on = false; handCursor.hidden = true;
+        for (const h of hc.hands.values()) h.g.remove();
+        hc.hands.clear();
+        return;
       }
-      hc.tx = c.x * innerWidth; hc.ty = c.y * innerHeight;
-      if (c.shape) hc.tshape = c.shape;
+      const seen = new Set();
+      for (const d of c.hands) {
+        const h = hcHand(d.key);
+        seen.add(d.key);
+        h.tx = d.x * innerWidth; h.ty = d.y * innerHeight; h.tshape = d.shape; h.primary = !!d.primary;
+        if (h.fresh) { h.x = h.tx; h.y = h.ty; h.fresh = false; if (h.primary && !hc.on) { hc.x = h.x; hc.y = h.y; } }
+        h.g.classList.toggle('fist', !!d.fist);
+        h.g.classList.toggle('arming', !!d.fist && c.arming > 0 && !c.grabbing);   // the fist that's about to grab
+      }
+      for (const [key, h] of hc.hands) if (!seen.has(key)) { h.g.remove(); hc.hands.delete(key); }
       if (!hc.on) {
         hc.on = true; handCursor.hidden = false;
-        if (!hc.raf) { hc.x = hc.tx; hc.y = hc.ty; hc.t = 0; hc.raf = requestAnimationFrame(hcFrame); }
+        if (!hc.raf) { hc.t = 0; hc.raf = requestAnimationFrame(hcFrame); }
       }
       S.lastInput = performance.now();
-      handCursor.classList.toggle('fist', !!c.fist);
       handCursor.classList.toggle('grab', !!c.grabbing);
       handCursor.classList.toggle('idle', !c.armed);
       hc.grabbing = !!c.grabbing;
