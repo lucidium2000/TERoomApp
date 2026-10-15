@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=88">
+  <link rel="stylesheet" href="css/app.css?v=89">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -128,10 +128,9 @@
     <div class="g-label" id="gestureLabel"></div>
     <button class="g-info" id="gestureInfoBtn">Tap here for Gesture Info</button>
   </div>
-  <!-- Hand cursor (gestures v2): the dot is the pointer; the ring fills during a fist-hold click. -->
+  <!-- Hand cursor (gestures v2): the dot is the pointer; a pinch clicks under it. -->
   <div class="hand-cursor" id="handCursor" hidden aria-hidden="true">
-    <svg viewBox="0 0 120 120"><use class="hc-open" href="#sOpen"/><use class="hc-fist" href="#sFist"/>
-      <circle class="hc-ring" id="hcRing" cx="60" cy="68" r="34" pathLength="100"/><circle class="hc-dot" cx="60" cy="68" r="7"/></svg>
+    <svg viewBox="0 0 120 120"><use class="hc-open" href="#sOpen"/><use class="hc-fist" href="#sFist"/><circle class="hc-dot" cx="60" cy="68" r="7"/></svg>
   </div>
   <!-- Gesture icons, shared by the guide. Same drawing style as the badge. -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -207,8 +206,8 @@
   <script src="js/roomnet.js?v=84"></script>
   <script src="js/pathtrace.js?v=77"></script>
   <script src="js/glglobe.js?v=17"></script>
-  <script src="js/glass.js?v=75"></script>
-  <script src="js/app.js?v=92"></script>
+  <script src="js/glass.js?v=76"></script>
+  <script src="js/app.js?v=93"></script>
   <script src="js/devlab.js?v=74"></script>
 </body>
 </html>

@@ -102,7 +102,7 @@
     /** Hand cursor (gestures v2): fn({ visible, x, y, fist, progress }) - x/y
      *  0..1 of the screen (viewer's view), progress 0..1 of a fist-hold click. */
     onCursor(fn) { onCursor = fn; },
-    /** fn(): a still fist was held CURSOR.CLICK_MS - click under the cursor. */
+    /** fn(): a pinch (gestures v2) - click under the cursor. */
     onClick(fn) { onClick = fn; },
     /** 'v1' (palm hold arms, no cursor) or 'v2' (hand cursor, fist click). */
     get version() { return GESTURES_V1 ? 'v1' : 'v2'; },
@@ -344,7 +344,6 @@
     if (grab.on) { grab.on = false; grab.mode = null; grab.endT = performance.now(); onGrab('end', { ratio: grab.ratio }); }
     if (armed || hold.active) { armed = false; hold.active = false; hold.latched = false; onGesture('paused', 0); }
     if (cur.visible) { cur.visible = false; onCursor({ visible: false }); }
-    grab.latched = false; grab.clickProgress = 0;
     if (debug) { debug.remove(); debug = null; }
     target.x = target.y = target.z = 0;
     // smoothLoop keeps easing pose back to zero, then ends.
@@ -547,18 +546,17 @@
   // UPRIGHT_DEG: only fists held upright count (wrist below the knuckles, hand
   // within this angle of vertical) - a hand tilting or turning as it opens
   // stops counting at once.
-  // Gestures v2 (default): an open palm drives an on-screen hand cursor, and
-  // one fist held still (within PLAY) for CLICK_MS clicks under it; a fist that
-  // moves instead becomes a grab. ?gestures=v1 = the palm-hold version (tag
+  // Gestures v2 (default): an open palm drives an on-screen hand cursor, and a
+  // pinch (index to thumb, either hand) clicks under it; a fist grabs. ?gestures=v1 = the palm-hold version (tag
   // gestures-v1). X0..X1 / Y0..Y1: the part of the camera frame that maps to
   // the whole screen, so reaching the edges doesn't need a full arm stretch.
   const GESTURES_V1 = qs.get('gestures') === 'v1';
-  const CURSOR = { CLICK_MS: 1000, PLAY: 0.06, X0: 0.2, X1: 0.8, Y0: 0.15, Y1: 0.7 };
+  const CURSOR = { X0: 0.2, X1: 0.8, Y0: 0.15, Y1: 0.7 };
   const cur = { x: 0.5, y: 0.5, visible: false };
   let onCursor = () => {}, onClick = () => {};
 
   const GRAB = { FIST_ON: 1.2, FIST_OFF: 1.35, UPRIGHT_DEG: 40, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2, HOLD_MS: 250, HOLD_DRIFT: 0.06,
-    MAX_SPEED: 1.5, MAX_STEP: 0.2, MAX_ZOOM_STEP: 0.35 };
+    MAX_SPEED: 2.5, MAX_STEP: 0.3, MAX_ZOOM_STEP: 0.35 };
   const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
     pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
   function releaseGrab(now, latch) {
@@ -585,13 +583,12 @@
     const withLm = palms.filter((p) => p.lm);
     grab.curls = withLm.map((p) => curl(p.lm, aspect));
     grab.upright = withLm.map((p) => handUpright(p.lm, aspect));
-    const thr = grab.on || grab.latched ? GRAB.FIST_OFF : GRAB.FIST_ON;
+    const thr = grab.on ? GRAB.FIST_OFF : GRAB.FIST_ON;
     const fists = withLm.filter((p, i) => grab.curls[i] < thr && grab.upright[i]);
     const mode = fists.length >= 2 ? 'zoom' : fists.length === 1 ? 'pan' : null;
 
     if (!mode) {
-      grab.pendMode = null; grab.pendN = 0; grab.clickProgress = 0;
-      if (!GESTURES_V1 && !grab.on) grab.latched = false;   // hand opened after a click
+      grab.pendMode = null; grab.pendN = 0;
       // Seen but not an upright fist (opened, or turned/tilted): fast release.
       const openHand = grab.curls.length > 0;
       if (grab.on && now - grab.lastSeen > (openHand ? GRAB.OPEN_MS : GRAB.LOST_MS)) releaseGrab(now, false);
@@ -604,21 +601,6 @@
         grab.pendN = grab.pendMode === mode ? grab.pendN + 1 : 1;
         grab.pendMode = mode;
         if (grab.pendN < GRAB.DEBOUNCE) { grab.lastSeen = now; return; }
-      } else if (!GESTURES_V1 && mode === 'pan') {
-        // v2: a still fist counts down to a click; moving it past PLAY grabs.
-        const f = fists[0];
-        if (grab.pendMode !== 'pan') {
-          grab.pendMode = 'pan'; grab.pendT0 = now; grab.pendX = f.x; grab.pendY = f.y;
-        }
-        if (Math.hypot(f.x - grab.pendX, f.y - grab.pendY) <= CURSOR.PLAY) {
-          grab.clickProgress = Math.min(1, (now - grab.pendT0) / CURSOR.CLICK_MS);
-          if (grab.clickProgress >= 1) {
-            grab.latched = true; grab.pendMode = null; grab.clickProgress = 0;
-            onClick();
-          }
-          return;
-        }
-        grab.clickProgress = 0;   // moved: fall through and start a drag from here
       } else {
         // New grab: the fist has to be held HOLD_MS, and held still.
         const c = mode === 'zoom' ? { x: (fists[0].x + fists[1].x) / 2, y: (fists[0].y + fists[1].y) / 2 } : fists[0];
@@ -643,9 +625,10 @@
     const dt = Math.max(1, now - (grab.lastT || now)) / 1000;
     grab.px = pt.x; grab.py = pt.y; grab.lastT = now;
     const step = Math.hypot(dx, dy);
+    let rejected = false;
     if (step > GRAB.MAX_STEP || step / dt > GRAB.MAX_SPEED) {
       grab.rejected = (grab.rejected || 0) + 1;
-      dx = 0; dy = 0;                       // too fast to be a drag: re-anchor, don't move
+      dx = 0; dy = 0; rejected = true;      // too fast to be a drag: re-anchor, don't move
     }
     if (mode === 'zoom') {
       const r = dist / grab.d0;
@@ -656,7 +639,7 @@
         grab.ratio = r;
       }
     }
-    onGrab('move', { mode, ratio: grab.ratio, dx, dy });
+    onGrab('move', { mode, ratio: grab.ratio, dx, dy, rejected });
   }
 
   // ── Palm hold: arm / pause fist gestures ─────────────────────────────────
@@ -745,7 +728,8 @@
           if (!st.t0) st.t0 = now;
           if (now - st.t0 >= PINCH.HOLD_MS && now - st.last >= PINCH.COOLDOWN_MS) {
             st.on = true; st.last = now; st.t0 = 0;
-            if (armed && !grab.on) onPinch(hand);
+            // v2: a pinch (either hand) is an instant click under the cursor.
+            if (armed && !grab.on) { if (GESTURES_V1) onPinch(hand); else onClick(); }
           }
         } else st.t0 = 0;
       } else if (ratio > PINCH.OFF) {
@@ -756,17 +740,16 @@
     for (const h of ['left', 'right']) if (!seen[h]) { pinch[h].on = false; pinch[h].t0 = 0; }
   }
 
-  /** Gestures v2: the hand cursor follows the palm centre (mirrored). It
-   *  holds still while a fist counts down to a click, so the click lands where
-   *  the open hand was pointing, not where the closing fist drifted to. */
+  /** Gestures v2: the hand cursor follows the palm centre (mirrored) - the
+   *  wrist and knuckles, which barely move when the fingers pinch, so a click
+   *  lands where the hand was pointing. */
   function updateCursor(palms, now) {
     const hands = palms.filter((p) => p.lm);
     if (!hands.length) {
       if (cur.visible && now - lastHandSeen > 300) { cur.visible = false; onCursor({ visible: false }); }
       return;
     }
-    const counting = !grab.on && grab.pendMode === 'pan' && grab.clickProgress > 0;
-    if (!counting && !grab.latched) {
+    {
       const lm = hands[0].lm, ids = [0, 5, 9, 13, 17];
       const cx = ids.reduce((a, i) => a + lm[i][0], 0) / ids.length;
       const cy = ids.reduce((a, i) => a + lm[i][1], 0) / ids.length;
@@ -774,8 +757,8 @@
       cur.y = clamp((cy - CURSOR.Y0) / (CURSOR.Y1 - CURSOR.Y0), 0, 1);
     }
     cur.visible = true;
-    const fist = grab.on || grab.latched || grab.pendMode === 'pan' || (grab.curls[0] != null && grab.curls[0] < GRAB.FIST_ON);
-    onCursor({ visible: true, x: cur.x, y: cur.y, fist, progress: grab.clickProgress || 0, armed, grabbing: grab.on });
+    const fist = grab.on || (grab.curls[0] != null && grab.curls[0] < GRAB.FIST_ON);
+    onCursor({ visible: true, x: cur.x, y: cur.y, fist, armed, grabbing: grab.on });
   }
 
   /** Every hand result, from whichever engine, comes through here. */

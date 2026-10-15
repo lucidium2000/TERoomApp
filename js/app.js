@@ -725,14 +725,53 @@
     view.zoom = clampZoom(view.zoom + f.vz * sec);
   }
 
+  // Globe physics: the globe always carries its own velocity (S.vel, deg/ms).
+  // It spins freely about its axis (long coast, a little constant friction so
+  // it settles), while tilt (lat) is stiff and settles quickly - like a desk
+  // globe on its stand.
+  const SPIN_TAU_MS = 2600, SPIN_FRICTION = 0.000012, TILT_TAU_MS = 350, MAX_SPIN = 0.72;   // deg/ms
+  function coast(dt) {
+    const v = S.vel;
+    view.lon = wrapLon(view.lon + v.lon * dt);
+    const lat = view.lat + v.lat * dt;
+    view.lat = clampLat(lat);
+    if (lat !== view.lat) v.lat = 0;
+    const sp = Math.abs(v.lon) * Math.exp(-dt / SPIN_TAU_MS) - SPIN_FRICTION * dt;
+    v.lon = sp > 0 ? Math.sign(v.lon) * sp : 0;
+    v.lat *= Math.exp(-dt / TILT_TAU_MS);
+  }
+  function capSpin() {
+    const v = S.vel;
+    v.lon = Math.max(-MAX_SPIN, Math.min(MAX_SPIN, v.lon));
+    v.lat = Math.max(-MAX_SPIN / 2, Math.min(MAX_SPIN / 2, v.lat));
+  }
+
+  // Fist grab: the hand holds the globe through a stiff, critically damped
+  // spring toward where the hand is now (its last sample, carried forward at
+  // its own speed - hand results only arrive ~6-15 times a second). The globe
+  // keeps its momentum the whole time: grabbing a spinning globe catches it,
+  // and letting go (or the fist dropping out) leaves it spinning at whatever
+  // speed it had.
+  const GRAB_HZ = num('grabhz', 2.4);
+  const grabLate = (g) => g.every * 1.25 + 40;
+  function stepGrab(now, dt) {
+    const g = S.grab, v = S.vel;
+    const since = now - g.t;
+    if (since > grabLate(g)) { coast(dt); return; }   // a fist sample is late (hand opening / lost): it's free
+    const k = since;   // carry the hand on at its own speed until the sample counts as late
+    const w = 2 * Math.PI * GRAB_HZ / 1000;
+    const eLon = wrapLon(g.lon + g.vlon * k - view.lon), eLat = clampLat(g.lat + g.vlat * k) - view.lat;
+    v.lon += (w * w * eLon + 2 * w * (g.vlon - v.lon)) * dt;
+    v.lat += (w * w * eLat + 2 * w * (g.vlat - v.lat)) * dt;
+    capSpin();
+    view.lon = wrapLon(view.lon + v.lon * dt);
+    view.lat = clampLat(view.lat + v.lat * dt);
+  }
+
   function step(now, dt) {
     if (S.follow && S.follow.lon != null) { stepFollow(dt); return; }
     if (S.grabTarget) view.zoom += (S.grabTarget - view.zoom) * (1 - Math.pow(0.8, dt / 16));
-    if (S.pan && (Math.abs(S.pan.x) > 0.05 || Math.abs(S.pan.y) > 0.05)) {
-      const f = 1 - Math.pow(0.75, dt / 16);
-      rotateByPixels(S.pan.x * f, S.pan.y * f);
-      S.pan.x -= S.pan.x * f; S.pan.y -= S.pan.y * f;
-    }
+    if (S.grab) { for (let left = Math.min(dt, 100); left > 0; left -= 16) stepGrab(now, Math.min(16, left)); }
     if (S.spin) {
       const sp = S.spin, t = Math.min(1, (now - sp.t0) / sp.dur);
       view.lon = wrapLon(sp.from + sp.total * (1 - Math.pow(1 - t, 4)));
@@ -752,10 +791,7 @@
     } else if (!S.dragging) {
       // Inertia after a flick, then a slow idle spin.
       if (Math.abs(S.vel.lon) > 0.0005 || Math.abs(S.vel.lat) > 0.0005) {
-        view.lon = wrapLon(view.lon + S.vel.lon * dt);
-        view.lat = clampLat(view.lat + S.vel.lat * dt);
-        const decay = Math.pow(0.94, dt / 16);
-        S.vel.lon *= decay; S.vel.lat *= decay;
+        coast(Math.min(dt, 100));
       } else if (!S.selected && now - S.lastInput > SPIN_RESUME_MS) {
         view.lon = wrapLon(view.lon + (CFG.spinDegPerS * dt) / 1000);
         view.lat += (18 - view.lat) * 0.0006 * dt / 16;      // drift back to a pleasant tilt
@@ -1403,7 +1439,8 @@
     const dx = e.clientX - down.lx, dy = e.clientY - down.ly, dt = Math.max(1, now() - down.lt);
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) down.moved = true;
     const degPerPx = rotateByPixels(dx, dy);
-    S.vel.lon = (-dx * degPerPx) / dt; S.vel.lat = (dy * degPerPx) / dt;
+    S.vel.lon += ((-dx * degPerPx) / dt - S.vel.lon) * 0.6; S.vel.lat += ((dy * degPerPx) / dt - S.vel.lat) * 0.6;
+    capSpin();
     down.lx = e.clientX; down.ly = e.clientY; down.lt = now();
   });
 
@@ -1571,37 +1608,45 @@
     // turns the globe. Hand results arrive at ~10-15 Hz, so movement is queued
     // and eased in per frame; letting go flings with the fist's last velocity.
     const GRAB_PAN = num('grabpan', 1.6);   // screen widths of drag per frame-width of fist travel
-    let grabZoom0 = 1, grabT = 0;
+    let grabZoom0 = 1;
     window.Glass.onGrab((state, info) => {
       const now = performance.now();
       if (state === 'start' || state === 'mode') {
         if (state === 'start') {
-          S.flight = null; S.spin = null; S.vel.lon = S.vel.lat = 0;
+          // A swipe spin or flight in progress hands over its motion as momentum.
+          if (S.spin || S.flight) { S.spin = null; S.flight = null; S.vel.lon = S.vel.lat = 0; }
           userInput();
-          S.pan = { x: 0, y: 0 }; S.grabVel = { x: 0, y: 0 };
+          S.grab = { lon: view.lon, lat: view.lat, vlon: 0, vlat: 0, t: now, every: 150 };
           S.dragging = true;
         }
         grabZoom0 = S.grabTarget || view.zoom;
         S.grabTarget = info.mode === 'zoom' ? grabZoom0 : null;
-        grabT = now;
-      } else if (state === 'move') {
+      } else if (state === 'move' && S.grab) {
         S.lastInput = now;
-        const px = info.dx * S.w * GRAB_PAN, py = info.dy * S.w * GRAB_PAN;
-        S.pan.x += px; S.pan.y += py;
-        const dt = Math.max(16, now - grabT); grabT = now;
-        S.grabVel.x += (px / dt - S.grabVel.x) * 0.5;   // px per ms, smoothed
-        S.grabVel.y += (py / dt - S.grabVel.y) * 0.5;
+        const g = S.grab, gap = Math.max(30, now - g.t);
+        if (gap > grabLate(g)) {
+          // The fist is back after a gap: take hold again from where the globe
+          // has coasted to, at its current speed - no snapping back.
+          g.lon = view.lon; g.lat = view.lat; g.vlon = S.vel.lon; g.vlat = S.vel.lat;
+        }
+        g.every += (Math.min(400, gap) - g.every) * 0.3;
+        if (info.rejected) {
+          // Too fast to trust: carry on at the hand's last known speed.
+          g.lon = wrapLon(g.lon + g.vlon * gap); g.lat = clampLat(g.lat + g.vlat * gap);
+        } else {
+          const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
+          const dLon = -info.dx * S.w * GRAB_PAN * degPerPx, dLat = info.dy * S.w * GRAB_PAN * degPerPx;
+          g.lon = wrapLon(g.lon + dLon); g.lat = clampLat(g.lat + dLat);
+          g.vlon += (dLon / gap - g.vlon) * 0.6; g.vlat += (dLat / gap - g.vlat) * 0.6;
+        }
+        g.t = now;
         if (info.mode === 'zoom') S.grabTarget = clampZoom(grabZoom0 * Math.pow(info.ratio, 1.4));
-      } else {
-        // Let go: whatever is still queued plays out, then inertia takes over.
+      } else if (state === 'end') {
+        // Let go: the globe simply keeps the momentum it has (see coast()).
+        S.grab = null;
         S.dragging = false;
         S.grabTarget = null;
-        const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
-        // Cap the fling: a last-moment glitch mustn't send the globe spinning.
-        const sp = Math.hypot(S.grabVel.x, S.grabVel.y), MAX = 1.2;   // px per ms
-        const k = sp > MAX ? MAX / sp : 1;
-        S.vel.lon = -S.grabVel.x * k * degPerPx;
-        S.vel.lat = S.grabVel.y * k * degPerPx;
+        capSpin();
       }
       if (state === 'start') sfx('grab');
       if (state === 'end') { sfx('release'); setHud(window.Glass.armed ? 'ready' : 'dormant'); }
@@ -1659,18 +1704,21 @@
       select(list[next]);
     });
     // Hand cursor (gestures v2): a translucent hand follows the open palm; its
-    // centre dot is the pointer. A still fist held 1 s clicks under the dot -
+    // centre dot is the pointer. A pinch clicks under the dot at once -
     // the same pointer events a finger tap makes, so every button, row, chip,
     // timeline and globe marker works. Hand results come ~6-15 times a second;
     // the cursor glides between them.
     const handCursor = document.getElementById('handCursor');
-    const hcRing = document.getElementById('hcRing');
     const hc = { tx: 0, ty: 0, x: 0, y: 0, on: false, raf: 0, t: 0 };
     function hcFrame(t) {
       const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
       const k = 1 - Math.exp(-dt / 110);
       hc.x += (hc.tx - hc.x) * k; hc.y += (hc.ty - hc.y) * k;
       handCursor.style.transform = `translate3d(${hc.x.toFixed(1)}px, ${hc.y.toFixed(1)}px, 0)`;
+      if (t - (hc.overT || 0) > 120) {   // what's under the dot, a few times a second
+        hc.overT = t;
+        handCursor.classList.toggle('over', !hc.grabbing && clickable(hc.x, hc.y));
+      }
       hc.raf = hc.on ? requestAnimationFrame(hcFrame) : 0;
     }
     function clickable(x, y) {
@@ -1701,8 +1749,7 @@
       handCursor.classList.toggle('fist', !!c.fist);
       handCursor.classList.toggle('grab', !!c.grabbing);
       handCursor.classList.toggle('idle', !c.armed);
-      handCursor.classList.toggle('over', !c.grabbing && clickable(hc.x, hc.y));
-      hcRing.style.strokeDashoffset = String(100 - (c.progress || 0) * 100);
+      hc.grabbing = !!c.grabbing;
     });
     if (window.Glass.onClick) window.Glass.onClick(() => {
       const x = hc.x, y = hc.y;
