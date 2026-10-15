@@ -846,7 +846,7 @@
     el.tourBtn.querySelector('span').textContent = on ? 'Touring' : 'Tour';
     el.tourBtn.querySelector('path').setAttribute('d', on ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z');
     el.cardProgress.style.transform = 'scaleX(0)';
-    if (on) { S.tourIdx = -1; S.tourSpoke = false; S.tourNoted = new Set(); nextTour(); }
+    if (on) { S.tourIdx = -1; S.tourSpoke = false; S.tourNoted = new Set(); S.tourPrev = null; nextTour(); }
   }
 
   function userInput() {
@@ -870,117 +870,96 @@
   ];
   const sayAs = (text) => SAY_AS.reduce((t, [re, to]) => t.replace(re, to), text);
   const tts = (text) => { if (window.Tts && window.Tts.enabled) window.Tts.speak(sayAs(text)); };
-  const spokenAgo = (ms) => {
-    const m = Math.max(0, Math.round((dataNow() - ms) / 60000));
-    const h = Math.round(m / 60);
-    return m < 2 ? 'just now' : m < 60 ? `${m} minutes ago` : h === 1 ? 'about an hour ago' : `about ${h} hours ago`;
-  };
-  // Narration, written to sound like a person talking it through rather than
-  // reading the card: the tour gets a story (an opening overview, then a short
-  // synopsis per outage with context - how long, where, has this provider had
-  // trouble already today, does this room feel it); tapping an outage gets a
-  // focused briefing on that one. The first sentence is kept short - on a slow
-  // CPU it's the quickest to make, so something is heard sooner.
+  // Narration: said the way a person would mention it in passing, not read
+  // off the card. Tour: an opening line, then a sentence or two per outage
+  // (who, where, how it's going, maybe whether this room feels it). Tapped: a
+  // little more about that one. Short sentences also come out sooner on a
+  // slow CPU.
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
   const numW = (n) => (n >= 0 && n < NUMW.length ? NUMW[n] : String(n));
-  const ORD = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
-  const spokenDur = (sec) => {
-    const m = Math.round(sec / 60);
-    if (m < 3) return 'just a couple of minutes';
-    if (m < 50) return `about ${m} minutes`;
-    const h = Math.round(m / 60);
-    return h <= 1 ? 'about an hour' : `about ${h} hours`;
-  };
   const COUNTRY = { US: 'the US', GB: 'the UK', UK: 'the UK', NL: 'the Netherlands', AE: 'the UAE', DE: 'Germany', FR: 'France', JP: 'Japan', IN: 'India', BR: 'Brazil', CA: 'Canada', AU: 'Australia', SG: 'Singapore', IE: 'Ireland', ES: 'Spain', IT: 'Italy', SE: 'Sweden', ZA: 'South Africa', MX: 'Mexico', KR: 'South Korea', HK: 'Hong Kong' };
   // "Ashburn, Virginia, US" -> Ashburn; a bare country ("US") isn't a city.
   const cityOf = (l) => { const parts = l && l.name ? l.name.split(',') : []; return parts.length > 1 ? parts[0].trim() : ''; };
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   const countryOf = (l) => { const parts = (l && l.name ? l.name.split(',') : []).map((q) => q.trim()); const c = parts[parts.length - 1] || ''; return COUNTRY[c] || c; };
-  function placePhrase(o, detail) {
-    const locs = o.locations.slice().sort((a, b) => b.n - a.n);
-    const cities = [...new Set(locs.map(cityOf).filter(Boolean))];
-    const countries = [...new Set(locs.map(countryOf).filter(Boolean))];
-    if (!cities.length) return '';
-    if (cities.length === 1) return `in ${cities[0]}`;
-    if (cities.length === 2) return `in ${cities[0]} and ${cities[1]}`;
-    if (detail) return `in ${numW(cities.length)} places, including ${cities[0]}, ${cities[1]} and ${cities[2]}`;
-    return countries.length > 1 ? `across ${numW(countries.length)} countries, mostly around ${cities[0]}` : `in ${numW(cities.length)} places, centred on ${cities[0]}`;
-  }
   // Company names as people say them: no "Inc." / "LLC" (and no "Inc.." ).
   const nameOf = (o) => o.name.replace(/,?\s*\b(Inc|LLC|Ltd|Limited|Corp|Corporation|Co|GmbH|S\.?A)\.?$/i, '').trim();
-  // What went wrong, as a clause said right after the name ("its network...").
-  const whatNow = (o) => (o.kind === 'network'
-    ? pick(["there's a network problem inside its infrastructure", 'its network is having trouble', "something's wrong in its backbone"])
-    : pick(['its service is struggling to respond', 'its servers are failing to answer', "its application isn't responding properly"]));
-  const whatThen = (o) => (o.kind === 'network'
-    ? pick(['there was a network problem inside its infrastructure', 'its network had trouble', 'something went wrong in its backbone'])
-    : pick(['its service struggled to respond', 'its servers stopped answering properly', "its application wasn't responding properly"]));
-  /** Does this room feel it? From the room's own live probes (js/roomnet.js). */
+  // Less is more: a line or two, the way someone glancing at the screen would
+  // put it - who, where, how it's going. Few numbers, no lists.
+  const spokenWhen = (ms) => {
+    const m = Math.max(0, Math.round((dataNow() - ms) / 60000)), h = Math.round(m / 60);
+    return m < 5 ? 'just now' : m < 50 ? 'a little while ago' : h <= 1 ? 'about an hour ago' : h < 6 ? `about ${numW(h)} hours ago` : 'earlier today';
+  };
+  const spokenFor = (sec) => {
+    const m = Math.round(sec / 60), h = Math.round(m / 60);
+    return m < 15 ? 'a few minutes' : m < 45 ? 'about half an hour' : h <= 1 ? 'about an hour' : `about ${numW(h)} hours`;
+  };
+  /** How long it has lasted (an active one: so far, from its start). */
+  const lastedS = (o) => (o.active ? Math.max(o.durationS || 0, (dataNow() - o.start) / 1000) : o.durationS || 0);
+  function where(o) {
+    const top = o.locations.slice().sort((a, b) => b.n - a.n)[0];
+    return cityOf(top) || countryOf(top) || '';
+  }
+  /** This room's own view of that service, only while it's happening. */
   function roomTie(o) {
     const probes = (window.RoomNet && window.RoomNet.probes) || [];
     for (const term of CFG.watch) {
-      const { preset, hits } = watchMatches(term);
-      if (!hits.includes(o)) continue;
+      if (!watchMatches(term).hits.includes(o)) continue;
       const p = probeFor(term, probes);
       if (!p || p.status === 'pending') return '';
-      if (p.status === 'down') return `And you'd feel it here: ${preset.label} isn't answering from this room right now.`;
-      if (p.status === 'slow' || p.status === 'warn') return `And it may be reaching this room: ${preset.label} is answering slower than usual, ${Math.round(p.last)} milliseconds.`;
-      return pick([`The good news: from this room, ${preset.label} still looks healthy, answering in ${Math.round(p.last)} milliseconds.`,
-        `From here, though, ${preset.label} is answering normally, in about ${Math.round(p.last)} milliseconds.`]);
+      if (p.status === 'down') return pick(["And it's not reachable from this room.", "We can't reach it from here, either."]);
+      if (p.status === 'slow' || p.status === 'warn') return pick(["You might notice it here, too.", "It's a bit slow from this room, too."]);
+      return pick(["It's fine from this room, though.", 'From here, it still looks fine.', "This room isn't feeling it."]);
     }
     return '';
   }
-  /** How long it has lasted (an active one: so far, from its start). */
-  const lastedS = (o) => (o.active ? Math.max(o.durationS || 0, (dataNow() - o.start) / 1000) : o.durationS || 0);
   function repeatNote(o) {
-    // Once per provider per tour, or it gets repetitive.
     if (S.touring) { S.tourNoted = S.tourNoted || new Set(); if (S.tourNoted.has(o.name)) return ''; }
-    const same = S.outages.filter((q) => q.name === o.name).sort((a, b) => a.start - b.start);
-    const k = same.indexOf(o) + 1;
-    if (same.length < 2 || k < 2) return '';
+    const n = S.outages.filter((q) => q.name === o.name).length;
+    if (n < 3) return '';
     if (S.touring) S.tourNoted.add(o.name);
-    return pick([`That's the ${ORD[k] || k + 'th'} time ${nameOf(o)} has had trouble in the last day.`, `It's not the first one today, either; ${nameOf(o)} has had ${numW(same.length)} outages in the last day.`]);
+    return pick([`It's had a rough day.`, `Not its first one, either.`, `That one keeps coming back.`]);
   }
-  function scaleNote(o) {
-    const bigger = S.outages.filter((q) => q.locations.length > o.locations.length).length;
-    if (o.locations.length >= 5 && bigger <= 2) return pick([`It's one of the widest outages of the day.`, `That makes it one of the bigger ones today.`]);
-    return '';
+  function blurb(o) {
+    const nm = nameOf(o), at = where(o), around = at ? pick([` around ${at}`, ` near ${at}`, ` in ${at}`]) : '';
+    if (o.active) {
+      const long = lastedS(o) > 20 * 60 ? `, for ${spokenFor(lastedS(o))} now` : '';
+      return pick([`${nm} is having trouble right now${around}${long}.`, `${nm} is down${around} at the moment${long}.`, `Right now, ${nm} has a problem${around}${long}.`]);
+    }
+    const short = (o.durationS || 0) < 15 * 60;
+    // Same provider as the stop before: say it like a person would.
+    if (S.touring && S.tourPrev === o.name) {
+      return pick([`${nm} again${around}, ${spokenWhen(o.start)}.`, `Another ${short ? 'short one' : 'one'} for ${nm}${around}.`]);
+    }
+    return short
+      ? pick([`${nm} had a quick blip${around} ${spokenWhen(o.start)}.`, `${spokenWhen(o.start) === 'earlier today' ? 'Earlier' : cap(spokenWhen(o.start))}, a short hiccup at ${nm}${around}.`])
+      : pick([`${nm} was down${around} for ${spokenFor(o.durationS)} ${dataNow() - o.start < 3600e3 ? 'a little earlier' : 'earlier today'}.`, `${nm} had a longer outage${around} ${spokenWhen(o.start)}. It's cleared now.`]);
   }
-  /** Tour: a short synopsis, with an overview first. */
+  /** Tour: an opening line, then a sentence or two per outage. */
   function tourSpeech(o, first) {
-    const ago = spokenAgo(o.start), dur = spokenDur(lastedS(o)), where = placePhrase(o, false);
-    let lead;
-    const nm = nameOf(o);
-    if (first) lead = '';
-    else lead = o.active ? pick([`Next, ${nm}.`, `Meanwhile, ${nm}.`, `Now, ${nm}.`]) : pick([`Next, ${nm}.`, `Looking back now, ${nm}.`, `Earlier today, ${nm}.`]);
-    const body = o.active
-      ? pick([`Right now, ${whatNow(o)}, ${where}. It's been going for ${dur}.`, `At the moment, ${whatNow(o)} ${where}, and that's been going on for ${dur}.`])
-      : pick([`${cap(whatThen(o))} ${where}. That lasted ${dur}, and it has cleared since.`, `About ${ago.replace(/^about /, '')}, ${whatThen(o)} ${where}, for ${dur}. It's resolved now.`]);
-    // Whether this room feels it only matters while it's happening.
-    const extra = (o.active && roomTie(o)) || repeatNote(o) || scaleNote(o);
+    const extra = (o.active && roomTie(o)) || repeatNote(o);
     let intro = '';
     if (first) {
-      const all = S.outages, act = all.filter((q) => q.active).length;
-      const net = all.filter((q) => q.kind === 'network').length, app = all.length - net;
-      intro = `Here's how the internet has been doing over the last day. `
-        + `ThousandEyes spotted ${numW(all.length)} outages: ${numW(net)} in networks, and ${numW(app)} in applications. `
-        + (act ? `${act === 1 ? 'One is' : numW(act).replace(/^./, (c) => c.toUpperCase()) + ' are'} still going right now. ` : 'Right now, everything has cleared. ')
-        + `Let's start with ${nameOf(o)}. `;
+      const act = S.outages.filter((q) => q.active).length;
+      intro = pick([`Here's the last day on the internet.`, `Let's look at the last twenty-four hours.`]) + ' '
+        + (act ? `${act === 1 ? 'One outage is' : cap(numW(act)) + ' outages are'} still going.` : 'Everything has cleared for now.') + ' ';
     }
-    return (intro + (lead ? lead + ' ' : '') + body + (extra ? ' ' + extra : '')).trim();
+    const line = (intro + blurb(o) + (extra ? ' ' + extra : '')).trim();
+    S.tourPrev = o.name;
+    return line;
   }
-  /** Tapped: a focused briefing on this one outage. */
+  /** Tapped: a little more about this one, still short. */
   function outageSpeech(o, isNew) {
-    if (isNew) return `Heads up. A new outage just appeared: ${nameOf(o)}. ${cap(whatNow(o))}, ${placePhrase(o, false)}, starting ${spokenAgo(o.start)}. ${roomTie(o)}`.trim();
-    const n = o.kind === 'network' ? o.interfaces : o.servers;
-    const scale = n ? ` ${cap(numW(n))} ${o.kind === 'network' ? (n === 1 ? 'network interface is' : 'network interfaces are') : (n === 1 ? 'server is' : 'servers are')} affected.` : '';
-    const when = o.active
-      ? `It started ${spokenAgo(o.start)}, and it's still going.`
-      : `It started ${spokenAgo(o.start)} and lasted ${spokenDur(lastedS(o))} before clearing.`;
-    return `${nameOf(o)}. ${o.active ? 'This one is active.' : 'This one has cleared.'} `
-      + `${cap(o.active ? whatNow(o) : whatThen(o))}, ${placePhrase(o, true)}.${scale} ${when} `
-      + ((o.active && roomTie(o)) || repeatNote(o));
+    const nm = nameOf(o), at = where(o);
+    if (isNew) return `Heads up: ${nm} just went down${at ? ' around ' + at : ''}.`;
+    const others = o.locations.length > 1 ? ` and ${o.locations.length > 4 ? 'a few' : 'a couple of'} other places` : '';
+    if (o.active) {
+      const what = o.kind === 'network' ? 'a network problem' : pick(["its service isn't responding properly", 'an application problem']);
+      return `${nm}. ${cap(what)}${at ? `, mostly around ${at}${others}` : ''}, and it's still going. ${roomTie(o)}`.trim();
+    }
+    const what = o.kind === 'network' ? 'a network problem' : pick(["its service wasn't responding properly", 'an application problem']);
+    return `${nm}. ${cap(spokenWhen(o.start))}, ${what}${at ? ` around ${at}${others}` : ''}. It lasted ${spokenFor(o.durationS || 0)}, and it's cleared now.`;
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -1333,9 +1312,11 @@
       const d = h.ms != null && prev ? h.ms - prev.ms : 0;
       return d > (best ? best.d : PATH_HIGH) ? { d, h } : best;
     }, null);
-    tts(`Path to ${p.name}: ${last && last.ms != null ? `about ${Math.round(last.ms)} milliseconds` : 'no answer from the service'}, over ${r.hops.length} hops. `
-      + (slowLink ? `The biggest delay is ${Math.round(slowLink.d)} milliseconds${slowLink.h.city ? ' near ' + slowLink.h.city : ''}. ` : 'No slow links. ')
-      + (lossy.length ? `Packet loss from hop ${lossy[0].n}${lossy[0].org ? ', in ' + lossy[0].org.replace(/,? (Inc|LLC|Ltd|Corporation|Corp)\.?.*$/i, '') : ''}.` : 'No packet loss.'));
+    const at = (h) => (h && h.city ? ' near ' + h.city : '');
+    tts(last && last.ms != null
+      ? `${p.name} is about ${Math.round(last.ms)} milliseconds away. `
+        + (slowLink ? `Most of the delay comes in one jump${at(slowLink.h)}.` : lossy.length ? `There's some packet loss along the way${at(lossy[0])}.` : pick(['The path looks clean.', 'No problems along the way.']))
+      : `${p.name} didn't answer the trace.`);
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
   }
   function drawPath(now, R) {
