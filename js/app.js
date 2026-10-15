@@ -1020,78 +1020,98 @@
   const linkClass = (d) => (d == null ? 'pv-silent' : d >= PATH_HIGH ? 'pv-bad' : d >= PATH_HIGH / 2 ? 'pv-warn' : 'pv-ok');
   const shortHost = (h) => (h.host ? h.host.split('.')[0] : h.ip || '*');
 
-  /** ThousandEyes-style path visualization: source -> hops -> destination,
-   *  links labelled with the latency each adds, red/amber when high, red rings
-   *  on hops with loss, dashed grey for hops that don't answer, and bands
-   *  grouping consecutive hops on the same network. */
+  /** ThousandEyes-style path visualization: probe -> numbered hops ->
+   *  destination. Links carry the latency each hop adds (green / amber / red);
+   *  red rings mark loss that carries through to the destination; a dashed grey
+   *  ring marks a router that's merely slow to answer traces. Hops sit in
+   *  coloured lanes per network (named below), with the city named once per
+   *  stretch, so labels never pile up. Hover / tap a node for its details. */
+  const NET_HUES = ['#38bdf8', '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#fb923c'];
   function pathSvg(r, availW) {
-    const all = [{ kind: 'src', label: 'Probe', sub: r.probe.city || '', avg: 0, loss: 0, asn: r.probe.asn, org: r.probe.network }]
+    const all = [{ kind: 'src', label: 'Probe', sub: '', ms: 0, lossEff: 0, key: 'local', org: 'This network' }]
       .concat(r.hops.map((h, i) => ({
-        kind: i === r.hops.length - 1 ? 'dst' : h.ip ? 'hop' : 'silent',
-        label: i === r.hops.length - 1 ? r.target.host.split('.')[0] : shortHost(h), sub: h.city || '',
-        avg: h.avg, loss: h.ip ? h.loss : null, asn: h.asn, org: h.org, ip: h.ip, host: h.host,
+        kind: i === r.hops.length - 1 ? 'dst' : h.ip ? 'hop' : 'silent', n: h.n,
+        label: i === r.hops.length - 1 ? r.target.host : (h.host || h.ip || '*'), sub: h.city || '',
+        ms: h.ms != null ? h.ms : null, avg: h.avg, loss: h.loss, lossEff: h.lossEff, slow: h.slowReply, replyLoss: h.replyLoss,
+        key: h.private ? 'local' : h.asn ? 'AS' + h.asn : null, asn: h.asn, org: h.private ? 'This network' : h.org, ip: h.ip,
       })));
-    // Runs of silent hops collapse into one "* xN" node.
+    // Runs of silent hops collapse into one node.
     const nodes = [];
     for (const n of all) {
       const prev = nodes[nodes.length - 1];
-      if (n.kind === 'silent' && prev && prev.kind === 'silent') { prev.count = (prev.count || 1) + 1; prev.label = '* \u00D7' + prev.count; continue; }
+      if (n.kind === 'silent' && prev && prev.kind === 'silent') { prev.count = (prev.count || 1) + 1; continue; }
       nodes.push(n);
     }
-    // Space the nodes to fit the card; stagger labels when they get close.
-    const X0 = 40, Y = 70;
-    const fit = availW && nodes.length > 1 ? (availW - X0 * 2) / (nodes.length - 1) : 90;
-    const GAP = Math.max(46, Math.min(110, fit));
-    const stagger = GAP < 84;
-    const W = X0 * 2 + GAP * (nodes.length - 1), H = stagger ? 168 : 146;
+    // Network lanes: hops with no network of their own (silent ones) join the
+    // lane they sit in.
+    nodes.forEach((n, k) => { if (!n.key) n.key = (nodes[k - 1] && nodes[k - 1].key) || 'local'; });
+    const X0 = 34, Y = 58;
+    const fit = availW && nodes.length > 1 ? (availW - X0 * 2) / (nodes.length - 1) : 70;
+    const GAP = Math.max(34, Math.min(84, fit));
+    const W = X0 * 2 + GAP * (nodes.length - 1), H = 150;
     const xs = nodes.map((_, i) => X0 + i * GAP);
-    // Width 100% + viewBox: if the minimum spacing still overflows, it scales down instead of scrolling.
     let out = `<svg class="pv" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Path visualization">`;
-    // Network bands: hops without an ASN (private LAN hops, silent hops)
-    // belong to the network around them, so each network is one band.
-    const bandAsn = [];
-    nodes.forEach((n, k) => { bandAsn[k] = n.asn || bandAsn[k - 1] || null; });
-    for (let k = nodes.length - 1; k >= 0; k--) if (!nodes[k].asn && bandAsn[k] !== bandAsn[k + 1] && bandAsn[k + 1] && !bandAsn[k]) bandAsn[k] = bandAsn[k + 1];
-    let i = 0;
-    while (i < nodes.length) {
-      const a = bandAsn[i];
-      let j = i;
-      while (j + 1 < nodes.length && bandAsn[j + 1] === a) j++;
-      if (a) {
-        const x1 = xs[i] - GAP * 0.42, x2 = xs[j] + GAP * 0.42;
-        const name = (nodes.slice(i, j + 1).find((n) => n.org) || {}).org || '';
-        out += `<rect class="pv-band" x="${x1}" y="18" width="${x2 - x1}" height="${H - 26}" rx="10"/>`
-          + `<text class="pv-band-t" x="${(x1 + x2) / 2}" y="32">${esc((name.split(/[ ,]/)[0] || 'AS') + ' \u00B7 AS' + a)}</text>`;
-      }
-      i = j + 1;
+    const hue = new Map();
+    const runs = (keyOf) => {
+      const res = [];
+      nodes.forEach((n, k) => {
+        const key = keyOf(n), last = res[res.length - 1];
+        if (last && last.key === key) last.j = k; else res.push({ key, i: k, j: k, n });
+      });
+      return res;
+    };
+    const clip = (t, px) => { const c = Math.max(3, Math.floor(px / 6)); return t.length > c ? t.slice(0, c - 1) + '…' : t; };
+    // Lanes + network names
+    for (const L of runs((n) => n.key)) {
+      if (!hue.has(L.key)) hue.set(L.key, L.key === 'local' ? '#94a3b8' : NET_HUES[(hue.size - (hue.has('local') ? 1 : 0)) % NET_HUES.length]);
+      const c = hue.get(L.key), x1 = xs[L.i] - GAP * 0.44, x2 = xs[L.j] + GAP * 0.44;
+      const org = (nodes.slice(L.i, L.j + 1).find((n) => n.org) || {}).org || '';
+      const name = L.key === 'local' ? 'Local network' : `${org.replace(/,? (Inc|LLC|Ltd|Corporation|Corp|Communications|Enterprises)\.?.*$/i, '') || 'Network'} · ${L.key}`;
+      out += `<rect class="pv-lane" x="${x1}" y="${Y - 22}" width="${x2 - x1}" height="44" rx="22" style="fill:${c};stroke:${c}"/>`
+        + `<text class="pv-net" x="${(x1 + x2) / 2}" y="${Y + 40}" style="fill:${c}">${esc(clip(name, x2 - x1 + 10))}</text>`;
     }
-    // Links, labelled with the latency added since the previous answering hop.
-    let lastAvg = 0, lastIdx = 0;
+    // Cities, once per stretch
+    for (const C of runs((n) => n.sub || '')) {
+      if (!C.key) continue;
+      const x1 = xs[C.i] - GAP * 0.45, x2 = xs[C.j] + GAP * 0.45;
+      out += `<text class="pv-city" x="${(x1 + x2) / 2}" y="${Y + 55}">${esc(clip(C.key, x2 - x1))}</text>`;
+    }
+    // Links: the latency each hop adds since the last one that answered.
+    let lastMs = 0, lastIdx = 0;
     for (let k = 1; k < nodes.length; k++) {
-      const n = nodes[k], silent = n.kind === 'silent' || nodes[k - 1].kind === 'silent' || n.avg == null;
-      const delta = n.avg != null ? Math.max(0, n.avg - lastAvg) : null;
-      const cls = silent && n.avg == null ? 'pv-silent' : linkClass(delta);
-      out += `<line class="pv-link ${cls}" x1="${xs[k - 1] + 12}" y1="${Y}" x2="${xs[k] - 12}" y2="${Y}"/>`;
-      if (n.avg != null) {
-        const mx = (xs[lastIdx] + xs[k]) / 2;
-        out += `<text class="pv-lat ${cls}" x="${mx}" y="${Y - 14}">+${delta.toFixed(delta < 10 ? 1 : 0)} ms</text>`;
-        lastAvg = n.avg; lastIdx = k;
+      const n = nodes[k], quiet = n.kind === 'silent' || nodes[k - 1].kind === 'silent' || n.ms == null;
+      const delta = n.ms != null ? Math.max(0, n.ms - lastMs) : null;
+      const cls = quiet && n.ms == null ? 'pv-silent' : linkClass(delta);
+      out += `<line class="pv-link ${quiet ? 'pv-silent' : cls}" x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"/>`;
+      if (n.ms != null) {
+        if (delta >= 1 || k === nodes.length - 1) {
+          const mx = (xs[lastIdx] + xs[k]) / 2;
+          out += `<text class="pv-lat ${cls}" x="${mx}" y="${Y - 29}">+${delta.toFixed(delta < 10 ? 1 : 0)}</text>`;
+        }
+        lastMs = n.ms; lastIdx = k;
       }
     }
     // Nodes
     nodes.forEach((n, k) => {
-      const x = xs[k];
-      const lossy = n.loss != null && n.loss > 0 && n.loss < 100;
-      const cls = `pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}`;
-      const title = esc([n.host || n.ip || '', n.org, n.sub, n.avg != null ? n.avg.toFixed(1) + ' ms' : '', n.loss != null ? Math.round(n.loss) + '% loss' : ''].filter(Boolean).join(' · '));
-      out += `<g class="${cls}"><title>${title}</title>`;
-      if (n.kind === 'src') out += `<rect x="${x - 11}" y="${Y - 11}" width="22" height="22" rx="5"/>`;
-      else out += `<circle cx="${x}" cy="${Y}" r="${n.kind === 'silent' ? 7 : 11}"/>`;
-      if (lossy) out += `<circle class="pv-ring" cx="${x}" cy="${Y}" r="17"/>`;
-      const ly = Y + 30 + (stagger && k % 2 ? 24 : 0), maxc = stagger ? 16 : 14;
-      out += `<text class="pv-l1" x="${x}" y="${ly}">${esc(n.label.slice(0, maxc))}</text>`
-        + `<text class="pv-l2" x="${x}" y="${ly + 13}">${esc(lossy ? Math.round(n.loss) + '% loss' : (n.sub || '').slice(0, maxc))}</text></g>`;
+      const x = xs[k], lossy = n.lossEff != null && n.lossEff > 0 && n.lossEff < 100;
+      const title = esc([n.label, n.ip && n.ip !== n.label ? n.ip : '', n.org, n.sub,
+        n.ms != null ? `${n.ms.toFixed(1)} ms` + (n.slow ? ` (router replies in ${n.avg.toFixed(0)} ms)` : '') : '',
+        n.loss != null ? `${Math.round(n.lossEff)}% loss` + (n.replyLoss ? ` (${Math.round(n.loss)}% of replies)` : '') : '',
+        n.count ? `${n.count} hops not answering` : ''].filter(Boolean).join(' · '));
+      out += `<g class="pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}"><title>${title}</title>`;
+      if (n.kind === 'src') out += `<rect x="${x - 10}" y="${Y - 10}" width="20" height="20" rx="5"/>`;
+      else if (n.kind === 'silent') out += `<circle cx="${x}" cy="${Y}" r="7"/>`;
+      else out += `<circle cx="${x}" cy="${Y}" r="${n.kind === 'dst' ? 12 : 10}"/>`;
+      if (n.kind === 'hop') out += `<text class="pv-num" x="${x}" y="${Y + 3.5}">${n.n}</text>`;
+      if (n.kind === 'silent' && n.count) out += `<text class="pv-cnt" x="${x}" y="${Y + 19}">×${n.count}</text>`;
+      if (n.slow) out += `<circle class="pv-slow" cx="${x}" cy="${Y}" r="15"/>`;
+      if (lossy) out += `<circle class="pv-ring" cx="${x}" cy="${Y}" r="16"/>`
+        + `<text class="pv-loss" x="${x}" y="${Y - 20}">${Math.round(n.lossEff)}%</text>`;
+      out += '</g>';
     });
+    // End labels: where it starts, where it ends.
+    out += `<text class="pv-end" x="${xs[0] - 10}" y="${Y + 76}" text-anchor="start">Probe · ${esc(r.probe.city || '')}</text>`
+      + `<text class="pv-end pv-end-dst" x="${xs[xs.length - 1] + 12}" y="${Y + 76}" text-anchor="end">${esc(r.target.host)}</text>`;
     return out + '</svg>';
   }
 
@@ -1100,16 +1120,17 @@
     const last = r.hops[r.hops.length - 1];
     pathMeta.innerHTML = `${esc(r.target.host)} &middot; ${esc(r.target.ip || '')} &middot; `
       + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))} &mdash; ${esc(scopeTxt)}`
-      + (last && last.avg != null ? ` &middot; <b>end to end ~${Math.round(last.avg)} ms over ${r.hops.length} hops</b>` : '');
+      + (last && last.ms != null ? ` &middot; <b>end to end ~${Math.round(last.ms)} ms over ${r.hops.length} hops</b>` : '');
     pathBody.innerHTML = `<div class="pc-viz">${pathSvg(r, pathBody.clientWidth)}</div>`
-      + `<div class="pc-legend"><span class="lg-ok">+&lt;${PATH_HIGH / 2} ms</span><span class="lg-warn">+${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-silent">no reply</span></div>`
+      + `<div class="pc-legend"><span class="lg-ok">+&lt;${PATH_HIGH / 2} ms</span><span class="lg-warn">+${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-slow">slow to answer traces</span><span class="lg-silent">no reply</span></div>`
       + '<details class="pc-details"><summary>Hop details</summary>'
-      + '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>avg</th><th>loss</th></tr>'
+      + '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>latency</th><th>loss</th></tr>'
       + r.hops.map((h) => `<tr class="${h.ip ? '' : 'pc-silent'}"><td>${h.n}</td>`
         + `<td title="${esc(h.ip || '')}">${esc(h.host || h.ip || '* (no reply)')}</td>`
         + `<td>${h.asn ? 'AS' + h.asn + ' ' : ''}${esc(h.org || '')}</td><td>${esc([h.city, h.country].filter(Boolean).join(', '))}</td>`
-        + `<td>${h.avg != null ? h.avg.toFixed(1) + ' ms' : '-'}</td><td class="${h.loss > 0 && h.loss < 100 ? 'pc-loss' : ''}">${h.loss != null ? Math.round(h.loss) + '%' : '-'}</td></tr>`).join('')
-      + '</table><div class="pc-note">Loss at middle hops is often a router deprioritising trace replies rather than real packet loss; loss that carries through to the destination is what matters.</div></details>';
+        + `<td>${h.ms != null ? h.ms.toFixed(1) + ' ms' : '-'}${h.slowReply ? `<span class="pc-raw" title="The router itself took ${h.avg.toFixed(0)} ms to answer the trace">replies ${h.avg.toFixed(0)}</span>` : ''}</td>`
+        + `<td class="${h.lossEff > 0 && h.lossEff < 100 ? 'pc-loss' : ''}">${h.lossEff != null ? Math.round(h.lossEff) + '%' : '-'}${h.replyLoss ? `<span class="pc-raw" title="${Math.round(h.loss)}% of trace replies from this router went missing, but later hops lost nothing">${Math.round(h.loss)}% replies</span>` : ''}</td></tr>`).join('')
+      + '</table><div class="pc-note">Routers answer traces on a slow, low-priority path. A hop can\'t really be slower than the hops after it, and loss only counts if it carries on to later hops - so latency and loss here are what traffic passing <i>through</i> each hop sees; the router\'s own reply time or reply loss is shown in grey when it differs.</div></details>';
     // Globe: probe -> located hops -> service, keeping each point's latency and
     // loss so segments and rings use the same colours as the diagram.
     const pts = [{ lon: r.probe.lon, lat: r.probe.lat, label: r.probe.city || 'probe', kind: 'start', avg: 0, loss: 0 }];
@@ -1117,16 +1138,16 @@
       if (h.lat == null) continue;
       const prev = pts[pts.length - 1];
       if (d3.geoDistance([prev.lon, prev.lat], [h.lon, h.lat]) * 6371 < 40) {
-        if (h.avg != null) prev.avg = h.avg;
-        if (h.loss > 0 && h.loss < 100) prev.loss = Math.max(prev.loss || 0, h.loss);
+        if (h.ms != null) prev.avg = h.ms;
+        if (h.lossEff > 0 && h.lossEff < 100) prev.loss = Math.max(prev.loss || 0, h.lossEff);
         continue;
       }
-      pts.push({ lon: h.lon, lat: h.lat, label: h.city || '', avg: h.avg, loss: h.loss > 0 && h.loss < 100 ? h.loss : 0 });
+      pts.push({ lon: h.lon, lat: h.lat, label: h.city || '', avg: h.ms, loss: h.lossEff > 0 && h.lossEff < 100 ? h.lossEff : 0 });
     }
     const end = pts[pts.length - 1];
     end.kind = 'end';
     end.label = (end.label ? end.label + ' · ' : '') + p.name;
-    if (last && last.avg != null) end.avg = last.avg;
+    if (last && last.ms != null) end.avg = last.ms;
     S.path = { pts };
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
   }

@@ -658,7 +658,11 @@
   // OPEN: curl above this = fingers clearly spread. The hand must also be
   // upright within GRAB.UPRIGHT_DEG (same rule as fists) - a tilted or waved
   // hand doesn't arm gestures.
-  const PALM = { OPEN: 1.7, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 500 };
+  // v2 (hand cursor) also needs the palm seen open in MIN_FRAMES hand results
+  // in a row and held V2_HOLD_MS - a hand passing by never switches it on.
+  // ?palmhold=<ms> tunes it.
+  const PALM = { OPEN: 1.7, HOLD_MS: 500, DRIFT: 0.09, GAP_MS: 350, IDLE_MS: 500,
+    V2_HOLD_MS: Math.max(0, parseInt(qs.get('palmhold'), 10) || 600), MIN_FRAMES: 3 };
   const hold = { active: false, t0: 0, x: 0, y: 0, lastSeen: 0, latched: false, progress: 0 };
   let armed = false, onGesture = () => {};
 
@@ -685,9 +689,12 @@
       if (hold.latched) return;
       if (!hold.active || Math.hypot(p.x - hold.x, p.y - hold.y) > PALM.DRIFT) {
         // (Re)start the hold here - moving the hand around doesn't count.
-        hold.active = true; hold.t0 = now; hold.x = p.x; hold.y = p.y;
+        hold.active = true; hold.t0 = now; hold.x = p.x; hold.y = p.y; hold.frames = 0;
       }
-      hold.progress = GESTURES_V1 ? Math.min(1, (now - hold.t0) / PALM.HOLD_MS) : 1;
+      hold.frames = (hold.frames || 0) + 1;
+      const need = GESTURES_V1 ? PALM.HOLD_MS : PALM.V2_HOLD_MS;
+      hold.progress = Math.min(1, (now - hold.t0) / Math.max(1, need));
+      if (!GESTURES_V1 && hold.frames < PALM.MIN_FRAMES) hold.progress = Math.min(hold.progress, 0.95);
       if (hold.progress < 1) onGesture('hold', hold.progress);
       if (hold.progress >= 1) {
         armed = true;
@@ -760,8 +767,8 @@
    *  lands where the hand was pointing. */
   function updateCursor(palms, now, aspect, capT) {
     const hands = palms.filter((p) => p.lm);
-    if (!hands.length) {
-      if (cur.visible && now - lastHandSeen > 300) { cur.visible = false; onCursor({ visible: false }); }
+    if (!hands.length || !armed) {   // paused: no hands on screen
+      if (cur.visible && (!armed || now - lastHandSeen > 300)) { cur.visible = false; onCursor({ visible: false }); }
       return;
     }
     // Every hand in view gets a silhouette; the pointer stays with one of them

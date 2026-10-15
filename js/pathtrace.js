@@ -10,13 +10,17 @@
  *   room: {city, region, country, org, asn, lat, lon},
  *   probe: {city, state, country, network, asn, lat, lon},
  *   target: {host, ip}, scope: 'isp'|'city'|'country',
- *   hops: [{n, ip, host, asn, org, city, country, lat, lon, avg, loss}]
+ *   hops: [{n, ip, host, asn, org, city, country, lat, lon, private,
+ *           avg, loss,          // as measured (replies from the router itself)
+ *           ms, lossEff,        // what traffic THROUGH the hop sees (see settle())
+ *           slowReply, replyLoss}]
  * }>
  */
 (function () {
   'use strict';
 
   const GP = 'https://api.globalping.io/v1/measurements';
+  const PACKETS = 8;
   const geoCache = new Map();
 
   async function json(url, init) {
@@ -53,7 +57,8 @@
   async function startMtr(host, locations) {
     return json(GP, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'mtr', target: host, locations, limit: 1, measurementOptions: { protocol: 'TCP', port: 443, packets: 3 } }),
+      // 8 packets per hop (was 3): with 3, a single stray packet reads as 33% loss.
+      body: JSON.stringify({ type: 'mtr', target: host, locations, limit: 1, measurementOptions: { protocol: 'TCP', port: 443, packets: PACKETS } }),
     });
   }
 
@@ -88,14 +93,37 @@
     const hops = await Promise.all(r.result.hops.map(async (h, i) => {
       const g = await geo(h.resolvedAddress);
       return {
-        n: i + 1, ip: h.resolvedAddress, host: h.resolvedHostname && h.resolvedHostname !== h.resolvedAddress ? h.resolvedHostname : null,
+        n: i + 1, ip: h.resolvedAddress, private: !!h.resolvedAddress && isPrivate(h.resolvedAddress), host: h.resolvedHostname && h.resolvedHostname !== h.resolvedAddress ? h.resolvedHostname : null,
         asn: (h.asn || [])[0] || null, org: g ? g.org.replace(/^AS\d+\s*/, '') : '', city: g ? g.city : '', country: g ? g.country : '',
         lat: g ? g.lat : null, lon: g ? g.lon : null,
         avg: h.stats && h.stats.avg != null ? h.stats.avg : null, loss: h.stats ? h.stats.loss : null,
       };
     }));
+    settle(hops);
     return { room, probe, scope, target: { host, ip: r.result.resolvedAddress }, hops };
   }
 
-  window.PathTrace = { run };
+  /** A trace measures how fast each ROUTER answers, and routers answer traces
+   *  on a slow, low-priority path (and rate-limit them) while forwarding real
+   *  traffic at full speed. Read the way ThousandEyes/MTR experts read it:
+   *  - traffic can't reach hop N+1 sooner than hop N, so a hop's latency is
+   *    bounded by the lowest latency at any hop AFTER it - a 350 ms hop followed
+   *    by 9 ms hops is really <= 9 ms (the extra is its slow reply);
+   *  - loss only counts if it carries on to later hops - 33% at one hop with
+   *    0% after it is the router not answering, not packets being dropped. */
+  function settle(hops) {
+    let bestLat = Infinity, bestLoss = Infinity;
+    for (let i = hops.length - 1; i >= 0; i--) {
+      const h = hops[i];
+      if (!h.ip) continue;
+      h.ms = h.avg != null ? Math.min(h.avg, bestLat) : null;
+      h.slowReply = h.avg != null && h.ms != null && h.avg - h.ms > Math.max(15, h.ms * 0.5);
+      h.lossEff = h.loss != null ? Math.min(h.loss, bestLoss) : null;
+      h.replyLoss = h.loss != null && h.lossEff != null && h.loss - h.lossEff >= 1;
+      if (h.avg != null) bestLat = Math.min(bestLat, h.avg);
+      if (h.loss != null) bestLoss = Math.min(bestLoss, h.loss);
+    }
+  }
+
+  window.PathTrace = { run, settle };
 })();
