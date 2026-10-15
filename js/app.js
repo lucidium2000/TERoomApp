@@ -1014,106 +1014,145 @@
     pathRun++; S.pathOpen = false; S.path = null;
     if (!pathCard.hidden) sfx('close');
     pathCard.hidden = true;
+    pvTipAt(null);
   }
   // Link colouring thresholds (added latency, ms): amber at half, red at full.
   const PATH_HIGH = Math.max(5, num('pathhigh', 30));
   const linkClass = (d) => (d == null ? 'pv-silent' : d >= PATH_HIGH ? 'pv-bad' : d >= PATH_HIGH / 2 ? 'pv-warn' : 'pv-ok');
-  const shortHost = (h) => (h.host ? h.host.split('.')[0] : h.ip || '*');
 
-  /** ThousandEyes-style path visualization: probe -> numbered hops ->
-   *  destination. Links carry the latency each hop adds (green / amber / red);
-   *  red rings mark loss that carries through to the destination; a dashed grey
-   *  ring marks a router that's merely slow to answer traces. Hops sit in
-   *  coloured lanes per network (named below), with the city named once per
-   *  stretch, so labels never pile up. Hover / tap a node for its details. */
-  const NET_HUES = ['#38bdf8', '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#fb923c'];
+  /** ThousandEyes-style path visualization. The agent (probe) on the left,
+   *  the target on the right, hops as small nodes in between coloured by the
+   *  network they belong to, with a labelled bracket under each network.
+   *  Links are neutral grey and only turn amber / red where a hop adds real
+   *  delay; nodes with loss (that carries on downstream) are filled red; a
+   *  dashed grey ring marks a router that's merely slow to answer traces;
+   *  dashed hollow nodes didn't answer. Hover (or tap / pinch) a node or a
+   *  link for a details card. */
+  const NET_HUES = ['#38bdf8', '#a78bfa', '#f472b6', '#22d3ee', '#818cf8', '#e879f9'];
+  let pvNodes = [], pvLinks = [];
   function pathSvg(r, availW) {
-    const all = [{ kind: 'src', label: 'Probe', sub: '', ms: 0, lossEff: 0, key: 'local', org: 'This network' }]
+    const probeName = [r.probe.city, r.probe.state].filter(Boolean).join(', ') || 'Probe';
+    const all = [{ kind: 'src', label: probeName, ms: 0, lossEff: 0, key: 'local', org: r.probe.network || '', asn: r.probe.asn, sub: '' }]
       .concat(r.hops.map((h, i) => ({
         kind: i === r.hops.length - 1 ? 'dst' : h.ip ? 'hop' : 'silent', n: h.n,
-        label: i === r.hops.length - 1 ? r.target.host : (h.host || h.ip || '*'), sub: h.city || '',
+        label: i === r.hops.length - 1 ? r.target.host : (h.host || h.ip || 'No reply'),
+        sub: [h.city, h.country].filter(Boolean).join(', '),
         ms: h.ms != null ? h.ms : null, avg: h.avg, loss: h.loss, lossEff: h.lossEff, slow: h.slowReply, replyLoss: h.replyLoss,
-        key: h.private ? 'local' : h.asn ? 'AS' + h.asn : null, asn: h.asn, org: h.private ? 'This network' : h.org, ip: h.ip,
+        key: h.private ? 'local' : h.asn ? 'AS' + h.asn : null, asn: h.asn, org: h.private ? 'Private network' : h.org, ip: h.ip,
       })));
-    // Runs of silent hops collapse into one node.
     const nodes = [];
     for (const n of all) {
       const prev = nodes[nodes.length - 1];
-      if (n.kind === 'silent' && prev && prev.kind === 'silent') { prev.count = (prev.count || 1) + 1; continue; }
+      if (n.kind === 'silent' && prev && prev.kind === 'silent') { prev.count = (prev.count || 1) + 1; prev.nTo = n.n; continue; }
       nodes.push(n);
     }
-    // Network lanes: hops with no network of their own (silent ones) join the
-    // lane they sit in.
     nodes.forEach((n, k) => { if (!n.key) n.key = (nodes[k - 1] && nodes[k - 1].key) || 'local'; });
-    const X0 = 34, Y = 58;
-    const fit = availW && nodes.length > 1 ? (availW - X0 * 2) / (nodes.length - 1) : 70;
-    const GAP = Math.max(34, Math.min(84, fit));
-    const W = X0 * 2 + GAP * (nodes.length - 1), H = 150;
-    const xs = nodes.map((_, i) => X0 + i * GAP);
-    let out = `<svg class="pv" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Path visualization">`;
+    // Left column: the agent's name; right column: the target's.
+    const W = Math.max(520, availW || 760), LEFT = 112, RIGHT = 132, Y = 54, H = 118;
+    const span = W - LEFT - RIGHT, GAP = nodes.length > 1 ? span / (nodes.length - 1) : 0;
+    const xs = nodes.map((_, i) => LEFT + i * GAP);
+    const clip = (t, px) => { const c = Math.max(3, Math.floor(px / 6.2)); return t.length > c ? t.slice(0, c - 1) + '…' : t; };
+    let out = `<svg class="pv" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Path visualization">`;
+    // Network colours and brackets
     const hue = new Map();
-    const runs = (keyOf) => {
-      const res = [];
-      nodes.forEach((n, k) => {
-        const key = keyOf(n), last = res[res.length - 1];
-        if (last && last.key === key) last.j = k; else res.push({ key, i: k, j: k, n });
-      });
-      return res;
-    };
-    const clip = (t, px) => { const c = Math.max(3, Math.floor(px / 6)); return t.length > c ? t.slice(0, c - 1) + '…' : t; };
-    // Lanes + network names
-    for (const L of runs((n) => n.key)) {
-      if (!hue.has(L.key)) hue.set(L.key, L.key === 'local' ? '#94a3b8' : NET_HUES[(hue.size - (hue.has('local') ? 1 : 0)) % NET_HUES.length]);
-      const c = hue.get(L.key), x1 = xs[L.i] - GAP * 0.44, x2 = xs[L.j] + GAP * 0.44;
-      const org = (nodes.slice(L.i, L.j + 1).find((n) => n.org) || {}).org || '';
-      const name = L.key === 'local' ? 'Local network' : `${org.replace(/,? (Inc|LLC|Ltd|Corporation|Corp|Communications|Enterprises)\.?.*$/i, '') || 'Network'} · ${L.key}`;
-      out += `<rect class="pv-lane" x="${x1}" y="${Y - 22}" width="${x2 - x1}" height="44" rx="22" style="fill:${c};stroke:${c}"/>`
-        + `<text class="pv-net" x="${(x1 + x2) / 2}" y="${Y + 40}" style="fill:${c}">${esc(clip(name, x2 - x1 + 10))}</text>`;
+    const runs = [];
+    nodes.forEach((n, k) => { const last = runs[runs.length - 1]; if (last && last.key === n.key) last.j = k; else runs.push({ key: n.key, i: k, j: k }); });
+    for (const R of runs) {
+      if (!hue.has(R.key)) hue.set(R.key, R.key === 'local' ? '#94a3b8' : NET_HUES[[...hue.keys()].filter((q) => q !== 'local').length % NET_HUES.length]);
+      const c = hue.get(R.key), x1 = xs[R.i] - Math.min(14, GAP * 0.35), x2 = xs[R.j] + Math.min(14, GAP * 0.35);
+      const org = (nodes.slice(R.i, R.j + 1).find((n) => n.org && n.kind !== 'src') || nodes[R.i]).org || '';
+      const short = org.replace(/,? (Inc|LLC|Ltd|Corporation|Corp|Communications|Enterprises)\.?.*$/i, '');
+      const name = R.key === 'local' ? 'Local' : `${short || 'Network'} (${R.key})`;
+      out += `<path class="pv-brk" d="M${x1} ${Y + 20}v6H${x2}v-6" style="stroke:${c}"/>`
+        + `<text class="pv-net" x="${(x1 + x2) / 2}" y="${Y + 40}" style="fill:${c}">${esc(clip(name, Math.max(x2 - x1 + 16, 40)))}</text>`;
     }
-    // Cities, once per stretch
-    for (const C of runs((n) => n.sub || '')) {
-      if (!C.key) continue;
-      const x1 = xs[C.i] - GAP * 0.45, x2 = xs[C.j] + GAP * 0.45;
-      out += `<text class="pv-city" x="${(x1 + x2) / 2}" y="${Y + 55}">${esc(clip(C.key, x2 - x1))}</text>`;
-    }
-    // Links: the latency each hop adds since the last one that answered.
+    // Links (with a wide invisible hit line for hover)
+    pvLinks = [];
     let lastMs = 0, lastIdx = 0;
     for (let k = 1; k < nodes.length; k++) {
       const n = nodes[k], quiet = n.kind === 'silent' || nodes[k - 1].kind === 'silent' || n.ms == null;
       const delta = n.ms != null ? Math.max(0, n.ms - lastMs) : null;
-      const cls = quiet && n.ms == null ? 'pv-silent' : linkClass(delta);
-      out += `<line class="pv-link ${quiet ? 'pv-silent' : cls}" x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"/>`;
+      const sev = delta == null ? 'silent' : delta >= PATH_HIGH ? 'bad' : delta >= PATH_HIGH / 2 ? 'warn' : 'ok';
+      pvLinks.push({ from: nodes[lastIdx], to: n, delta, sev });
+      const li = pvLinks.length - 1;
+      out += `<line class="pv-link pv-l-${quiet && n.ms == null ? 'silent' : sev}" x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"/>`
+        + `<line class="pv-hit" data-link="${li}" x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"/>`;
       if (n.ms != null) {
-        if (delta >= 1 || k === nodes.length - 1) {
-          const mx = (xs[lastIdx] + xs[k]) / 2;
-          out += `<text class="pv-lat ${cls}" x="${mx}" y="${Y - 29}">+${delta.toFixed(delta < 10 ? 1 : 0)}</text>`;
-        }
+        if (sev === 'warn' || sev === 'bad') out += `<text class="pv-lat pv-l-${sev}" x="${(xs[lastIdx] + xs[k]) / 2}" y="${Y - 12}">+${delta.toFixed(0)} ms</text>`;
         lastMs = n.ms; lastIdx = k;
       }
     }
     // Nodes
+    pvNodes = nodes;
     nodes.forEach((n, k) => {
-      const x = xs[k], lossy = n.lossEff != null && n.lossEff > 0 && n.lossEff < 100;
-      const title = esc([n.label, n.ip && n.ip !== n.label ? n.ip : '', n.org, n.sub,
-        n.ms != null ? `${n.ms.toFixed(1)} ms` + (n.slow ? ` (router replies in ${n.avg.toFixed(0)} ms)` : '') : '',
-        n.loss != null ? `${Math.round(n.lossEff)}% loss` + (n.replyLoss ? ` (${Math.round(n.loss)}% of replies)` : '') : '',
-        n.count ? `${n.count} hops not answering` : ''].filter(Boolean).join(' · '));
-      out += `<g class="pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}"><title>${title}</title>`;
-      if (n.kind === 'src') out += `<rect x="${x - 10}" y="${Y - 10}" width="20" height="20" rx="5"/>`;
-      else if (n.kind === 'silent') out += `<circle cx="${x}" cy="${Y}" r="7"/>`;
-      else out += `<circle cx="${x}" cy="${Y}" r="${n.kind === 'dst' ? 12 : 10}"/>`;
-      if (n.kind === 'hop') out += `<text class="pv-num" x="${x}" y="${Y + 3.5}">${n.n}</text>`;
-      if (n.kind === 'silent' && n.count) out += `<text class="pv-cnt" x="${x}" y="${Y + 19}">×${n.count}</text>`;
-      if (n.slow) out += `<circle class="pv-slow" cx="${x}" cy="${Y}" r="15"/>`;
-      if (lossy) out += `<circle class="pv-ring" cx="${x}" cy="${Y}" r="16"/>`
-        + `<text class="pv-loss" x="${x}" y="${Y - 20}">${Math.round(n.lossEff)}%</text>`;
+      const x = xs[k], c = hue.get(n.key), lossy = n.lossEff != null && n.lossEff > 0 && n.lossEff < 100;
+      out += `<g class="pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}" data-node="${k}" tabindex="0">`;
+      out += `<circle class="pv-hit" cx="${x}" cy="${Y}" r="${Math.max(10, Math.min(16, GAP / 2))}"/>`;
+      if (n.kind === 'src') out += `<rect class="pv-shape" x="${x - 9}" y="${Y - 9}" width="18" height="18" rx="4"/>`;
+      else if (n.kind === 'dst') out += `<circle class="pv-shape" cx="${x}" cy="${Y}" r="10"/><circle class="pv-core" cx="${x}" cy="${Y}" r="4"/>`;
+      else if (n.kind === 'silent') out += `<circle class="pv-shape" cx="${x}" cy="${Y}" r="5"/>`;
+      else out += `<circle class="pv-shape" cx="${x}" cy="${Y}" r="6.5" style="stroke:${lossy ? '' : c}"/>`;
+      if (n.slow) out += `<circle class="pv-slow" cx="${x}" cy="${Y}" r="11"/>`;
+      if (lossy) out += `<text class="pv-loss" x="${x}" y="${Y - 13}">${Math.round(n.lossEff)}%</text>`;
       out += '</g>';
     });
-    // End labels: where it starts, where it ends.
-    out += `<text class="pv-end" x="${xs[0] - 10}" y="${Y + 76}" text-anchor="start">Probe · ${esc(r.probe.city || '')}</text>`
-      + `<text class="pv-end pv-end-dst" x="${xs[xs.length - 1] + 12}" y="${Y + 76}" text-anchor="end">${esc(r.target.host)}</text>`;
+    // Agent and target labels, ThousandEyes style
+    const x0 = xs[0], xN = xs[xs.length - 1];
+    out += `<text class="pv-agent" x="${x0 - 16}" y="${Y - 2}" text-anchor="end">${esc(clip(probeName, LEFT - 22))}</text>`
+      + `<text class="pv-agent-s" x="${x0 - 16}" y="${Y + 11}" text-anchor="end">${esc(clip('Agent · ' + (r.probe.network || ''), LEFT - 22))}</text>`
+      + `<text class="pv-target" x="${xN + 18}" y="${Y - 2}">${esc(clip(r.target.host, RIGHT - 22))}</text>`
+      + `<text class="pv-target-s" x="${xN + 18}" y="${Y + 11}">${esc(clip(r.target.ip || '', RIGHT - 22))}</text>`;
     return out + '</svg>';
   }
+
+  /** The hover card for a node or link of the path visualization. */
+  function pvTipHtml(el) {
+    const row = (k, v, cls) => (v == null || v === '' ? '' : `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`);
+    if (el.dataset.link != null) {
+      const L = pvLinks[+el.dataset.link];
+      if (!L) return '';
+      const name = (n) => esc(n.kind === 'src' ? 'Agent' : n.kind === 'dst' ? 'Target' : n.kind === 'silent' ? 'No reply' : `Hop ${n.n}`);
+      return `<b>Link</b><span>${name(L.from)} → ${name(L.to)}</span><dl>`
+        + row('Link delay', L.delta != null ? `+${L.delta.toFixed(1)} ms` : 'unknown (hops not answering)', L.sev === 'bad' ? 'bad' : L.sev === 'warn' ? 'warn' : '')
+        + row('Latency at end', L.to.ms != null ? `${L.to.ms.toFixed(1)} ms` : null) + '</dl>';
+    }
+    const n = pvNodes[+el.dataset.node];
+    if (!n) return '';
+    if (n.kind === 'silent') return `<b>No reply</b><span>${n.count ? `Hops ${n.n}–${n.nTo}` : `Hop ${n.n}`}</span>`
+      + '<p>These routers forward traffic but don’t answer traces. Common, and harmless on its own.</p>';
+    const lossy = n.lossEff > 0 && n.lossEff < 100;
+    return `<b>${esc(n.kind === 'src' ? 'Agent · ' + n.label : n.label)}</b>`
+      + `<span>${esc(n.kind === 'src' ? 'Globalping probe' : n.kind === 'dst' ? 'Target' : 'Hop ' + n.n)}${n.ip && n.ip !== n.label ? ' · ' + esc(n.ip) : ''}</span><dl>`
+      + row('Network', n.org ? esc(n.org) + (n.asn ? ` (AS${n.asn})` : '') : n.asn ? 'AS' + n.asn : null)
+      + row('Location', n.sub ? esc(n.sub) : null)
+      + row('Latency', n.kind !== 'src' && n.ms != null ? `${n.ms.toFixed(1)} ms` : null)
+      + row('Loss', n.kind !== 'src' && n.lossEff != null ? `${Math.round(n.lossEff)}%` : null, lossy ? 'bad' : '')
+      + '</dl>'
+      + (n.slow ? `<p>This router took ${n.avg.toFixed(0)} ms to answer the trace itself, but later hops answer faster, so traffic through it isn’t delayed.</p>` : '')
+      + (n.replyLoss ? `<p>${Math.round(n.loss)}% of its trace replies went missing, but later hops lost nothing - it’s rate-limiting replies, not dropping traffic.</p>` : '');
+  }
+  // One delegated handler: hover with a mouse, tap or gesture-pinch to pin.
+  // The card lives on the page (not inside the path card, which clips), placed
+  // above the node - or below it when there's no room above.
+  const pvTip = document.createElement('div');
+  pvTip.className = 'pv-tip'; pvTip.hidden = true;
+  document.body.appendChild(pvTip);
+  function pvTipAt(target) {
+    const el = target && target.closest && target.closest('.pc-viz [data-node], .pc-viz [data-link]');
+    pathBody.querySelectorAll('.pv-on').forEach((q) => q.classList.remove('pv-on'));
+    const html = el && !pathCard.hidden ? pvTipHtml(el) : '';
+    if (!html) { pvTip.hidden = true; return; }
+    el.classList.add('pv-on');
+    pvTip.innerHTML = html;
+    pvTip.hidden = false;
+    const eb = el.getBoundingClientRect(), tw = pvTip.offsetWidth, th = pvTip.offsetHeight;
+    const cx = eb.left + eb.width / 2;
+    pvTip.style.left = Math.max(8, Math.min(innerWidth - tw - 8, cx - tw / 2)) + 'px';
+    pvTip.style.top = (eb.top - th - 10 >= 8 ? eb.top - th - 10 : eb.bottom + 10) + 'px';
+  }
+  pathBody.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') pvTipAt(e.target); });
+  pathBody.addEventListener('pointerleave', () => pvTipAt(null));
+  pathBody.addEventListener('click', (e) => pvTipAt(e.target));
 
   function showPath(p, r) {
     const scopeTxt = { isp: `on ${r.room.org || 'your ISP'} (same ISP as this room)`, city: `in ${r.room.city} (same city)`, country: `in ${r.room.country}`, any: 'elsewhere' }[r.scope];
@@ -1122,7 +1161,7 @@
       + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))} &mdash; ${esc(scopeTxt)}`
       + (last && last.ms != null ? ` &middot; <b>end to end ~${Math.round(last.ms)} ms over ${r.hops.length} hops</b>` : '');
     pathBody.innerHTML = `<div class="pc-viz">${pathSvg(r, pathBody.clientWidth)}</div>`
-      + `<div class="pc-legend"><span class="lg-ok">+&lt;${PATH_HIGH / 2} ms</span><span class="lg-warn">+${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-slow">slow to answer traces</span><span class="lg-silent">no reply</span></div>`
+      + `<div class="pc-legend"><span class="lg-link">link</span><span class="lg-warn">link delay +${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-slow">slow to answer traces</span><span class="lg-silent">no reply</span><span class="lg-hint">hover a node or link for details</span></div>`
       + '<details class="pc-details"><summary>Hop details</summary>'
       + '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>latency</th><th>loss</th></tr>'
       + r.hops.map((h) => `<tr class="${h.ip ? '' : 'pc-silent'}"><td>${h.n}</td>`
