@@ -556,11 +556,11 @@
   let onCursor = () => {}, onClick = () => {};
 
   // Starting a grab is deliberate: a tight fist (FIST_ON), upright, held still
-  // (within HOLD_DRIFT) for HOLD_MS AND seen closed in MIN_FRAMES hand results
+  // (within HOLD_DRIFT, on the smoothed hand) for HOLD_MS AND seen closed in MIN_FRAMES hand results
   // in a row - a hand passing through a half-closed pose, or one stray frame,
   // never grabs. ?grabhold=<ms> tunes the hold.
-  const GRAB = { FIST_ON: 1.1, FIST_OFF: 1.35, UPRIGHT_DEG: 35, OPEN_MS: 250, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2,
-    HOLD_MS: Math.max(0, parseInt(qs.get('grabhold'), 10) || 500), HOLD_DRIFT: 0.04, MIN_FRAMES: 3,
+  const GRAB = { FIST_ON: 1.1, FIST_OFF: 1.35, UPRIGHT_DEG: 35, OPEN_MS: 200, LOST_MS: 750, AFTER_MS: 900, DEBOUNCE: 2,
+    HOLD_MS: Math.max(0, parseInt(qs.get('grabhold'), 10) || 300), HOLD_DRIFT: 0.04, MIN_FRAMES: 2,
     MAX_SPEED: 2.5, MAX_STEP: 0.3, MAX_ZOOM_STEP: 0.35 };
   const grab = { on: false, mode: null, d0: 0, ratio: 1, px: 0, py: 0, lastSeen: 0, endT: -Infinity, curls: [], pendMode: null, pendN: 0,
     pendT0: 0, lastAction: 0, lastRatio: 1, latched: false };
@@ -617,8 +617,11 @@
       }
     }
     grab.lastSeen = now;
-    const pt = mode === 'zoom' ? { x: (fists[0].x + fists[1].x) / 2, y: (fists[0].y + fists[1].y) / 2 } : fists[0];
-    const dist = mode === 'zoom' ? Math.hypot(fists[0].x - fists[1].x, (fists[0].y - fists[1].y) * aspect) : 0;
+    // Dragging follows the RAW palm centre: the globe's own spring smooths it,
+    // so the landmark filter's lag would only be extra delay here.
+    const rx = (p) => (p.rx != null ? p.rx : p.x), ry = (p) => (p.ry != null ? p.ry : p.y);
+    const pt = mode === 'zoom' ? { x: (rx(fists[0]) + rx(fists[1])) / 2, y: (ry(fists[0]) + ry(fists[1])) / 2 } : { x: rx(fists[0]), y: ry(fists[0]) };
+    const dist = mode === 'zoom' ? Math.hypot(rx(fists[0]) - rx(fists[1]), (ry(fists[0]) - ry(fists[1])) * aspect) : 0;
     if (!grab.on || grab.mode !== mode) {
       const first = !grab.on;
       grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y; grab.lastAction = now; grab.lastT = now; grab.rejected = 0;
@@ -825,7 +828,7 @@
       // Palm speed (frame widths per second) for gestures that need a steady hand.
       const speed = st.cx != null && dt > 0 ? Math.hypot(x - st.cx, y - st.cy) / dt : 0;
       st.cx = x; st.cy = y;
-      return { ...p, x, y, lm, speed, key };
+      return { ...p, x, y, rx: p.x, ry: p.y, lm, speed, key };
     });
     for (const [k, st] of euroHands) if (capT - st.t > EURO.RESET_MS * 4) euroHands.delete(k);
     return out;

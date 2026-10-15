@@ -752,13 +752,15 @@
   // keeps its momentum the whole time: grabbing a spinning globe catches it,
   // and letting go (or the fist dropping out) leaves it spinning at whatever
   // speed it had.
-  const GRAB_HZ = num('grabhz', 2.4);
+  // GRAB_LEAD_MS: aim slightly ahead along the hand's motion, making up part
+  // of the hand model's own delay (~150 ms on the Desk Pro).
+  const GRAB_HZ = num('grabhz', 4), GRAB_LEAD_MS = num('grablead', 50);
   const grabLate = (g) => g.every * 1.25 + 40;
   function stepGrab(now, dt) {
     const g = S.grab, v = S.vel;
     const since = now - g.t;
     if (since > grabLate(g)) { coast(dt); return; }   // a fist sample is late (hand opening / lost): it's free
-    const k = since;   // carry the hand on at its own speed until the sample counts as late
+    const k = since + GRAB_LEAD_MS;   // carry the hand on at its own speed (plus a little lead) until the sample counts as late
     const w = 2 * Math.PI * GRAB_HZ / 1000;
     const eLon = wrapLon(g.lon + g.vlon * k - view.lon), eLat = clampLat(g.lat + g.vlat * k) - view.lat;
     v.lon += (w * w * eLon + 2 * w * (g.vlon - v.lon)) * dt;
@@ -1637,7 +1639,18 @@
           const degPerPx = 180 / (Math.PI * layout().base * view.zoom);
           const dLon = -info.dx * S.w * GRAB_PAN * degPerPx, dLat = info.dy * S.w * GRAB_PAN * degPerPx;
           g.lon = wrapLon(g.lon + dLon); g.lat = clampLat(g.lat + dLat);
-          g.vlon += (dLon / gap - g.vlon) * 0.6; g.vlat += (dLat / gap - g.vlat) * 0.6;
+          const sLon = dLon / gap, sLat = dLat / gap;
+          // The hand clearly slowed or stopped: brake now (no smoothing), and if
+          // the globe already carried on past it, settle there rather than be
+          // pulled back - a hand on a real globe doesn't drag it backwards.
+          const sp = Math.hypot(sLon, sLat), was = Math.hypot(g.vlon, g.vlat);
+          if (sp < was * 0.35) {
+            g.vlon = sLon; g.vlat = sLat;
+            if (wrapLon(g.lon - view.lon) * S.vel.lon < 0) g.lon = view.lon;
+            if ((g.lat - view.lat) * S.vel.lat < 0) g.lat = view.lat;
+          } else {
+            g.vlon += (sLon - g.vlon) * 0.6; g.vlat += (sLat - g.vlat) * 0.6;
+          }
         }
         g.t = now;
         if (info.mode === 'zoom') S.grabTarget = clampZoom(grabZoom0 * Math.pow(info.ratio, 1.4));
