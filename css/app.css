@@ -541,7 +541,7 @@ body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
 }
 
 /* ThousandEyes-style path visualization */
-.pc-viz { margin-top: .7em; overflow-x: auto; overflow-y: hidden; padding-bottom: .2em; }
+.pc-viz { margin-top: .7em; overflow: hidden; }
 .pv { display: block; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 .pv-band { fill: rgba(148, 163, 184, .06); stroke: rgba(148, 163, 184, .18); }
 .pv-band-t { fill: var(--ink-3); font-size: 10px; font-weight: 700; text-anchor: middle; letter-spacing: .04em; }

@@ -940,16 +940,29 @@
    *  links labelled with the latency each adds, red/amber when high, red rings
    *  on hops with loss, dashed grey for hops that don't answer, and bands
    *  grouping consecutive hops on the same network. */
-  function pathSvg(r) {
-    const nodes = [{ kind: 'src', label: 'Probe', sub: r.probe.city || '', avg: 0, loss: 0, asn: r.probe.asn, org: r.probe.network }]
+  function pathSvg(r, availW) {
+    const all = [{ kind: 'src', label: 'Probe', sub: r.probe.city || '', avg: 0, loss: 0, asn: r.probe.asn, org: r.probe.network }]
       .concat(r.hops.map((h, i) => ({
         kind: i === r.hops.length - 1 ? 'dst' : h.ip ? 'hop' : 'silent',
         label: i === r.hops.length - 1 ? r.target.host.split('.')[0] : shortHost(h), sub: h.city || '',
         avg: h.avg, loss: h.ip ? h.loss : null, asn: h.asn, org: h.org, ip: h.ip, host: h.host,
       })));
-    const GAP = 90, X0 = 46, Y = 74, W = X0 * 2 + GAP * (nodes.length - 1), H = 150;
+    // Runs of silent hops collapse into one "* xN" node.
+    const nodes = [];
+    for (const n of all) {
+      const prev = nodes[nodes.length - 1];
+      if (n.kind === 'silent' && prev && prev.kind === 'silent') { prev.count = (prev.count || 1) + 1; prev.label = '* \u00D7' + prev.count; continue; }
+      nodes.push(n);
+    }
+    // Space the nodes to fit the card; stagger labels when they get close.
+    const X0 = 40, Y = 70;
+    const fit = availW && nodes.length > 1 ? (availW - X0 * 2) / (nodes.length - 1) : 90;
+    const GAP = Math.max(46, Math.min(110, fit));
+    const stagger = GAP < 84;
+    const W = X0 * 2 + GAP * (nodes.length - 1), H = stagger ? 168 : 146;
     const xs = nodes.map((_, i) => X0 + i * GAP);
-    let out = `<svg class="pv" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Path visualization">`;
+    // Width 100% + viewBox: if the minimum spacing still overflows, it scales down instead of scrolling.
+    let out = `<svg class="pv" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Path visualization">`;
     // Network bands: hops without an ASN (private LAN hops, silent hops)
     // belong to the network around them, so each network is one band.
     const bandAsn = [];
@@ -991,8 +1004,9 @@
       if (n.kind === 'src') out += `<rect x="${x - 11}" y="${Y - 11}" width="22" height="22" rx="5"/>`;
       else out += `<circle cx="${x}" cy="${Y}" r="${n.kind === 'silent' ? 7 : 11}"/>`;
       if (lossy) out += `<circle class="pv-ring" cx="${x}" cy="${Y}" r="17"/>`;
-      out += `<text class="pv-l1" x="${x}" y="${Y + 30}">${esc(n.label.slice(0, 14))}</text>`
-        + `<text class="pv-l2" x="${x}" y="${Y + 44}">${esc(lossy ? Math.round(n.loss) + '% loss' : (n.sub || '').slice(0, 14))}</text></g>`;
+      const ly = Y + 30 + (stagger && k % 2 ? 24 : 0), maxc = stagger ? 16 : 14;
+      out += `<text class="pv-l1" x="${x}" y="${ly}">${esc(n.label.slice(0, maxc))}</text>`
+        + `<text class="pv-l2" x="${x}" y="${ly + 13}">${esc(lossy ? Math.round(n.loss) + '% loss' : (n.sub || '').slice(0, maxc))}</text></g>`;
     });
     return out + '</svg>';
   }
@@ -1003,7 +1017,7 @@
     pathMeta.innerHTML = `${esc(r.target.host)} &middot; ${esc(r.target.ip || '')} &middot; `
       + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))} &mdash; ${esc(scopeTxt)}`
       + (last && last.avg != null ? ` &middot; <b>end to end ~${Math.round(last.avg)} ms over ${r.hops.length} hops</b>` : '');
-    pathBody.innerHTML = `<div class="pc-viz">${pathSvg(r)}</div>`
+    pathBody.innerHTML = `<div class="pc-viz">${pathSvg(r, pathBody.clientWidth)}</div>`
       + `<div class="pc-legend"><span class="lg-ok">+&lt;${PATH_HIGH / 2} ms</span><span class="lg-warn">+${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-silent">no reply</span></div>`
       + '<details class="pc-details"><summary>Hop details</summary>'
       + '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>avg</th><th>loss</th></tr>'
