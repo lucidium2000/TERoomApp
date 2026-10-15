@@ -105,7 +105,7 @@ self.onmessage = async (ev) => {
   }
   if (m.type === 'frame') {
     const bmp = m.bitmap;
-    let box = null, palms = [], ms = 0;
+    let box = null, palms = [], ms = 0, faces = [];
     const t0 = performance.now();
     if (m.face !== false) try {
       const res = face.detectForVideo(bmp, m.ts);
@@ -113,6 +113,7 @@ self.onmessage = async (ev) => {
       for (const d of res.detections || []) {
         const b = d.boundingBox;
         if (!box || b.width * b.height > box.width * box.height) box = { originX: b.originX, originY: b.originY, width: b.width, height: b.height };
+        faces.push({ x: (b.originX + b.width / 2) / bmp.width, y: (b.originY + b.height / 2) / bmp.height, w: b.width / bmp.width, s: d.categories && d.categories[0] ? d.categories[0].score : 0 });
       }
     } catch (e) { /* drop the frame */ }
     if (tfHands) {
@@ -144,6 +145,6 @@ self.onmessage = async (ev) => {
     ms = performance.now() - t0;
     const w = bmp.width, h = bmp.height;
     bmp.close();
-    self.postMessage({ type: 'result', box: m.face === false ? undefined : box, hands: palms, ms, w, h });
+    self.postMessage({ type: 'result', box: m.face === false ? undefined : box, faces: m.face === false ? undefined : faces, hands: palms, ms, w, h });
   }
 };

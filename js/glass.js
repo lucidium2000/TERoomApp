@@ -110,6 +110,10 @@
       if (on && !G.on) start();
     },
     get debug() { return debugWanted; },
+    // Read-only hooks for the Device Lab (js/devlab.js).
+    faces: [], facesT: 0,
+    get video() { return video; },
+    get track() { return stream ? stream.getVideoTracks()[0] : null; },
     /** Make the current distance the new zero (called when the user zooms by hand). */
     recalibrate() {
       if (lastSize) calib = { size: lastSize };
@@ -299,6 +303,7 @@
     recordMs(m.ms);
     const b = m.box;
     if (b !== undefined) measure(b ? { cx: (b.originX + b.width / 2) / m.w, cy: (b.originY + b.height / 2) / m.h, size: b.width / m.w } : null);
+    if (m.faces) { G.faces = m.faces; G.facesT = performance.now(); }
     const now = performance.now();
     resN++;
     if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
@@ -412,12 +417,15 @@
           if (now - resT0 >= 1000) { stats.handHz = Math.round((resN * 1000) / (now - resT0)); resN = 0; resT0 = now; }
         }
         let best = null;
+        // Box is in the pixels of the frame we fed in (possibly the shrunken copy).
+        const vw = src.videoWidth || src.width, vh = src.videoHeight || src.height;
+        const faces = [];
         for (const d of res.detections || []) {
           const b = d.boundingBox;
           if (!best || b.width * b.height > best.width * best.height) best = b;
+          faces.push({ x: (b.originX + b.width / 2) / vw, y: (b.originY + b.height / 2) / vh, w: b.width / vw, s: d.categories && d.categories[0] ? d.categories[0].score : 0 });
         }
-        // Box is in the pixels of the frame we fed in (possibly the shrunken copy).
-        const vw = src.videoWidth || src.width, vh = src.videoHeight || src.height;
+        if (withFace) { G.faces = faces; G.facesT = performance.now(); }
         if (best) hit = { cx: (best.originX + best.width / 2) / vw, cy: (best.originY + best.height / 2) / vh, size: best.width / vw };
       } else if (motion) {
         hit = motion(video);
