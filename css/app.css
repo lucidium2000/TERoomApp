@@ -246,6 +246,12 @@ body.signage .chips, body.signage .tour, body.signage .card-close { display: non
   box-shadow: 0 0 18px rgba(167, 139, 250, .35);
 }
 .zoomctl .tts-btn.busy { animation: blink 1s infinite; }
+/* Making speech (nothing audible yet): a slow breathing glow. Talking: the
+   sound waves pulse. */
+.zoomctl .tts-btn.thinking { animation: tts-think 1.6s ease-in-out infinite; }
+@keyframes tts-think { 50% { box-shadow: 0 0 26px rgba(167, 139, 250, .75); } }
+.zoomctl .tts-btn.talking .tts-wave { animation: tts-talk .5s ease-in-out infinite alternate; }
+@keyframes tts-talk { from { opacity: .35; } to { opacity: 1; } }
 /* Always say when the camera is on - this is a shared room device. */
 .cam-chip {
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);

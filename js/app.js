@@ -820,7 +820,10 @@
     if (S.touring && !S.spin) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
       el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
-      if (frac >= 1) nextTour();
+      // With speech on, an outage whose summary is still being said stays up
+      // past its dwell (up to a minute extra) instead of being cut off.
+      const talking = window.Tts && window.Tts.enabled && window.Tts.busy && now - S.tourT0 < CFG.dwellMs + 60000;
+      if (frac >= 1 && !talking) nextTour();
     }
   }
 
@@ -843,7 +846,7 @@
     el.tourBtn.querySelector('span').textContent = on ? 'Touring' : 'Tour';
     el.tourBtn.querySelector('path').setAttribute('d', on ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z');
     el.cardProgress.style.transform = 'scaleX(0)';
-    if (on) { S.tourIdx = -1; nextTour(); }
+    if (on) { S.tourIdx = -1; S.tourSpoke = false; S.tourNoted = new Set(); nextTour(); }
   }
 
   function userInput() {
@@ -859,18 +862,125 @@
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   // ── Spoken summaries (experimental, ?tts=1 - js/tts.js) ──────────────────
-  const tts = (text) => { if (window.Tts && window.Tts.enabled) window.Tts.speak(text); };
+  // How some names should be said (the voice would read "365" as a number).
+  const SAY_AS = [
+    [/\bOffice\s?365\b/gi, 'Office three six five'],
+    [/\b(Microsoft|M)\s?365\b/gi, '$1 three six five'],
+    [/\bO365\b/gi, 'O three six five'],
+  ];
+  const sayAs = (text) => SAY_AS.reduce((t, [re, to]) => t.replace(re, to), text);
+  const tts = (text) => { if (window.Tts && window.Tts.enabled) window.Tts.speak(sayAs(text)); };
   const spokenAgo = (ms) => {
     const m = Math.max(0, Math.round((dataNow() - ms) / 60000));
-    return m < 2 ? 'just now' : m < 60 ? `${m} minutes ago` : `about ${Math.round(m / 60)} hour${Math.round(m / 60) === 1 ? '' : 's'} ago`;
+    const h = Math.round(m / 60);
+    return m < 2 ? 'just now' : m < 60 ? `${m} minutes ago` : h === 1 ? 'about an hour ago' : `about ${h} hours ago`;
   };
+  // Narration, written to sound like a person talking it through rather than
+  // reading the card: the tour gets a story (an opening overview, then a short
+  // synopsis per outage with context - how long, where, has this provider had
+  // trouble already today, does this room feel it); tapping an outage gets a
+  // focused briefing on that one. The first sentence is kept short - on a slow
+  // CPU it's the quickest to make, so something is heard sooner.
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  const numW = (n) => (n >= 0 && n < NUMW.length ? NUMW[n] : String(n));
+  const ORD = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+  const spokenDur = (sec) => {
+    const m = Math.round(sec / 60);
+    if (m < 3) return 'just a couple of minutes';
+    if (m < 50) return `about ${m} minutes`;
+    const h = Math.round(m / 60);
+    return h <= 1 ? 'about an hour' : `about ${h} hours`;
+  };
+  const COUNTRY = { US: 'the US', GB: 'the UK', UK: 'the UK', NL: 'the Netherlands', AE: 'the UAE', DE: 'Germany', FR: 'France', JP: 'Japan', IN: 'India', BR: 'Brazil', CA: 'Canada', AU: 'Australia', SG: 'Singapore', IE: 'Ireland', ES: 'Spain', IT: 'Italy', SE: 'Sweden', ZA: 'South Africa', MX: 'Mexico', KR: 'South Korea', HK: 'Hong Kong' };
+  // "Ashburn, Virginia, US" -> Ashburn; a bare country ("US") isn't a city.
+  const cityOf = (l) => { const parts = l && l.name ? l.name.split(',') : []; return parts.length > 1 ? parts[0].trim() : ''; };
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  const countryOf = (l) => { const parts = (l && l.name ? l.name.split(',') : []).map((q) => q.trim()); const c = parts[parts.length - 1] || ''; return COUNTRY[c] || c; };
+  function placePhrase(o, detail) {
+    const locs = o.locations.slice().sort((a, b) => b.n - a.n);
+    const cities = [...new Set(locs.map(cityOf).filter(Boolean))];
+    const countries = [...new Set(locs.map(countryOf).filter(Boolean))];
+    if (!cities.length) return '';
+    if (cities.length === 1) return `in ${cities[0]}`;
+    if (cities.length === 2) return `in ${cities[0]} and ${cities[1]}`;
+    if (detail) return `in ${numW(cities.length)} places, including ${cities[0]}, ${cities[1]} and ${cities[2]}`;
+    return countries.length > 1 ? `across ${numW(countries.length)} countries, mostly around ${cities[0]}` : `in ${numW(cities.length)} places, centred on ${cities[0]}`;
+  }
+  // Company names as people say them: no "Inc." / "LLC" (and no "Inc.." ).
+  const nameOf = (o) => o.name.replace(/,?\s*\b(Inc|LLC|Ltd|Limited|Corp|Corporation|Co|GmbH|S\.?A)\.?$/i, '').trim();
+  // What went wrong, as a clause said right after the name ("its network...").
+  const whatNow = (o) => (o.kind === 'network'
+    ? pick(["there's a network problem inside its infrastructure", 'its network is having trouble', "something's wrong in its backbone"])
+    : pick(['its service is struggling to respond', 'its servers are failing to answer', "its application isn't responding properly"]));
+  const whatThen = (o) => (o.kind === 'network'
+    ? pick(['there was a network problem inside its infrastructure', 'its network had trouble', 'something went wrong in its backbone'])
+    : pick(['its service struggled to respond', 'its servers stopped answering properly', "its application wasn't responding properly"]));
+  /** Does this room feel it? From the room's own live probes (js/roomnet.js). */
+  function roomTie(o) {
+    const probes = (window.RoomNet && window.RoomNet.probes) || [];
+    for (const term of CFG.watch) {
+      const { preset, hits } = watchMatches(term);
+      if (!hits.includes(o)) continue;
+      const p = probeFor(term, probes);
+      if (!p || p.status === 'pending') return '';
+      if (p.status === 'down') return `And you'd feel it here: ${preset.label} isn't answering from this room right now.`;
+      if (p.status === 'slow' || p.status === 'warn') return `And it may be reaching this room: ${preset.label} is answering slower than usual, ${Math.round(p.last)} milliseconds.`;
+      return pick([`The good news: from this room, ${preset.label} still looks healthy, answering in ${Math.round(p.last)} milliseconds.`,
+        `From here, though, ${preset.label} is answering normally, in about ${Math.round(p.last)} milliseconds.`]);
+    }
+    return '';
+  }
+  /** How long it has lasted (an active one: so far, from its start). */
+  const lastedS = (o) => (o.active ? Math.max(o.durationS || 0, (dataNow() - o.start) / 1000) : o.durationS || 0);
+  function repeatNote(o) {
+    // Once per provider per tour, or it gets repetitive.
+    if (S.touring) { S.tourNoted = S.tourNoted || new Set(); if (S.tourNoted.has(o.name)) return ''; }
+    const same = S.outages.filter((q) => q.name === o.name).sort((a, b) => a.start - b.start);
+    const k = same.indexOf(o) + 1;
+    if (same.length < 2 || k < 2) return '';
+    if (S.touring) S.tourNoted.add(o.name);
+    return pick([`That's the ${ORD[k] || k + 'th'} time ${nameOf(o)} has had trouble in the last day.`, `It's not the first one today, either; ${nameOf(o)} has had ${numW(same.length)} outages in the last day.`]);
+  }
+  function scaleNote(o) {
+    const bigger = S.outages.filter((q) => q.locations.length > o.locations.length).length;
+    if (o.locations.length >= 5 && bigger <= 2) return pick([`It's one of the widest outages of the day.`, `That makes it one of the bigger ones today.`]);
+    return '';
+  }
+  /** Tour: a short synopsis, with an overview first. */
+  function tourSpeech(o, first) {
+    const ago = spokenAgo(o.start), dur = spokenDur(lastedS(o)), where = placePhrase(o, false);
+    let lead;
+    const nm = nameOf(o);
+    if (first) lead = '';
+    else lead = o.active ? pick([`Next, ${nm}.`, `Meanwhile, ${nm}.`, `Now, ${nm}.`]) : pick([`Next, ${nm}.`, `Looking back now, ${nm}.`, `Earlier today, ${nm}.`]);
+    const body = o.active
+      ? pick([`Right now, ${whatNow(o)}, ${where}. It's been going for ${dur}.`, `At the moment, ${whatNow(o)} ${where}, and that's been going on for ${dur}.`])
+      : pick([`${cap(whatThen(o))} ${where}. That lasted ${dur}, and it has cleared since.`, `About ${ago.replace(/^about /, '')}, ${whatThen(o)} ${where}, for ${dur}. It's resolved now.`]);
+    // Whether this room feels it only matters while it's happening.
+    const extra = (o.active && roomTie(o)) || repeatNote(o) || scaleNote(o);
+    let intro = '';
+    if (first) {
+      const all = S.outages, act = all.filter((q) => q.active).length;
+      const net = all.filter((q) => q.kind === 'network').length, app = all.length - net;
+      intro = `Here's how the internet has been doing over the last day. `
+        + `ThousandEyes spotted ${numW(all.length)} outages: ${numW(net)} in networks, and ${numW(app)} in applications. `
+        + (act ? `${act === 1 ? 'One is' : numW(act).replace(/^./, (c) => c.toUpperCase()) + ' are'} still going right now. ` : 'Right now, everything has cleared. ')
+        + `Let's start with ${nameOf(o)}. `;
+    }
+    return (intro + (lead ? lead + ' ' : '') + body + (extra ? ' ' + extra : '')).trim();
+  }
+  /** Tapped: a focused briefing on this one outage. */
   function outageSpeech(o, isNew) {
-    const where = o.locations.slice().sort((a, b) => b.n - a.n)[0];
-    const place = where ? where.name.split(',').slice(0, 2).join(',') : '';
-    const n = o.locations.length;
-    return `${isNew ? 'New ' : ''}${o.kind === 'network' ? 'network' : 'application'} outage: ${o.name}. `
-      + `${n === 1 ? 'One location' : n + ' locations'}${place ? (n === 1 ? `, ${place}` : `, including ${place}`) : ''}. `
-      + `Started ${spokenAgo(o.start)}${o.active ? ', and still active.' : '.'}`;
+    if (isNew) return `Heads up. A new outage just appeared: ${nameOf(o)}. ${cap(whatNow(o))}, ${placePhrase(o, false)}, starting ${spokenAgo(o.start)}. ${roomTie(o)}`.trim();
+    const n = o.kind === 'network' ? o.interfaces : o.servers;
+    const scale = n ? ` ${cap(numW(n))} ${o.kind === 'network' ? (n === 1 ? 'network interface is' : 'network interfaces are') : (n === 1 ? 'server is' : 'servers are')} affected.` : '';
+    const when = o.active
+      ? `It started ${spokenAgo(o.start)}, and it's still going.`
+      : `It started ${spokenAgo(o.start)} and lasted ${spokenDur(lastedS(o))} before clearing.`;
+    return `${nameOf(o)}. ${o.active ? 'This one is active.' : 'This one has cleared.'} `
+      + `${cap(o.active ? whatNow(o) : whatThen(o))}, ${placePhrase(o, true)}.${scale} ${when} `
+      + ((o.active && roomTie(o)) || repeatNote(o));
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -887,7 +997,8 @@
     S.selected = o;
     if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); if (window.Tts) window.Tts.stop(); return; }
     if (!fromTour) sfx('select');   // tour steps are silent
-    if (!select.quiet) tts(outageSpeech(o, false));
+    if (!select.quiet) tts(fromTour ? tourSpeech(o, S.tourIdx === 0 && !S.tourSpoke) : outageSpeech(o, false));
+    if (fromTour) S.tourSpoke = true;
     fetchWeather(o.locations);
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
@@ -2021,10 +2132,14 @@
     const ttsUi = () => {
       ttsBtn.setAttribute('aria-pressed', String(T.enabled));
       ttsBtn.classList.toggle('busy', T.enabled && T.state === 'loading');
+      ttsBtn.classList.toggle('thinking', T.enabled && T.state === 'ready' && T.generating && !T.speaking);
+      ttsBtn.classList.toggle('talking', T.enabled && T.speaking);
     };
     T.onChange((state) => {
       ttsUi();
       if (!T.enabled) return;
+      if (state === 'speakerror') { toast('Speech: ' + T.error); return; }
+      if (state === 'activity') return;
       if (state === 'ready') {
         sfx('ready');
         toast(`Speech ready (${T.info.device === 'webgpu' ? 'GPU' : 'CPU'})`, 'info');
@@ -2033,6 +2148,11 @@
     });
     const ttsStats = () => {
       const st = T.stats;
+      const now = T.generating && T.waitMs > 1500 ? ` \u00B7 working on a sentence for ${Math.round(T.waitMs / 1000)} s\u2026` : '';
+      const err = T.error ? ` \u00B7 last error: ${T.error}` : '';
+      return ttsStatsBase(st) + now + err;
+    };
+    const ttsStatsBase = (st) => {
       if (!st.length) return T.info ? `Speech on ${T.info.device === 'webgpu' ? 'GPU' : 'CPU'}, loaded in ${(T.info.loadMs / 1000).toFixed(1)} s - nothing spoken yet` : 'Speech has not run yet';
       const sum = st.reduce((a, x) => ({ ms: a.ms + x.ms, sec: a.sec + x.sec }), { ms: 0, sec: 0 }), rtf = sum.ms / 1000 / sum.sec;
       return `Speech on ${T.info ? (T.info.device === 'webgpu' ? 'GPU' : 'CPU') + ' ' + T.info.dtype : '?'}: `

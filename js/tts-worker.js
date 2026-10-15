@@ -17,6 +17,10 @@ const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 
 let tts = null, loading = null;
 const stopped = new Set();
+// One request at a time: the model can't run two generations at once, and on
+// a slow CPU a new request often arrives while one is still being made. A
+// cancelled request bails out at its next sentence, so the queue drains fast.
+let queue = Promise.resolve();
 const post = (m, transfer) => self.postMessage(m, transfer || []);
 
 async function load({ device, dtype }) {
@@ -77,7 +81,7 @@ self.onmessage = (e) => {
   if (m.type === 'load') {
     if (!loading) loading = load(m).catch((err) => { loading = null; post({ type: 'error', message: String((err && err.message) || err) }); });
   } else if (m.type === 'speak') {
-    speak(m).catch((err) => post({ type: 'error', id: m.id, message: String((err && err.message) || err) }));
+    queue = queue.then(() => speak(m)).catch((err) => post({ type: 'error', id: m.id, message: String((err && err.message) || err) }));
   } else if (m.type === 'stop') {
     stopped.add(m.id);
   }

@@ -30,6 +30,9 @@
 
   let worker = null, state = 'off', info = null, progress = 0, error = '';
   let ctx = null, gain = null, playAt = 0, curId = 0, sources = [];
+  // Speech in progress: genT0 = when the current request started (0 = none
+  // pending), chunkT0 = when the sentence now being made started.
+  let genT0 = 0, chunkT0 = 0;
   const stats = [];   // per sentence: { chars, ms, sec, rtf }
 
   // Audio may only start after a user gesture; until then speech is skipped.
@@ -42,7 +45,7 @@
     }
     if (ctx && ctx.state === 'suspended') ctx.resume();
   }
-  ['pointerdown', 'keydown'].forEach((t) => window.addEventListener(t, unlock, { capture: true, passive: true }));
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach((t) => window.addEventListener(t, unlock, { capture: true, passive: true }));
 
   function load() {
     if (worker) return;
@@ -57,12 +60,20 @@
     const m = e.data;
     if (m.type === 'progress') progress = m.total ? m.loaded / m.total : 0;
     else if (m.type === 'ready') { state = 'ready'; info = m; progress = 1; onChange(state); }
-    else if (m.type === 'error') { if (state === 'loading') { state = 'error'; onChange(state); } error = m.message; console.warn('[tts]', m.message); }
+    else if (m.type === 'error') {
+      error = m.message; console.warn('[tts]', m.message);
+      if (state === 'loading') { state = 'error'; onChange(state); }
+      else if (m.id === curId) { genT0 = 0; onChange('speakerror'); }
+    }
+    else if (m.type === 'done') { if (m.id === curId) { genT0 = 0; onChange('activity'); } }
     else if (m.type === 'chunk') {
+      if (m.id === curId) chunkT0 = performance.now();
       const sec = m.audio.length / m.rate;
       stats.push({ chars: m.text.length, ms: m.ms, sec, rtf: m.ms / 1000 / sec });
       if (stats.length > 30) stats.shift();
-      if (m.id !== curId || !ctx) return;   // cancelled, or no user gesture yet
+      if (m.id !== curId) return;   // cancelled
+      if (!ctx) { error = 'audio is locked until the screen is tapped'; onChange('speakerror'); return; }
+      if (ctx.state === 'suspended') ctx.resume();
       const buf = ctx.createBuffer(1, m.audio.length, m.rate);
       buf.copyToChannel(m.audio, 0);
       const src = ctx.createBufferSource();
@@ -71,7 +82,8 @@
       src.start(at);
       playAt = at + buf.duration;
       sources.push(src);
-      src.onended = () => { sources = sources.filter((s) => s !== src); };
+      onChange('activity');
+      src.onended = () => { sources = sources.filter((s) => s !== src); onChange('activity'); };
     }
   }
 
@@ -80,7 +92,7 @@
   function setEnabled(on) {
     if (on === enabled) return;
     enabled = on;
-    if (on) load();
+    if (on) { unlock(); load(); }   // turned on by a tap: the moment audio may be unlocked
     else {
       stop();
       if (worker) { worker.terminate(); worker = null; }
@@ -95,23 +107,31 @@
     load();
     stop();
     curId++;
+    genT0 = chunkT0 = performance.now();
     worker.postMessage({ type: 'speak', id: curId, text, voice: OPTS.voice, speed: OPTS.speed });
+    onChange('activity');
   }
   function stop() {
     if (worker && curId) worker.postMessage({ type: 'stop', id: curId });
     curId++;
     for (const s of sources) { try { s.stop(); } catch (_) { /* already ended */ } }
-    sources = []; playAt = 0;
+    sources = []; playAt = 0; genT0 = 0;
   }
 
   window.Tts = {
     available: AVAILABLE, voices: VOICES, opts: OPTS,
-    get enabled() { return enabled; }, setEnabled, onChange(fn) { onChange = fn; },
+    get enabled() { return enabled; }, setEnabled, onChange(fn) { onChange = fn; }, unlock,
     speak, stop,
     setVoice(v) { OPTS.voice = v; },
     get state() { return state; }, get info() { return info; }, get progress() { return progress; },
     get error() { return error; }, get stats() { return stats; },
     get speaking() { return sources.length > 0; },
+    /** Still making speech for the current request (nothing or not all of it audible yet). */
+    get generating() { return genT0 > 0; },
+    /** Making or playing speech - the tour waits for this. */
+    get busy() { return genT0 > 0 || sources.length > 0; },
+    /** How long the sentence now being made has taken so far (ms), or 0. */
+    get waitMs() { return genT0 ? performance.now() - chunkT0 : 0; },
   };
 
 })();
