@@ -235,6 +235,17 @@ body.signage .chips, body.signage .tour, body.signage .card-close { display: non
   box-shadow: 0 0 18px rgba(22, 189, 235, .35);
 }
 .zoomctl .glass-btn.busy { animation: blink 1s infinite; }
+/* Speaker button (spoken summaries): crossed out when off, lit when on,
+   blinking while the voice model loads. */
+.zoomctl .tts-btn .tts-wave { display: none; }
+.zoomctl .tts-btn[aria-pressed="true"] .tts-wave { display: inline; }
+.zoomctl .tts-btn[aria-pressed="true"] .tts-x { display: none; }
+.zoomctl .tts-btn .tts-x { opacity: .6; }
+.zoomctl .tts-btn[aria-pressed="true"] {
+  background: rgba(167, 139, 250, .2); border-color: rgba(167, 139, 250, .65); color: #e9e2ff;
+  box-shadow: 0 0 18px rgba(167, 139, 250, .35);
+}
+.zoomctl .tts-btn.busy { animation: blink 1s infinite; }
 /* Always say when the camera is on - this is a shared room device. */
 .cam-chip {
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);

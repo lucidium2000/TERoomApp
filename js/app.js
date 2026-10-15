@@ -1705,6 +1705,8 @@
       const on = state === 'starting' || state === 'face' || state === 'motion';
       glassBtn.setAttribute('aria-pressed', String(on));
       glassBtn.classList.toggle('busy', state === 'starting');
+      // Gestures and speech never run together (both lean on the same CPU).
+      if (state === 'starting' && window.Tts && window.Tts.enabled) { window.Tts.setEnabled(false); toast('Speech off while gestures are on', 'info'); }
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
@@ -2009,6 +2011,55 @@
     glassBtn.hidden = true;
   }
 
+  // ── Speaker button: spoken summaries (experimental, js/tts.js) ───────────
+  // Tap: speech on/off. On downloads the voice model (~90 MB, once - then
+  // cached) and switches camera gestures off; turning gestures on switches
+  // speech off. Press and hold: how fast speech is being made on this device.
+  const ttsBtn = document.getElementById('ttsBtn');
+  if (window.Tts && window.Tts.available) {
+    const T = window.Tts;
+    const ttsUi = () => {
+      ttsBtn.setAttribute('aria-pressed', String(T.enabled));
+      ttsBtn.classList.toggle('busy', T.enabled && T.state === 'loading');
+    };
+    T.onChange((state) => {
+      ttsUi();
+      if (!T.enabled) return;
+      if (state === 'ready') {
+        sfx('ready');
+        toast(`Speech ready (${T.info.device === 'webgpu' ? 'GPU' : 'CPU'})`, 'info');
+        if (S.selected) tts(outageSpeech(S.selected, false));
+      } else if (state === 'error') { sfx('error'); toast('Speech failed to load: ' + T.error); T.setEnabled(false); }
+    });
+    const ttsStats = () => {
+      const st = T.stats;
+      if (!st.length) return T.info ? `Speech on ${T.info.device === 'webgpu' ? 'GPU' : 'CPU'}, loaded in ${(T.info.loadMs / 1000).toFixed(1)} s - nothing spoken yet` : 'Speech has not run yet';
+      const sum = st.reduce((a, x) => ({ ms: a.ms + x.ms, sec: a.sec + x.sec }), { ms: 0, sec: 0 }), rtf = sum.ms / 1000 / sum.sec;
+      return `Speech on ${T.info ? (T.info.device === 'webgpu' ? 'GPU' : 'CPU') + ' ' + T.info.dtype : '?'}: `
+        + `${rtf < 1 ? (1 / rtf).toFixed(1) + '\u00D7 faster' : rtf.toFixed(1) + '\u00D7 slower'} than real time over ${st.length} sentence${st.length === 1 ? '' : 's'}`;
+    };
+    let ttsHold = 0, ttsHeld = false;
+    ttsBtn.addEventListener('pointerdown', () => {
+      ttsHeld = false; clearTimeout(ttsHold);
+      ttsHold = setTimeout(() => { ttsHeld = true; sfx('tap'); toast(ttsStats(), 'info'); }, 600);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => ttsBtn.addEventListener(t, () => clearTimeout(ttsHold)));
+    ttsBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+    ttsBtn.addEventListener('click', () => {
+      userInput();
+      if (ttsHeld) { ttsHeld = false; return; }
+      const on = !T.enabled;
+      if (on && window.Glass && window.Glass.on) { window.Glass.stop(); toast('Gestures off while speech is on', 'info'); }
+      T.setEnabled(on);
+      sfx(on ? 'on' : 'off');
+      if (on && T.state === 'loading') toast('Speech on - loading the voice model\u2026', 'info');
+      else if (!on) toast('Speech off', 'info');
+    });
+    ttsUi();
+  } else {
+    ttsBtn.hidden = true;
+  }
+
   // ── Free mode + floating callout ─────────────────────────────────────────
   const floatEl = document.getElementById('float');
   const floatProgress = document.getElementById('floatProgress');
@@ -2105,6 +2156,7 @@
   }
   function reloadNow(msg) {
     try { sessionStorage.setItem('te-resume-glass', window.Glass && window.Glass.on ? '1' : ''); } catch (_) { /* */ }
+    try { sessionStorage.setItem('te-resume-tts', window.Tts && window.Tts.enabled ? '1' : ''); } catch (_) { /* */ }
     toast(msg || 'Updating\u2026', 'info');
     setTimeout(() => location.reload(), 900);
   }
@@ -2224,6 +2276,9 @@
     let resumeGlass = false;
     try { resumeGlass = sessionStorage.getItem('te-resume-glass') === '1'; sessionStorage.removeItem('te-resume-glass'); } catch (_) { /* */ }
     if ((qs.get('glass') === '1' || resumeGlass) && window.Glass) window.Glass.start();
+    let resumeTts = false;
+    try { resumeTts = sessionStorage.getItem('te-resume-tts') === '1'; sessionStorage.removeItem('te-resume-tts'); } catch (_) { /* */ }
+    if (resumeTts && !resumeGlass && window.Tts) { window.Tts.setEnabled(true); document.getElementById('ttsBtn').setAttribute('aria-pressed', 'true'); }
     startAutoUpdate();
     if (window.RoomNet) window.RoomNet.start({ onUpdate: renderRoomNet });
   })();

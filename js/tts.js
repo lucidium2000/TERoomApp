@@ -2,21 +2,23 @@
  * js/tts-worker.js; this side queues the audio it returns and plays it
  * through Web Audio, gap-free, as each sentence arrives.
  *
- * Off unless asked for, so nothing big downloads on a normal visit:
- *   tts=1          speak outage summaries, new-outage alerts and path traces
+ * Off until the speaker button is pressed (so nothing big downloads on a
+ * normal visit); turning it off unloads the model again. It never runs at
+ * the same time as camera gestures (app.js switches one off for the other).
+ *   tts=0          hide the speaker button
  *   ttsvoice=      a Kokoro voice (default af_heart; e.g. am_michael, bf_emma)
  *   ttsspeed=      0.5..2 (default 1)
  *   ttsdevice=     auto (WebGPU when available, else CPU) | webgpu | wasm
  *   ttsdtype=      fp32 | fp16 | q8 | q4 | q4f16 (default fp32 on WebGPU, q8 on CPU)
- * The Device Lab has a Speech test that loads it on demand.
  *
- * window.Tts = { enabled, load(), speak(text), stop(), state, info, progress, stats, voices }
+ * window.Tts = { enabled, setEnabled(on), onChange(fn), speak(text), stop(), state, info, progress, stats }
  */
 (function () {
   'use strict';
 
   const qs = new URLSearchParams(location.search);
-  const ENABLED = qs.get('tts') === '1';
+  const AVAILABLE = qs.get('tts') !== '0';
+  let enabled = false, onChange = () => {};
   const OPTS = {
     voice: qs.get('ttsvoice') || 'af_heart',
     speed: Math.max(0.5, Math.min(2, parseFloat(qs.get('ttsspeed')) || 1)),
@@ -47,15 +49,15 @@
     state = 'loading'; progress = 0; error = '';
     try { worker = new Worker(WORKER_URL, { type: 'module' }); } catch (e) { state = 'error'; error = String(e.message || e); return; }
     worker.onmessage = onMessage;
-    worker.onerror = (e) => { state = 'error'; error = e.message || 'worker failed'; };
+    worker.onerror = (e) => { state = 'error'; error = e.message || 'worker failed'; onChange(state); };
     worker.postMessage({ type: 'load', device: OPTS.device, dtype: OPTS.dtype });
   }
 
   function onMessage(e) {
     const m = e.data;
     if (m.type === 'progress') progress = m.total ? m.loaded / m.total : 0;
-    else if (m.type === 'ready') { state = 'ready'; info = m; progress = 1; }
-    else if (m.type === 'error') { if (state === 'loading') state = 'error'; error = m.message; console.warn('[tts]', m.message); }
+    else if (m.type === 'ready') { state = 'ready'; info = m; progress = 1; onChange(state); }
+    else if (m.type === 'error') { if (state === 'loading') { state = 'error'; onChange(state); } error = m.message; console.warn('[tts]', m.message); }
     else if (m.type === 'chunk') {
       const sec = m.audio.length / m.rate;
       stats.push({ chars: m.text.length, ms: m.ms, sec, rtf: m.ms / 1000 / sec });
@@ -73,9 +75,23 @@
     }
   }
 
-  /** Say this, cutting off whatever was being said. */
+  /** Turn speech on (loads the model) or off (stops and unloads it, giving
+   *  the CPU and memory back). */
+  function setEnabled(on) {
+    if (on === enabled) return;
+    enabled = on;
+    if (on) load();
+    else {
+      stop();
+      if (worker) { worker.terminate(); worker = null; }
+      state = 'off'; progress = 0;
+    }
+    onChange(state);
+  }
+
+  /** Say this, cutting off whatever was being said (only while enabled). */
   function speak(text) {
-    if (!text) return;
+    if (!text || !enabled) return;
     load();
     stop();
     curId++;
@@ -89,15 +105,13 @@
   }
 
   window.Tts = {
-    enabled: ENABLED, voices: VOICES, opts: OPTS,
-    load, speak, stop,
+    available: AVAILABLE, voices: VOICES, opts: OPTS,
+    get enabled() { return enabled; }, setEnabled, onChange(fn) { onChange = fn; },
+    speak, stop,
     setVoice(v) { OPTS.voice = v; },
     get state() { return state; }, get info() { return info; }, get progress() { return progress; },
     get error() { return error; }, get stats() { return stats; },
     get speaking() { return sources.length > 0; },
   };
 
-  // Warm up a little after start-up, so the first summary isn't kept waiting
-  // (and the download doesn't compete with the page loading).
-  if (ENABLED) setTimeout(load, 4000);
 })();

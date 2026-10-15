@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=101">
+  <link rel="stylesheet" href="css/app.css?v=102">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -45,6 +45,9 @@
   </aside>
 
   <nav class="zoomctl" aria-label="Globe controls">
+    <button id="ttsBtn" class="tts-btn" aria-pressed="false" aria-label="Spoken summaries (experimental)" title="Spoken summaries (experimental). Hold for speed stats.">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="tts-wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="tts-x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+    </button>
     <div class="glass-wrap">
     <button id="glassBtn" class="glass-btn" aria-pressed="false" aria-label="Glass mode: camera parallax (experimental)" title="Glass mode (experimental): uses the camera to follow your head">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5Z"/><circle cx="12" cy="13" r="3.5"/></svg>
@@ -203,12 +206,12 @@
   <script src="vendor/d3-geo.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script src="js/sound.js?v=67"></script>
-  <script src="js/tts.js?v=1"></script>
+  <script src="js/tts.js?v=2"></script>
   <script src="js/roomnet.js?v=84"></script>
   <script src="js/pathtrace.js?v=78"></script>
   <script src="js/glglobe.js?v=17"></script>
   <script src="js/glass.js?v=82"></script>
-  <script src="js/app.js?v=110"></script>
-  <script src="js/devlab.js?v=75"></script>
+  <script src="js/app.js?v=111"></script>
+  <script src="js/devlab.js?v=76"></script>
 </body>
 </html>
