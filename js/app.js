@@ -1735,7 +1735,9 @@
     // corners. ?handlag= (sample intervals, default 0.9) trades smoothness for
     // latency.
     const HC_LAG = num('handlag', 0.9), HC_EXTRAP = 0.35;
-    const HC_SIZE = num('handsize', 80);   // px from wrist to middle knuckle on screen
+    const HC_SIZE = num('handsize', 140);
+    // ?handalpha= sets how visible the silhouette is (default .035; grab/arming stay a touch stronger).
+    if (qs.get('handalpha')) handCursor.style.setProperty('--hc-alpha', String(num('handalpha', 0.035)));   // px from wrist to middle knuckle on screen
     const SVGNS = 'http://www.w3.org/2000/svg';
     const hcSvg = handCursor.querySelector('svg'), hcDot = handCursor.querySelector('.hc-dot');
     const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
