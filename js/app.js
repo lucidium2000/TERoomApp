@@ -857,6 +857,21 @@
   const fmtDur = (s) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m`
     : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`);
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  // ── Spoken summaries (experimental, ?tts=1 - js/tts.js) ──────────────────
+  const tts = (text) => { if (window.Tts && window.Tts.enabled) window.Tts.speak(text); };
+  const spokenAgo = (ms) => {
+    const m = Math.max(0, Math.round((dataNow() - ms) / 60000));
+    return m < 2 ? 'just now' : m < 60 ? `${m} minutes ago` : `about ${Math.round(m / 60)} hour${Math.round(m / 60) === 1 ? '' : 's'} ago`;
+  };
+  function outageSpeech(o, isNew) {
+    const where = o.locations.slice().sort((a, b) => b.n - a.n)[0];
+    const place = where ? where.name.split(',').slice(0, 2).join(',') : '';
+    const n = o.locations.length;
+    return `${isNew ? 'New ' : ''}${o.kind === 'network' ? 'network' : 'application'} outage: ${o.name}. `
+      + `${n === 1 ? 'One location' : n + ' locations'}${place ? (n === 1 ? `, ${place}` : `, including ${place}`) : ''}. `
+      + `Started ${spokenAgo(o.start)}${o.active ? ', and still active.' : '.'}`;
+  }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   function iconHtml(o) {
@@ -870,8 +885,9 @@
     if (o && S.pathOpen) closePath();
     const had = S.selected;
     S.selected = o;
-    if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); return; }
+    if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); if (window.Tts) window.Tts.stop(); return; }
     if (!fromTour) sfx('select');   // tour steps are silent
+    if (!select.quiet) tts(outageSpeech(o, false));
     fetchWeather(o.locations);
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
@@ -1013,6 +1029,7 @@
   }
   function closePath() {
     pathRun++; S.pathOpen = false; S.path = null;
+    if (window.Tts) window.Tts.stop();
     if (!pathCard.hidden) sfx('close');
     pathCard.hidden = true;
     pvTipAt(null);
@@ -1199,6 +1216,15 @@
     if (last && last.ms != null) end.avg = last.ms;
     S.path = { pts };
     requestAnimationFrame(pcFade);
+    const lossy = r.hops.filter((h) => h.ip && h.lossEff > 0 && h.lossEff < 100);
+    const slowLink = r.hops.reduce((best, h, i) => {
+      const prev = r.hops.slice(0, i).reverse().find((q) => q.ms != null);
+      const d = h.ms != null && prev ? h.ms - prev.ms : 0;
+      return d > (best ? best.d : PATH_HIGH) ? { d, h } : best;
+    }, null);
+    tts(`Path to ${p.name}: ${last && last.ms != null ? `about ${Math.round(last.ms)} milliseconds` : 'no answer from the service'}, over ${r.hops.length} hops. `
+      + (slowLink ? `The biggest delay is ${Math.round(slowLink.d)} milliseconds${slowLink.h.city ? ' near ' + slowLink.h.city : ''}. ` : 'No slow links. ')
+      + (lossy.length ? `Packet loss from hop ${lossy[0].n}${lossy[0].org ? ', in ' + lossy[0].org.replace(/,? (Inc|LLC|Ltd|Corporation|Corp)\.?.*$/i, '') : ''}.` : 'No packet loss.'));
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
   }
   function drawPath(now, R) {
@@ -1448,7 +1474,8 @@
       const o = fresh.sort((a, b) => b.start - a.start)[0];
       toast(`New ${o.kind} outage: ${o.name} · ${o.locations[0].name}`);
       sfx('alert');
-      if (now() - S.lastInput > 10000 || S.touring) select(o, { fromTour: S.touring });
+      if (now() - S.lastInput > 10000 || S.touring) { select.quiet = true; select(o, { fromTour: S.touring }); select.quiet = false; }
+      tts(outageSpeech(o, true));
     }
   }
 

@@ -6,9 +6,10 @@
  * Network section.
  *
  * Sections: Room (people, distance, light, motion - live), Sound (mic level,
- * noise floor, speech, pitch - opt-in), Camera (settings, capabilities incl.
- * PTZ, devices), Network (browser estimate + measured RTTs), Device (CPU,
- * memory, screen, GPU/WebGPU/WebNN, speech recognition, permissions).
+ * noise floor, speech, pitch - opt-in), Speech (Kokoro text-to-speech test -
+ * opt-in, downloads ~90 MB once), Camera (settings, capabilities incl. PTZ,
+ * devices), Network (browser estimate + measured RTTs), Device (CPU, memory,
+ * screen, GPU/WebGPU/WebNN, speech recognition, permissions).
  */
 (function () {
   'use strict';
@@ -109,6 +110,28 @@
       + row('voice activity', speaking ? '<span class="dl-ok">talking</span>' : 'quiet')
       + row('dominant pitch', best > 0 && db > floor + 6 ? `${Math.round(best)} Hz` : '-')
       + row('mic settings', `${s.sampleRate || mic.ctx.sampleRate} Hz, ${s.channelCount || '?'} ch, AEC ${s.echoCancellation ? 'on' : 'off'}`);
+  }
+
+  // ── Speech (Kokoro, js/tts.js) ─────────────────────────────────────────
+  const SAY = 'There are three active outages right now. Microsoft 365 is affected, with fourteen locations, including Ashburn, Virginia.';
+  function speech() {
+    const T = window.Tts;
+    if (!T) return row('kokoro', '<i>not loaded</i>');
+    let html = row('status', T.state === 'off' ? '<i>off - tap Load Kokoro (downloads ~90 MB once)</i>'
+      : T.state === 'loading' ? `loading\u2026 ${bar(T.progress * 100)} ${Math.round(T.progress * 100)}%`
+      : T.state === 'ready' ? '<span class="dl-ok">ready</span>' : `<span class="dl-bad">${esc(T.error || 'error')}</span>`);
+    if (T.info) html += row('running on', `${esc(T.info.device === 'webgpu' ? 'GPU (WebGPU)' : 'CPU (WASM)')}, ${esc(T.info.dtype)}, ${T.info.threads} thread${T.info.threads === 1 ? '' : 's'}`)
+      + row('load time', `${(T.info.loadMs / 1000).toFixed(1)} s`);
+    html += row('voice', esc(T.opts.voice));
+    const st = T.stats;
+    if (st.length) {
+      const last = st[st.length - 1], sum = st.reduce((a, x) => ({ ms: a.ms + x.ms, sec: a.sec + x.sec }), { ms: 0, sec: 0 });
+      const rtf = sum.ms / 1000 / sum.sec;
+      html += row('last sentence', `${(last.ms / 1000).toFixed(2)} s to make ${last.sec.toFixed(2)} s of speech`)
+        + row('speed vs real time', `<span class="${rtf < 0.7 ? 'dl-ok' : rtf > 1 ? 'dl-bad' : ''}">${rtf < 1 ? (1 / rtf).toFixed(1) + '\u00D7 faster' : rtf.toFixed(1) + '\u00D7 slower'}</span> <i>(${st.length} sentence${st.length === 1 ? '' : 's'})</i>`);
+    }
+    if (T.error && T.state !== 'error') html += row('last error', `<span class="dl-bad">${esc(T.error)}</span>`);
+    return html;
   }
 
   // ── Camera ──────────────────────────────────────────────────────────────
@@ -237,6 +260,10 @@
     panel.querySelector('[data-a="camera"]').hidden = !cap.zoom;
     panel.querySelector('[data-s="room"]').innerHTML = room();
     panel.querySelector('[data-s="sound"]').innerHTML = sound();
+    panel.querySelector('[data-s="speech"]').innerHTML = speech();
+    const T = window.Tts;
+    panel.querySelector('[data-act="ttsload"]').hidden = !T || T.state !== 'off';
+    panel.querySelector('[data-act="ttsvoice"]').textContent = T ? 'Voice: ' + T.opts.voice : 'Voice';
     panel.querySelector('[data-s="camera"]').innerHTML = camera();
     panel.querySelector('[data-s="net"]').innerHTML = network();
     panel.querySelector('[data-s="device"]').innerHTML = device();
@@ -247,6 +274,8 @@
     panel.className = 'devlab';
     panel.innerHTML = '<h3>Device Lab</h3>'
       + ['Room|room|', 'Sound|sound|<button class="dl-btn" data-act="mic">Enable mic</button>',
+        'Speech|speech|<button class="dl-btn" data-act="ttsload">Load Kokoro</button><button class="dl-btn" data-act="ttssay">Speak test</button>'
+          + '<button class="dl-btn" data-act="ttsvoice">Voice</button><button class="dl-btn" data-act="ttsstop">Stop</button>',
         'Camera|camera|<button class="dl-btn" data-act="zoomin">Zoom +</button><button class="dl-btn" data-act="zoomout">Zoom -</button>',
         'Network|net|<button class="dl-btn" data-act="net">Run RTT test</button>', 'Device|device|']
         .map((x) => { const [t, k, acts] = x.split('|'); return `<h4>${t}</h4><div data-s="${k}"></div>${acts ? `<div class="dl-acts" data-a="${k}">${acts}</div>` : ''}`; }).join('');
@@ -256,6 +285,15 @@
       const a = b.dataset.act;
       if (a === 'mic') { if (mic.on) { stopMic(); render(); } else startMic(); }
       else if (a === 'net') runNet(); else if (a === 'zoomin') zoomStep(1); else if (a === 'zoomout') zoomStep(-1);
+      else if (a === 'ttsload' && window.Tts) window.Tts.load();
+      else if (a === 'ttssay' && window.Tts) window.Tts.speak(SAY);
+      else if (a === 'ttsstop' && window.Tts) window.Tts.stop();
+      else if (a === 'ttsvoice' && window.Tts) {
+        const v = window.Tts.voices, i = v.indexOf(window.Tts.opts.voice);
+        window.Tts.setVoice(v[(i + 1) % v.length]);
+        window.Tts.speak('Hello, this is ' + window.Tts.opts.voice.split('_')[1] + '.');
+      }
+      render();
     });
     document.body.appendChild(panel);
     if (!staticInfo) collectStatic();
