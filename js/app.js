@@ -1709,11 +1709,31 @@
     // timeline and globe marker works. Hand results come ~6-15 times a second;
     // the cursor glides between them.
     const handCursor = document.getElementById('handCursor');
-    const hc = { tx: 0, ty: 0, x: 0, y: 0, on: false, raf: 0, t: 0 };
+    // The silhouette is drawn from the tracked hand's 21 points: the palm as one
+    // rounded shape and each finger as a rounded stroke through its joints, all
+    // in one group so the overlaps merge into a single seamless shadow. Points
+    // glide between hand samples like the cursor itself.
+    const HC_SIZE = 62;   // px from wrist to middle knuckle on screen
+    const hcPalm = document.getElementById('hcPalm');
+    const hcFingers = [...document.querySelectorAll('#handCursor .hc-finger')];
+    const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
+    const hc = { tx: 0, ty: 0, x: 0, y: 0, on: false, raf: 0, t: 0, shape: null, tshape: null };
+    function hcDrawShape() {
+      const p = hc.shape;
+      if (!p) return;
+      const pt = (i) => `${(p[i][0] * HC_SIZE).toFixed(1)},${(p[i][1] * HC_SIZE).toFixed(1)}`;
+      hcPalm.setAttribute('points', [0, 1, 5, 9, 13, 17].map(pt).join(' '));
+      FINGERS.forEach((f, i) => hcFingers[i].setAttribute('points', f.map(pt).join(' ')));
+    }
     function hcFrame(t) {
       const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
       const k = 1 - Math.exp(-dt / 110);
       hc.x += (hc.tx - hc.x) * k; hc.y += (hc.ty - hc.y) * k;
+      if (hc.tshape) {
+        if (!hc.shape) hc.shape = hc.tshape.map((q) => q.slice());
+        else hc.shape.forEach((q, i) => { q[0] += (hc.tshape[i][0] - q[0]) * k; q[1] += (hc.tshape[i][1] - q[1]) * k; });
+        hcDrawShape();
+      }
       handCursor.style.transform = `translate3d(${hc.x.toFixed(1)}px, ${hc.y.toFixed(1)}px, 0)`;
       if (t - (hc.overT || 0) > 120) {   // what's under the dot, a few times a second
         hc.overT = t;
@@ -1738,9 +1758,10 @@
     }
     if (window.Glass.onCursor) window.Glass.onCursor((c) => {
       if (!c.visible) {
-        hc.on = false; handCursor.hidden = true; return;
+        hc.on = false; handCursor.hidden = true; hc.shape = null; return;
       }
       hc.tx = c.x * innerWidth; hc.ty = c.y * innerHeight;
+      if (c.shape) hc.tshape = c.shape;
       if (!hc.on) {
         hc.on = true; handCursor.hidden = false;
         if (!hc.raf) { hc.x = hc.tx; hc.y = hc.ty; hc.t = 0; hc.raf = requestAnimationFrame(hcFrame); }

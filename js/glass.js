@@ -743,22 +743,26 @@
   /** Gestures v2: the hand cursor follows the palm centre (mirrored) - the
    *  wrist and knuckles, which barely move when the fingers pinch, so a click
    *  lands where the hand was pointing. */
-  function updateCursor(palms, now) {
+  function updateCursor(palms, now, aspect) {
     const hands = palms.filter((p) => p.lm);
     if (!hands.length) {
       if (cur.visible && now - lastHandSeen > 300) { cur.visible = false; onCursor({ visible: false }); }
       return;
     }
-    {
-      const lm = hands[0].lm, ids = [0, 5, 9, 13, 17];
-      const cx = ids.reduce((a, i) => a + lm[i][0], 0) / ids.length;
-      const cy = ids.reduce((a, i) => a + lm[i][1], 0) / ids.length;
-      cur.x = clamp((CURSOR.X1 - cx) / (CURSOR.X1 - CURSOR.X0), 0, 1);
-      cur.y = clamp((cy - CURSOR.Y0) / (CURSOR.Y1 - CURSOR.Y0), 0, 1);
-    }
+    const lm = hands[0].lm, ids = [0, 5, 9, 13, 17];
+    const cx = ids.reduce((a, i) => a + lm[i][0], 0) / ids.length;
+    const cy = ids.reduce((a, i) => a + lm[i][1], 0) / ids.length;
+    cur.x = clamp((CURSOR.X1 - cx) / (CURSOR.X1 - CURSOR.X0), 0, 1);
+    cur.y = clamp((cy - CURSOR.Y0) / (CURSOR.Y1 - CURSOR.Y0), 0, 1);
+    // The hand's shape for the on-screen silhouette: all 21 points around the
+    // palm centre, mirrored (viewer's view), square pixels, in units of the
+    // hand's own size (wrist to middle knuckle) so it's the same size at any
+    // distance from the camera.
+    const size = Math.hypot(lm[0][0] - lm[9][0], (lm[0][1] - lm[9][1]) * aspect) || 1e-6;
+    const shape = lm.map((q) => [-(q[0] - cx) / size, (q[1] - cy) * aspect / size]);
     cur.visible = true;
     const fist = grab.on || (grab.curls[0] != null && grab.curls[0] < GRAB.FIST_ON);
-    onCursor({ visible: true, x: cur.x, y: cur.y, fist, armed, grabbing: grab.on });
+    onCursor({ visible: true, x: cur.x, y: cur.y, shape, fist, armed, grabbing: grab.on });
   }
 
   /** Every hand result, from whichever engine, comes through here. */
@@ -776,7 +780,7 @@
     // Fist grabs only while armed by a palm hold.
     if (armed) updateGrab(palms, now, aspect || 0.5625);
     else grab.curls = palms.filter((p) => p.lm).map((p) => curl(p.lm, aspect || 0.5625));
-    if (!GESTURES_V1) updateCursor(palms, now);
+    if (!GESTURES_V1) updateCursor(palms, now, aspect || 0.5625);
     // While grabbing (and just after), two-handed movement must not swipe.
     if (handSwipe) {
       const dir = handSwipe(grab.on ? [] : palms, now);
