@@ -1223,7 +1223,7 @@
     const n = nearestOutage(t);
     tlScrub.hidden = false;
     tlScrub.style.left = x + 'px';
-    tlLabel.textContent = `${fmtTime(t)} \u00B7 ${count} outage${count === 1 ? '' : 's'}`
+    tlLabel.textContent = `${new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${fmtTime(t)} \u00B7 ${count} outage${count === 1 ? '' : 's'}`
       + (n && Math.abs(n.start - t) <= SCRUB_WINDOW_MS ? ` \u00B7 ${n.name}${n.locations[0] ? ', ' + n.locations[0].label : ''}` : '');
     // Keep the label on screen near the ends; the line itself stays exact.
     const cw = tlChart.clientWidth, lw = tlLabel.offsetWidth;
