@@ -1750,20 +1750,30 @@
     // latency.
     const HC_LAG = num('handlag', 0.9), HC_EXTRAP = 0.35;
     const HC_SIZE = num('handsize', 140);
-    // ?handviz=0: pointer dot only, no hand silhouettes (for slow screens -
-    // the blurred, blended silhouettes are recomposited every frame).
+    // ?handviz=0: pointer dot only, no hand silhouettes.
     const HC_VIZ = qs.get('handviz') !== '0';
     // ?handalpha= sets how visible the silhouette is (default .035; grab/arming stay a touch stronger).
-    if (qs.get('handalpha')) handCursor.style.setProperty('--hc-alpha', String(num('handalpha', 0.035)));   // px from wrist to middle knuckle on screen
+    if (qs.get('handalpha')) handCursor.style.setProperty('--hc-alpha', String(num('handalpha', 0.035)));
+    // Drawing cost, for slow screens like the Desk Pro: each hand is its own
+    // small layer, drawn around its palm centre and MOVED with a transform -
+    // the GPU slides it, nothing is repainted. Only the finger shapes are
+    // redrawn, and at most HC_SHAPE_HZ times a second (the camera only sees
+    // them ~6-15 times a second anyway). No blur or blend modes: those are
+    // recomputed over the globe every frame. The dot is a transformed layer too.
+    const HC_SHAPE_HZ = 15;
     const SVGNS = 'http://www.w3.org/2000/svg';
-    const hcSvg = handCursor.querySelector('svg'), hcDot = handCursor.querySelector('.hc-dot');
+    const hcDot = handCursor.querySelector('.hc-dot');
     const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
-    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map(), latency: 150, every: 150, lastT: 0 };
+    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map(), latency: 150, every: 150, lastT: 0, shapeT: 0 };
     function hcHand(key) {
       let h = hc.hands.get(key);
       if (h) return h;
+      const svg = document.createElementNS(SVGNS, 'svg');
+      svg.setAttribute('class', 'hc-layer');
+      svg.setAttribute('width', '1'); svg.setAttribute('height', '1');
       const g = document.createElementNS(SVGNS, 'g');
       g.setAttribute('class', 'hc-hand');
+      svg.appendChild(g);
       const palm = document.createElementNS(SVGNS, 'polygon');
       palm.setAttribute('class', 'hc-palm');
       g.appendChild(palm);
@@ -1773,8 +1783,8 @@
         g.appendChild(f);
         return f;
       });
-      if (HC_VIZ) hcSvg.insertBefore(g, hcDot);
-      h = { g, palm, fingers, x: 0, y: 0, shape: null, buf: [], fresh: true };
+      if (HC_VIZ) handCursor.insertBefore(svg, hcDot);
+      h = { svg, g, palm, fingers, x: 0, y: 0, shape: null, buf: [], fresh: true };
       hc.hands.set(key, h);
       return h;
     }
@@ -1782,6 +1792,8 @@
       const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
       const k = 1 - Math.exp(-dt / 35);
       const rt = performance.now() - hc.latency - hc.every * HC_LAG;   // render time, in capture-time terms
+      const reshape = HC_VIZ && t - hc.shapeT >= 1000 / HC_SHAPE_HZ;
+      if (reshape) hc.shapeT = t;
       for (const h of hc.hands.values()) {
         const b = h.buf, n = b.length;
         let A = b[Math.max(0, n - 2)], B = b[n - 1];
@@ -1789,19 +1801,21 @@
         const span = Math.max(1, B.t - A.t);
         const u = A === B ? 1 : Math.max(0, Math.min(1 + HC_EXTRAP, (rt - A.t) / span));
         const px = A.x + (B.x - A.x) * u, py = A.y + (B.y - A.y) * u;
-        if (!HC_VIZ) { h.x += (px - h.x) * k; h.y += (py - h.y) * k; if (h.primary) { hc.x = h.x; hc.y = h.y; } continue; }
-        const us = Math.min(1, u);   // the shape never extrapolates
-        const tshape = A.shape.map((q, i) => [q[0] + (B.shape[i][0] - q[0]) * us, q[1] + (B.shape[i][1] - q[1]) * us]);
-        if (!h.shape) { h.shape = tshape; h.x = px; h.y = py; }
+        if (h.fresh2 !== false) { h.x = px; h.y = py; h.fresh2 = false; }
         h.x += (px - h.x) * k; h.y += (py - h.y) * k;
-        h.shape.forEach((q, i) => { q[0] += (tshape[i][0] - q[0]) * k; q[1] += (tshape[i][1] - q[1]) * k; });
-        const p = h.shape;
-        const pt = (i) => `${(h.x + p[i][0] * HC_SIZE).toFixed(1)},${(h.y + p[i][1] * HC_SIZE).toFixed(1)}`;
-        h.palm.setAttribute('points', [0, 1, 5, 9, 13, 17].map(pt).join(' '));
-        FINGERS.forEach((f, i) => h.fingers[i].setAttribute('points', f.map(pt).join(' ')));
         if (h.primary) { hc.x = h.x; hc.y = h.y; }
+        if (!HC_VIZ) continue;
+        h.svg.style.transform = `translate3d(${h.x.toFixed(1)}px, ${h.y.toFixed(1)}px, 0)`;
+        if (reshape || !h.shape) {
+          const us = Math.min(1, u);   // the shape never extrapolates
+          h.shape = A.shape.map((q, i) => [q[0] + (B.shape[i][0] - q[0]) * us, q[1] + (B.shape[i][1] - q[1]) * us]);
+          const p = h.shape;
+          const pt = (i) => `${(p[i][0] * HC_SIZE).toFixed(1)},${(p[i][1] * HC_SIZE).toFixed(1)}`;
+          h.palm.setAttribute('points', [0, 1, 5, 9, 13, 17].map(pt).join(' '));
+          FINGERS.forEach((f, i) => h.fingers[i].setAttribute('points', f.map(pt).join(' ')));
+        }
       }
-      hcDot.setAttribute('cx', hc.x.toFixed(1)); hcDot.setAttribute('cy', hc.y.toFixed(1));
+      hcDot.style.transform = `translate3d(${hc.x.toFixed(1)}px, ${hc.y.toFixed(1)}px, 0)`;
       if (t - (hc.overT || 0) > 120) {   // what's under the dot, a few times a second
         hc.overT = t;
         handCursor.classList.toggle('over', !hc.grabbing && clickable(hc.x, hc.y));
@@ -1826,7 +1840,7 @@
     if (window.Glass.onCursor) window.Glass.onCursor((c) => {
       if (!c.visible) {
         hc.on = false; handCursor.hidden = true;
-        for (const h of hc.hands.values()) h.g.remove();
+        for (const h of hc.hands.values()) h.svg.remove();
         hc.hands.clear();
         return;
       }
@@ -1848,7 +1862,7 @@
         h.g.classList.toggle('fist', !!d.fist);
         h.g.classList.toggle('arming', !!d.fist && c.arming > 0 && !c.grabbing);   // the fist that's about to grab
       }
-      for (const [key, h] of hc.hands) if (!seen.has(key)) { h.g.remove(); hc.hands.delete(key); }
+      for (const [key, h] of hc.hands) if (!seen.has(key)) { h.svg.remove(); hc.hands.delete(key); }
       if (!hc.on) {
         hc.on = true; handCursor.hidden = false;
         if (!hc.raf) { hc.t = 0; hc.raf = requestAnimationFrame(hcFrame); }

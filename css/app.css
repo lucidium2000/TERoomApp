@@ -633,18 +633,23 @@ body.free .pathcard { width: min(44em, calc(100vw - 2 * var(--gutter))); }
    behind it, like a reflection in the glass. The dot at the palm centre is
    the pointer and stays clearly visible. */
 .hand-cursor { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; }
-.hand-cursor svg { position: absolute; left: 0; top: 0; overflow: visible; }
-.hand-cursor .hc-hand { opacity: var(--hc-alpha, .035); fill: #fff; stroke: #fff; stroke-linecap: round; stroke-linejoin: round;
-  filter: blur(8px); mix-blend-mode: screen; transition: opacity .25s ease, fill .25s ease, stroke .25s ease; }
+/* Each hand is its own layer, moved by transform (no repaint); its opacity is
+   applied by the compositor to the merged shape, so overlaps don't double up. */
+.hand-cursor .hc-layer { position: absolute; left: 0; top: 0; overflow: visible; will-change: transform;
+  opacity: var(--hc-alpha, .035); transition: opacity .25s ease; }
+.hand-cursor .hc-hand { fill: #fff; stroke: #fff; stroke-linecap: round; stroke-linejoin: round; }
 .hand-cursor .hc-palm { stroke-width: 46px; }
 .hand-cursor .hc-finger { fill: none; stroke-width: 33px; }
 .hand-cursor .hc-thumb { stroke-width: 37px; }
 .hand-cursor .hc-pinky { stroke-width: 26px; }
-.hand-cursor .hc-dot { fill: rgba(255, 255, 255, 0.85); stroke: rgba(9, 14, 26, 0.5); stroke-width: 1.5;
-  transition: fill .15s ease, r .15s ease; }
+.hand-cursor .hc-hand.arming { fill: #9adffb; stroke: #9adffb; }
+.hand-cursor .hc-layer:has(.arming) { opacity: .05; }
+.hand-cursor.grab .hc-hand { fill: #38bdf8; stroke: #38bdf8; }
+.hand-cursor.grab .hc-layer { opacity: .07; }
+.hand-cursor .hc-dot { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.hand-cursor .hc-dot i { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 0 1.5px rgba(9, 14, 26, 0.5); transition: background .15s ease, transform .15s ease; }
 .hand-cursor.idle { opacity: .6; }
-.hand-cursor.over .hc-dot { fill: #38bdf8; r: 9; }
-.hand-cursor .hc-hand.arming { fill: #9adffb; stroke: #9adffb; opacity: .05; }
-.hand-cursor.grab .hc-hand { fill: #38bdf8; stroke: #38bdf8; opacity: .07; }
-.hand-cursor.clicked .hc-dot { animation: hc-click .35s ease-out; }
-@keyframes hc-click { 0% { r: 16; fill: #fff; } 100% { r: 7; } }
+.hand-cursor.over .hc-dot i { background: #38bdf8; transform: scale(1.3); }
+.hand-cursor.clicked .hc-dot i { animation: hc-click .35s ease-out; }
+@keyframes hc-click { 0% { transform: scale(2.3); background: #fff; } 100% { transform: scale(1); } }
