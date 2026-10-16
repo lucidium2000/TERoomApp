@@ -613,6 +613,7 @@
     }
 
     // City labels for the selected outage.
+    const labelled = new Set();
     if (sel) {
       ctx.font = `600 ${Math.round(13 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
@@ -630,6 +631,7 @@
         const w = tw * k + extra;
         if (placed.some((q) => Math.abs(q.y - y) < 18 * k && x < q.x + q.w && x + w > q.x)) continue;
         placed.push({ x, y, w });
+        labelled.add(loc);
         ctx.fillStyle = 'rgba(5,7,13,0.75)';
         ctx.fillRect(x - 5 * k, y - 11 * k, w + 10 * k, 22 * k);
         ctx.fillStyle = '#e6edf7';
@@ -640,6 +642,29 @@
           ctx.fillStyle = '#e6edf7';
           ctx.fillText(temp, ix + 8 * k + 4 * k, y + 0.5);
         }
+      }
+    }
+
+    // A location hovered or picked in the card: a bright target ring on its
+    // point, and its name, even where labels were thinned out.
+    const hi = sel && (S.locHover || S.locPick);
+    if (hi && sel.locations.includes(hi)) {
+      const p = proj.point(hi.lon, hi.lat, hi.v);
+      if (p) {
+        const r = 13 * k, t = (now % 1200) / 1200;
+        ctx.lineWidth = 2.5 * k;
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 2 * Math.PI); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${((1 - t) * 0.65).toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(p[0], p[1], r + t * 24 * k, 0, 2 * Math.PI); ctx.stroke();
+        if (labelled.has(hi)) return;   // its name is already on the map
+        ctx.font = `700 ${Math.round(14 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.textBaseline = 'middle';
+        const label = hi.label || hi.name, w = ctx.measureText(label).width, x = p[0] + r + 8 * k, y = p[1] - r - 6 * k;
+        ctx.fillStyle = 'rgba(5,7,13,0.88)';
+        ctx.fillRect(x - 6 * k, y - 12 * k, w + 12 * k, 24 * k);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(label, x, y + 0.5);
       }
     }
   }
@@ -1054,7 +1079,9 @@
     if (o.asn) metrics.push(['AS' + o.asn, 'Network']);
     el.cardMetrics.innerHTML = metrics.map(([b, s]) => `<div><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
     const locs = o.locations.slice().sort((a, b) => b.n - a.n);
-    el.cardLocs.innerHTML = locs.slice(0, 8).map((l) => `<li>${esc(l.name)}</li>`).join('')
+    // Each location: hover lights up its point on the globe, tap zooms to it.
+    S.locHover = null; S.locPick = null; S.cardLocList = locs.slice(0, 8);
+    el.cardLocs.innerHTML = S.cardLocList.map((l, i) => `<li data-loc="${i}" title="Show ${esc(l.label || l.name)} on the globe">${esc(l.name)}</li>`).join('')
       + (locs.length > 8 ? `<li>+${locs.length - 8} more</li>` : '');
     el.card.hidden = false;
     fillFloat(o, metrics, locs);
@@ -1802,6 +1829,20 @@
   }));
 
   el.cardClose.addEventListener('click', () => { userInput(); select(null); });
+  const cardLoc = (e) => { const li = e.target.closest('[data-loc]'); return li ? S.cardLocList[+li.dataset.loc] : null; };
+  el.cardLocs.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') S.locHover = cardLoc(e); });
+  el.cardLocs.addEventListener('pointerleave', () => { S.locHover = null; });
+  el.cardLocs.addEventListener('click', (e) => {
+    const loc = cardLoc(e);
+    if (!loc || !S.selected) return;
+    userInput();
+    const again = S.locPick === loc;
+    S.locPick = again ? null : loc;
+    el.cardLocs.querySelectorAll('[data-loc]').forEach((li) => li.classList.toggle('on', !again && S.cardLocList[+li.dataset.loc] === loc));
+    sfx(again ? 'close' : 'select');
+    // Zoom to that location; tapping it again goes back to the whole outage.
+    flyTo(again ? S.selected : { locations: [loc] }, 1400);
+  });
   el.tourBtn.addEventListener('click', () => {
     const on = !S.touring;
     sfx(on ? 'on' : 'off');

@@ -168,6 +168,10 @@ body.signage .zoomctl { display: none; }
 .card-locs li::before { content: ""; display: inline-block; width: .5em; height: .5em; border-radius: 50%; margin-right: .55em; background: currentColor; opacity: .6; vertical-align: .1em; }
 .card.network .card-locs li::before { background: var(--net); opacity: 1; }
 .card.application .card-locs li::before { background: var(--app); opacity: 1; }
+/* Locations are live: hover lights the point on the globe, tap zooms to it. */
+.card-locs li[data-loc] { cursor: pointer; border-radius: 6px; margin: 0 -.35em; padding-left: .35em; padding-right: .35em; transition: background .15s ease, color .15s ease; }
+.card-locs li[data-loc]:hover { background: rgba(255, 255, 255, .08); color: var(--ink); }
+.card-locs li[data-loc].on { background: rgba(255, 255, 255, .14); color: #fff; font-weight: 700; }
 .card-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
 .card-progress i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; will-change: transform; background: linear-gradient(90deg, var(--net), var(--app)); }
 
