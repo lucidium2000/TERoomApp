@@ -2160,16 +2160,45 @@
       return `Speech on ${T.info ? (T.info.device === 'webgpu' ? 'GPU' : 'CPU') + ' ' + T.info.dtype : '?'}: `
         + `${rtf < 1 ? (1 / rtf).toFixed(1) + '\u00D7 faster' : rtf.toFixed(1) + '\u00D7 slower'} than real time over ${st.length} sentence${st.length === 1 ? '' : 's'}`;
     };
+    // Press and hold: pick a voice (and see how fast speech is on this device).
+    const voicePick = document.getElementById('voicePick');
+    const voiceName = (v) => v.split('_')[1].replace(/^./, (c) => c.toUpperCase());
+    const GROUPS = [['af', 'American \u00B7 female'], ['am', 'American \u00B7 male'], ['bf', 'British \u00B7 female'], ['bm', 'British \u00B7 male']];
+    function openVoices() {
+      const cur = T.opts.voice;
+      voicePick.innerHTML = `<div class="vp-head"><b>Voice</b><span>${esc(ttsStats())}</span></div>`
+        + GROUPS.map(([g, label]) => `<div class="vp-group"><i>${label}</i><div>`
+          + T.voices.filter((v) => v.startsWith(g + '_')).map((v) => `<button data-voice="${v}" class="${v === cur ? 'on' : ''}">${voiceName(v)}</button>`).join('')
+          + '</div></div>').join('');
+      const b = ttsBtn.getBoundingClientRect();
+      voicePick.style.left = (b.right + 12) + 'px';
+      voicePick.hidden = false;
+      const h = voicePick.offsetHeight;
+      voicePick.style.top = Math.max(8, Math.min(innerHeight - h - 8, b.top)) + 'px';
+    }
+    const closeVoices = () => { voicePick.hidden = true; };
+    voicePick.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-voice]');
+      if (!btn) return;
+      e.stopPropagation(); userInput();
+      T.setVoice(btn.dataset.voice);
+      voicePick.querySelectorAll('[data-voice]').forEach((q) => q.classList.toggle('on', q === btn));
+      sfx('select');
+      if (T.enabled) T.speak(`Hi, I'm ${voiceName(btn.dataset.voice)}.`);
+      else toast(`Voice: ${voiceName(btn.dataset.voice)} (turn speech on to hear it)`, 'info');
+    });
+    document.addEventListener('pointerdown', (e) => { if (!voicePick.hidden && !voicePick.contains(e.target) && e.target !== ttsBtn && !ttsBtn.contains(e.target)) closeVoices(); }, true);
     let ttsHold = 0, ttsHeld = false;
     ttsBtn.addEventListener('pointerdown', () => {
       ttsHeld = false; clearTimeout(ttsHold);
-      ttsHold = setTimeout(() => { ttsHeld = true; sfx('tap'); toast(ttsStats(), 'info'); }, 600);
+      ttsHold = setTimeout(() => { ttsHeld = true; sfx('open'); openVoices(); }, 600);
     });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => ttsBtn.addEventListener(t, () => clearTimeout(ttsHold)));
     ttsBtn.addEventListener('contextmenu', (e) => e.preventDefault());
     ttsBtn.addEventListener('click', () => {
       userInput();
       if (ttsHeld) { ttsHeld = false; return; }
+      if (!voicePick.hidden) { closeVoices(); return; }
       const on = !T.enabled;
       if (on && window.Glass && window.Glass.on) { window.Glass.stop(); toast('Gestures off while speech is on', 'info'); }
       T.setEnabled(on);

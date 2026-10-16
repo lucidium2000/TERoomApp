@@ -721,3 +721,22 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .hand-cursor.over .hc-dot i { background: #38bdf8; transform: scale(1.3); }
 .hand-cursor.clicked .hc-dot i { animation: hc-click .35s ease-out; }
 @keyframes hc-click { 0% { transform: scale(2.3); background: #fff; } 100% { transform: scale(1); } }
+
+/* Voice picker (hold the speaker button). */
+.voice-pick {
+  position: fixed; z-index: 140; width: min(27em, calc(100vw - 100px)); max-height: calc(100vh - 16px); overflow: auto;
+  padding: .8em .9em .9em; border-radius: 14px; background: rgba(9, 14, 26, .95);
+  border: 1px solid rgba(167, 139, 250, .45); box-shadow: 0 12px 36px rgba(0, 0, 0, .55); animation: rise .2s ease-out;
+}
+.vp-head { display: flex; flex-direction: column; gap: .15em; margin-bottom: .5em; }
+.vp-head b { font-size: 1.05em; }
+.vp-head span { color: var(--ink-3); font-size: .78em; }
+.vp-group { margin-top: .55em; }
+.vp-group i { display: block; font-style: normal; color: var(--ink-3); font-size: .72em; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .3em; }
+.vp-group > div { display: flex; flex-wrap: wrap; gap: .35em; }
+.vp-group button {
+  min-height: 40px; padding: .35em .8em; border-radius: 999px; font-size: .9em; color: var(--ink);
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--line);
+}
+.vp-group button.on { background: rgba(167, 139, 250, .25); border-color: rgba(167, 139, 250, .8); color: #fff; font-weight: 700; }
+.vp-group button:active { background: rgba(255, 255, 255, .14); }

@@ -67,7 +67,7 @@ async function speak({ id, text, voice, speed }) {
   for (let i = 0; i < parts.length; i++) {
     if (stopped.has(id)) break;
     const t0 = performance.now();
-    const out = await tts.generate(parts[i], { voice: voice || 'am_santa', speed: speed || 1 });
+    const out = await tts.generate(parts[i], { voice: voice || 'af_heart', speed: speed || 1 });
     if (stopped.has(id)) break;
     const audio = out.audio instanceof Float32Array ? out.audio : new Float32Array(out.audio);
     post({ type: 'chunk', id, audio, rate: out.sampling_rate, ms: Math.round(performance.now() - t0), text: parts[i], last: i === parts.length - 1 }, [audio.buffer]);
