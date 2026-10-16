@@ -496,10 +496,10 @@
       const c = (await r.json()).current;
       if (!c) return;
       const g = localWx.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
-      localWx.width = localWx.height = Math.round(18 * dpr);
+      localWx.width = localWx.height = Math.round(28 * dpr);
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.clearRect(0, 0, 18, 18);
-      drawWx(c.weather_code, c.is_day === 1, 9, 9, 16, g);
+      g.clearRect(0, 0, 28, 28);
+      drawWx(c.weather_code, c.is_day === 1, 14, 14, 25, g);
       localWx.hidden = false;
       localTemp.textContent = `${Math.round(c.temperature_2m)}\u00B0`;
       localCity.textContent = room.city || '';
