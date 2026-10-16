@@ -125,6 +125,7 @@ The page checks for a new published version about once a minute. When it finds o
 | `zoom` | `1.2` | resting zoom level |
 | `grabpan` | `1.6` | how far a fist grab turns the globe per unit of hand travel |
 | `gestures` | v2 | `v1` brings back the palm-hold gesture scheme and its guide (no hand cursor) |
+| `ui` | `0.8` | interface size (everything except the globe): `1` is the original size, `0.9` a step smaller, `0.8` two steps |
 | `tts` | on | `0` hides the speaker button (spoken summaries) |
 | `ttsvoice` | af_heart | Kokoro voice, e.g. `am_michael`, `bf_emma`, `bm_george` (or hold the speaker button to pick one) |
 | `ttsspeed` | 1 | speaking speed, 0.5 to 2 (or hold the speaker button to pick one) |

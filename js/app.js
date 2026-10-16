@@ -59,7 +59,10 @@
   const RGB = { network: '241,94,34', application: '22,189,235' };
   const RAD = Math.PI / 180;
   const ZOOM_MIN = 0.6, ZOOM_MAX = 8;
-  const SPIN_RESUME_MS = 12000;   // leave the globe where the user put it for a while
+  const SPIN_RESUME_MS = 12000;
+  // Interface zoom (css --ui-zoom): screen pixels -> pixels inside a zoomed element.
+  const UIZ = Math.max(0.5, Math.min(1.5, parseFloat(qs.get('ui')) || 0.8));
+  document.documentElement.style.setProperty('--ui-zoom', String(UIZ));   // leave the globe where the user put it for a while
 
   // Friendly labels + match terms for the "Your services" strip.
   const WATCH_PRESETS = {
@@ -1439,10 +1442,11 @@
     el.classList.add('pv-on');
     pvTip.innerHTML = html;
     pvTip.hidden = false;
-    const eb = el.getBoundingClientRect(), tw = pvTip.offsetWidth, th = pvTip.offsetHeight;
+    // Screen pixels here; the tip itself is zoomed (UIZ), so convert on the way in.
+    const eb = el.getBoundingClientRect(), tw = pvTip.offsetWidth * UIZ, th = pvTip.offsetHeight * UIZ;
     const cx = eb.left + eb.width / 2;
-    pvTip.style.left = Math.max(8, Math.min(innerWidth - tw - 8, cx - tw / 2)) + 'px';
-    pvTip.style.top = (eb.top - th - 10 >= 8 ? eb.top - th - 10 : eb.bottom + 10) + 'px';
+    pvTip.style.left = Math.max(8, Math.min(innerWidth - tw - 8, cx - tw / 2)) / UIZ + 'px';
+    pvTip.style.top = (eb.top - th - 10 >= 8 ? eb.top - th - 10 : eb.bottom + 10) / UIZ + 'px';
   }
   // Soft fade at whichever edge of the body has more to scroll.
   function pcFade() {
@@ -1665,12 +1669,13 @@
     const count = S.outages.filter((o) => outageVisible(o) && Math.abs(o.start - t) <= SCRUB_WINDOW_MS).length;
     const n = nearestOutage(t);
     tlScrub.hidden = false;
-    tlScrub.style.left = x + 'px';
+    const xl = x / UIZ;   // inside the zoomed timeline
+    tlScrub.style.left = xl + 'px';
     tlLabel.textContent = `${new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${fmtTime(t)} \u00B7 ${count} outage${count === 1 ? '' : 's'}`
       + (n && Math.abs(n.start - t) <= SCRUB_WINDOW_MS ? ` \u00B7 ${n.name}${n.locations[0] ? ', ' + n.locations[0].label : ''}` : '');
     // Keep the label on screen near the ends; the line itself stays exact.
     const cw = tlChart.clientWidth, lw = tlLabel.offsetWidth;
-    const shift = Math.max(lw / 2 - x, Math.min(0, cw - x - lw / 2));
+    const shift = Math.max(lw / 2 - xl, Math.min(0, cw - xl - lw / 2));
     tlLabel.style.transform = `translateX(calc(-50% + ${shift}px))`;
     renderTimeline();
   }
@@ -2371,10 +2376,10 @@
           + T.voices.filter((v) => v.startsWith(g + '_')).map((v) => `<button data-voice="${v}" class="${v === cur ? 'on' : ''}">${voiceName(v)}</button>`).join('')
           + '</div></div>').join('');
       const b = ttsBtn.getBoundingClientRect();
-      voicePick.style.left = (b.right + 12) + 'px';
+      voicePick.style.left = (b.right + 12) / UIZ + 'px';
       voicePick.hidden = false;
-      const h = voicePick.offsetHeight;
-      voicePick.style.top = Math.max(8, Math.min(innerHeight - h - 8, b.top)) + 'px';
+      const h = voicePick.offsetHeight * UIZ;
+      voicePick.style.top = Math.max(8, Math.min(innerHeight - h - 8, b.top)) / UIZ + 'px';
       // Grey out GPU where the browser won't hand one out (the Desk Pro, today).
       T.gpuAvailable().then((ok) => {
         const g = voicePick.querySelector('[data-device="webgpu"]');
@@ -2470,13 +2475,13 @@
     const hub = o.byWeight[0];
     const p = proj.point(hub.lon, hub.lat, hub.v);
     if (!p) { hideFloat(); return; }
-    const { w, h } = floatSize, gap = 46, pad = 16;
+    const w = floatSize.w * UIZ, h = floatSize.h * UIZ, gap = 46, pad = 16;   // on screen
     let right = true;
     let x = p[0] + gap, y = p[1] - h - gap * 0.6;
     if (x + w > S.w - pad) { x = p[0] - gap - w; right = false; }
     x = Math.max(pad, Math.min(S.w - w - pad, x));
     y = Math.max(pad, Math.min(S.h - h - pad, y));
-    floatEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    floatEl.style.transform = `translate3d(${(x / UIZ).toFixed(1)}px, ${(y / UIZ).toFixed(1)}px, 0)`;
     if (!floatShown) { floatEl.classList.add('show'); floatShown = true; }
     // Leader line from the location to the callout's nearest bottom corner.
     const ax = right ? x : x + w, ay = Math.min(y + h, Math.max(y, p[1]));

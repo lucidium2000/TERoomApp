@@ -794,3 +794,11 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .brand .local canvas { width: 28px; height: 28px; margin: 0 .3em 0 .2em; }
 .brand .local #localTemp { font-size: 1.35em; font-weight: 700; color: var(--ink); }
 .brand .local #localCity { color: var(--ink-3); font-weight: 500; margin-left: .2em; }
+
+/* ── UI zoom ────────────────────────────────────────────────────────────
+   All the on-screen interface (not the globe, not the hand cursor) is drawn
+   at --ui-zoom (default 0.8, i.e. two browser zoom steps out; ?ui= sets it,
+   ?ui=1 for full size). Elements placed from js divide by it (UIZ). */
+:root { --ui-zoom: .8; }
+.brand, .panel, .zoomctl, .float, .card, .timeline, .gesture, .guide-card, .roomnet-strip,
+.pathcard, .voice-pick, .toast, .error, .pv-tip, .devlab, .swipe-hint { zoom: var(--ui-zoom); }
