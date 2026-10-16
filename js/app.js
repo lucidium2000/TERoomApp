@@ -2203,10 +2203,13 @@
     // Press and hold: pick a voice (and see how fast speech is on this device).
     const voicePick = document.getElementById('voicePick');
     const voiceName = (v) => v.split('_')[1].replace(/^./, (c) => c.toUpperCase());
+    const SPEEDS = [[0.8, '0.8\u00D7'], [0.9, '0.9\u00D7'], [1, 'Normal'], [1.1, '1.1\u00D7'], [1.25, '1.25\u00D7'], [1.5, '1.5\u00D7']];
     const GROUPS = [['af', 'American \u00B7 female'], ['am', 'American \u00B7 male'], ['bf', 'British \u00B7 female'], ['bm', 'British \u00B7 male']];
     function openVoices() {
       const cur = T.opts.voice;
+      const sp = T.opts.speed;
       voicePick.innerHTML = `<div class="vp-head"><b>Voice</b><span>${esc(ttsStats())}</span></div>`
+        + `<div class="vp-group vp-speed"><i>Speed</i><div>${SPEEDS.map(([x, label]) => `<button data-speed="${x}" class="${Math.abs(x - sp) < 0.01 ? 'on' : ''}">${label}</button>`).join('')}</div></div>`
         + GROUPS.map(([g, label]) => `<div class="vp-group"><i>${label}</i><div>`
           + T.voices.filter((v) => v.startsWith(g + '_')).map((v) => `<button data-voice="${v}" class="${v === cur ? 'on' : ''}">${voiceName(v)}</button>`).join('')
           + '</div></div>').join('');
@@ -2218,6 +2221,16 @@
     }
     const closeVoices = () => { voicePick.hidden = true; };
     voicePick.addEventListener('click', (e) => {
+      const spd = e.target.closest('[data-speed]');
+      if (spd) {
+        e.stopPropagation(); userInput();
+        T.setSpeed(parseFloat(spd.dataset.speed));
+        voicePick.querySelectorAll('[data-speed]').forEach((q) => q.classList.toggle('on', q === spd));
+        sfx('select');
+        if (T.enabled) T.speak(pick(['This is how fast I talk now.', 'Is this a good pace?', "Here's the new speed."]));
+        else toast(`Speed: ${spd.textContent} (turn speech on to hear it)`, 'info');
+        return;
+      }
       const btn = e.target.closest('[data-voice]');
       if (!btn) return;
       e.stopPropagation(); userInput();

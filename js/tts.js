@@ -7,7 +7,7 @@
  * the same time as camera gestures (app.js switches one off for the other).
  *   tts=0          hide the speaker button
  *   ttsvoice=      a Kokoro voice (default af_heart; or pick one by holding the speaker button)
- *   ttsspeed=      0.5..2 (default 1)
+ *   ttsspeed=      0.5..2 (default 1; or pick one by holding the speaker button)
  *   ttsdevice=     auto (WebGPU when available, else CPU) | webgpu | wasm
  *   ttsdtype=      fp32 | fp16 | q8 | q4 | q4f16 (default fp32 on WebGPU, q8 on CPU)
  *
@@ -19,11 +19,12 @@
   const qs = new URLSearchParams(location.search);
   const AVAILABLE = qs.get('tts') !== '0';
   function savedVoice() { try { return localStorage.getItem('te-tts-voice') || ''; } catch (_) { return ''; } }
+  function savedSpeed() { try { return parseFloat(localStorage.getItem('te-tts-speed')) || 0; } catch (_) { return 0; } }
   let enabled = false, onChange = () => {};
   const OPTS = {
     // URL first, then the last voice picked on this device, then the default.
     voice: qs.get('ttsvoice') || savedVoice() || 'af_heart',
-    speed: Math.max(0.5, Math.min(2, parseFloat(qs.get('ttsspeed')) || 1)),
+    speed: Math.max(0.5, Math.min(2, parseFloat(qs.get('ttsspeed')) || savedSpeed() || 1)),
     device: qs.get('ttsdevice') || 'auto',
     dtype: qs.get('ttsdtype') || '',
   };
@@ -128,6 +129,7 @@
     get enabled() { return enabled; }, setEnabled, onChange(fn) { onChange = fn; }, unlock,
     speak, stop,
     setVoice(v) { OPTS.voice = v; try { localStorage.setItem('te-tts-voice', v); } catch (_) { /* private mode */ } },
+    setSpeed(x) { OPTS.speed = Math.max(0.5, Math.min(2, x)); try { localStorage.setItem('te-tts-speed', String(OPTS.speed)); } catch (_) { /* private mode */ } },
     get state() { return state; }, get info() { return info; }, get progress() { return progress; },
     get error() { return error; }, get stats() { return stats; },
     get speaking() { return sources.length > 0; },
