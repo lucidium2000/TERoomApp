@@ -1728,8 +1728,7 @@
     S.selected = prevSelId ? S.outages.find((o) => o.id === prevSelId) || null : null;
 
     const gen = new Date(json.generatedAt);
-    const staleMin = (nowMs - gen.getTime()) / 60000;
-    el.updated.textContent = `updated ${fmtTime(gen.getTime())}` + (staleMin > 30 ? ` (${Math.round(staleMin)}m old)` : '');
+    el.updated.textContent = `updated ${fmtTime(gen.getTime())}`;
 
     renderStats(); renderList(); renderTimeline(); renderRoomNet();
 
