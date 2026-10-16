@@ -862,7 +862,8 @@
       if (Math.abs(S.vel.lon) > 0.0005 || Math.abs(S.vel.lat) > 0.0005) {
         coast(Math.min(dt, 100));
       } else if (!S.selected && now - S.lastInput > SPIN_RESUME_MS) {
-        view.lon = wrapLon(view.lon + (CFG.spinDegPerS * dt) / 1000);
+        // With a path trace open, the globe drifts a third slower.
+        view.lon = wrapLon(view.lon + (CFG.spinDegPerS * (S.pathOpen ? 2 / 3 : 1) * dt) / 1000);
         view.lat += (18 - view.lat) * 0.0006 * dt / 16;      // drift back to a pleasant tilt
         view.zoom += (DEFAULT_ZOOM - view.zoom) * 0.002 * dt / 16;
       }
@@ -1502,7 +1503,7 @@
       ? say('pathLead', { svc: p.name, ms }) + ' '
         + (slowLink ? say('pathSlow', { at: at(slowLink.h) }) : lossy.length ? say('pathLoss', { at: at(lossy[0]) }) : say('pathClean'))
       : say('pathNoAnswer', { svc: p.name }));
-    flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
+    flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 2700);   // a third slower than a normal flight
   }
   function drawPath(now, R) {
     if (!S.path) return;
