@@ -192,9 +192,18 @@ body.signage .zoomctl { display: none; }
 }
 #timeline { width: 100%; height: 100%; display: block; overflow: visible; }
 .tl-axis {
-  position: absolute; left: .9em; right: .9em; bottom: .35em;
-  display: flex; justify-content: space-between; color: var(--ink-3); font-size: .75em;
+  position: absolute; left: .9em; right: .9em; bottom: .35em; height: 1.3em;
+  color: var(--ink-3); font-size: .75em;
 }
+/* Five marks at 0, 6, 12, 18 and 24 hours: the ends hug the edges, the rest
+   centre on their spot. The two in between are local clock times. */
+.tl-axis span { position: absolute; bottom: 0; white-space: nowrap; transform: translateX(-50%); }
+.tl-axis span:nth-child(1) { left: 0; transform: none; }
+.tl-axis span:nth-child(2) { left: 25%; }
+.tl-axis span:nth-child(3) { left: 50%; }
+.tl-axis span:nth-child(4) { left: 75%; }
+.tl-axis span:nth-child(5) { left: 100%; transform: translateX(-100%); }
+.tl-axis .tl-clock { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 /* ── Toast / error ─────────────────────────────────── */
 .toast {

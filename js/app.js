@@ -1565,6 +1565,9 @@
     }
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = out;
+    // Clock times (this screen's timezone) midway between the axis marks.
+    document.getElementById('tlClock1').textContent = fmtTime(now - 18 * 3600e3);
+    document.getElementById('tlClock2').textContent = fmtTime(now - 6 * 3600e3);
   }
 
   // ── Timeline scrubbing ───────────────────────────────────────────────────
