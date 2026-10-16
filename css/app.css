@@ -745,3 +745,33 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .vp-group button.on { background: rgba(167, 139, 250, .25); border-color: rgba(167, 139, 250, .8); color: #fff; font-weight: 700; }
 .vp-group button:active { background: rgba(255, 255, 255, .14); }
 .vp-speed { padding-bottom: .55em; border-bottom: 1px solid var(--line); }
+
+/* ── Path trace motion ─────────────────────────────────────────────────────
+   The path draws itself hop by hop, nodes pop in as it reaches them, packets
+   travel each link, and the target pings like radar. */
+.pv-glow { stroke-width: 9; stroke-linecap: round; opacity: 0; animation: pv-fade .5s ease-out forwards; animation-delay: calc(var(--i) * 90ms + 150ms); }
+.pv-glow { --o: .16; }
+.pv-link.pv-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: pv-draw .35s ease-out forwards; animation-delay: calc(var(--i) * 90ms); }
+.pv-link.pv-l-silent { opacity: 0; animation: pv-fade .4s ease-out forwards; animation-delay: calc(var(--i) * 90ms); --o: 1; }
+@keyframes pv-draw { to { stroke-dashoffset: 0; } }
+@keyframes pv-fade { to { opacity: var(--o, 1); } }
+.pv-node { animation: pv-pop .35s cubic-bezier(.3, 1.6, .5, 1) backwards; animation-delay: calc(var(--i) * 90ms + 60ms); transform-box: fill-box; transform-origin: center; }
+@keyframes pv-pop { from { opacity: 0; transform: scale(.2); } }
+.pv-pkt { fill: #fff; pointer-events: none; }
+.pv-pkt .pv-pkt-h { fill: currentColor; opacity: .35; }
+.pv-ping { fill: none; stroke: #16bdeb; stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: pv-ping 2.4s ease-out infinite; pointer-events: none; }
+.pv-ping2 { animation-delay: 1.2s; }
+@keyframes pv-ping { from { transform: scale(1); opacity: .8; } to { transform: scale(3); opacity: 0; } }
+.pv-src .pv-shape { animation: pv-agent 2s ease-in-out infinite; }
+@keyframes pv-agent { 50% { fill: rgba(52, 211, 153, .6); } }
+/* Tracing: hops light up in turn. */
+.pc-scan { display: inline-flex; gap: 5px; margin-right: .7em; vertical-align: middle; }
+.pc-scan i { width: 7px; height: 7px; border-radius: 50%; background: rgba(148, 163, 184, .3); animation: pc-scan 1.4s ease-in-out infinite; }
+.pc-scan i:nth-child(1) { animation-delay: 0s; } .pc-scan i:nth-child(2) { animation-delay: .1s; } .pc-scan i:nth-child(3) { animation-delay: .2s; }
+.pc-scan i:nth-child(4) { animation-delay: .3s; } .pc-scan i:nth-child(5) { animation-delay: .4s; } .pc-scan i:nth-child(6) { animation-delay: .5s; }
+.pc-scan i:nth-child(7) { animation-delay: .6s; } .pc-scan i:nth-child(8) { animation-delay: .7s; } .pc-scan i:nth-child(9) { animation-delay: .8s; }
+@keyframes pc-scan { 0%, 60%, 100% { background: rgba(148, 163, 184, .25); box-shadow: none; } 20% { background: #34d399; box-shadow: 0 0 8px #34d399; } }
+@media (prefers-reduced-motion: reduce) {
+  .pv-glow, .pv-link, .pv-node, .pv-ping, .pv-src .pv-shape, .pc-scan i { animation: none !important; opacity: 1; stroke-dashoffset: 0; }
+  .pv-glow { opacity: .16; } .pv-pkt { display: none; }
+}

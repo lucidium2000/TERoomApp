@@ -1165,13 +1165,17 @@
     const host = new URL(p.url).host;
     pathTitle.textContent = `Path to ${p.name}`;
     pathMeta.textContent = host;
-    pathBody.innerHTML = '<div class="pc-status">Starting\u2026</div>';
+    pathBody.innerHTML = pcStatus('Starting\u2026');
     tts(say('pathStart', { svc: p.name }));
     pathBody.scrollTop = 0; pcFade();
     pathCard.hidden = false;
-    window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = `<div class="pc-status">${esc(msg)}</div>`; })
+    window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = pcStatus(msg); })
       .then((r) => { if (run === pathRun) showPath(p, r); })
       .catch((e) => { if (run === pathRun) pathBody.innerHTML = `<div class="pc-status pc-err">Trace failed: ${esc(e.message || e)}</div>`; });
+  }
+  /** While tracing: a little scanner - hops lighting up in turn - and the step. */
+  function pcStatus(msg) {
+    return `<div class="pc-status"><span class="pc-scan">${'<i></i>'.repeat(9)}</span>${esc(msg)}</div>`;
   }
   function closePath() {
     pathRun++; S.pathOpen = false; S.path = null;
@@ -1239,8 +1243,26 @@
       const sev = delta == null ? 'silent' : delta >= PATH_HIGH ? 'bad' : delta >= PATH_HIGH / 2 ? 'warn' : 'ok';
       pvLinks.push({ from: nodes[lastIdx], to: n, delta, sev });
       const li = pvLinks.length - 1;
-      out += `<line class="pv-link pv-l-${quiet && n.ms == null ? 'silent' : sev}" x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"/>`
-        + `<line class="pv-hit" data-link="${li}" x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"/>`;
+      const silentLink = quiet && n.ms == null;
+      // Healthy links glow in their network's colour; slow ones amber / red.
+      const col = silentLink ? '' : sev === 'ok' ? hue.get(n.key) || '#94a3b8' : sev === 'warn' ? '#fbbf24' : '#f43f5e';
+      const seg = `x1="${xs[k - 1]}" y1="${Y}" x2="${xs[k]}" y2="${Y}"`;
+      if (!silentLink) out += `<line class="pv-glow" ${seg} style="stroke:${col};--i:${k}"/>`;
+      out += `<line class="pv-link pv-l-${silentLink ? 'silent' : sev}${silentLink ? '' : ' pv-draw'}" ${seg} pathLength="1" style="--i:${k}${silentLink ? '' : ';stroke:' + col}"/>`
+        + `<line class="pv-hit" data-link="${li}" ${seg}/>`;
+      // Packets in flight along the link, slower where it adds delay; on a link
+      // into a hop with loss, every other packet fades out halfway - dropped.
+      if (!silentLink) {
+        const dur = Math.min(3, 0.7 + (delta || 0) / 25).toFixed(2), begin = (k * 0.09 + 0.4).toFixed(2);
+        const lossyTo = n.lossEff > 0 && n.lossEff < 100;
+        for (let q = 0; q < 2; q++) {
+          const b = (+begin + q * dur / 2).toFixed(2);
+          out += `<g class="pv-pkt" style="color:${col}"><circle r="5" class="pv-pkt-h"/><circle r="2.2"/>`
+            + `<animateMotion dur="${dur}s" begin="${b}s" repeatCount="indefinite" path="M${xs[k - 1]},${Y} L${xs[k]},${Y}"/>`
+            + (lossyTo && q === 1 ? `<animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.45;0.6;1" dur="${dur}s" begin="${b}s" repeatCount="indefinite"/>` : '')
+            + '</g>';
+        }
+      }
       if (n.ms != null) {
         if (sev === 'warn' || sev === 'bad') out += `<text class="pv-lat pv-l-${sev}" x="${(xs[lastIdx] + xs[k]) / 2}" y="${Y - 12}">+${delta.toFixed(0)} ms</text>`;
         lastMs = n.ms; lastIdx = k;
@@ -1250,7 +1272,8 @@
     pvNodes = nodes;
     nodes.forEach((n, k) => {
       const x = xs[k], c = hue.get(n.key), lossy = n.lossEff != null && n.lossEff > 0 && n.lossEff < 100;
-      out += `<g class="pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}" data-node="${k}" tabindex="0">`;
+      out += `<g class="pv-node pv-${n.kind}${lossy ? ' pv-lossy' : ''}" data-node="${k}" tabindex="0" style="--i:${k}">`;
+      if (n.kind === 'dst') out += `<circle class="pv-ping" cx="${x}" cy="${Y}" r="10"/><circle class="pv-ping pv-ping2" cx="${x}" cy="${Y}" r="10"/>`;
       out += `<circle class="pv-hit" cx="${x}" cy="${Y}" r="${Math.max(10, Math.min(16, GAP / 2))}"/>`;
       if (n.kind === 'src') out += `<rect class="pv-shape" x="${x - 9}" y="${Y - 9}" width="18" height="18" rx="4"/>`;
       else if (n.kind === 'dst') out += `<circle class="pv-shape" cx="${x}" cy="${Y}" r="10"/><circle class="pv-core" cx="${x}" cy="${Y}" r="4"/>`;
@@ -1393,6 +1416,19 @@
         ctx.beginPath(); proj.arc([a.lon, a.lat], [b.lon, b.lat]);
         ctx.setLineDash(dash || []); ctx.lineDashOffset = -(now / 30) % 1000;
         ctx.strokeStyle = `rgba(${rgb},${al})`; ctx.lineWidth = w * k; ctx.stroke();
+      }
+      // Packets travelling the arc: a bright head with a short fading tail.
+      const ip = d3.geoInterpolate([a.lon, a.lat], [b.lon, b.lat]);
+      for (let c = 0; c < 2; c++) {
+        const t0 = ((now / 1800 + i * 0.27 + c * 0.5) % 1);
+        for (let tail = 0; tail < 5; tail++) {
+          const t = t0 - tail * 0.025;
+          if (t < 0) continue;
+          const g = ip(t), sp = proj.point(g[0], g[1]);
+          if (!sp) continue;
+          ctx.fillStyle = tail ? `rgba(${rgb},${(0.5 - tail * 0.09).toFixed(2)})` : 'rgba(255,255,255,0.95)';
+          ctx.beginPath(); ctx.arc(sp[0], sp[1], (tail ? 3 - tail * 0.4 : 3.2) * k, 0, 2 * Math.PI); ctx.fill();
+        }
       }
       // Latency timer at the segment's midpoint.
       if (delta != null) {
