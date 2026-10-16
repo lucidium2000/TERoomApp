@@ -8,7 +8,7 @@
  *   data=<url>      outages.json to load (default: this repo's `data` branch)
  *   refresh=<sec>   reload interval, default 300
  *   tour=0          disable the tour (default: tours on load, and again after idle)
- *   idle=<sec>      seconds without touch before the tour starts, default 10
+ *   idle=<sec>      seconds without touch before the tour starts, default 20
  *   dwell=<sec>     seconds per outage on tour, default 10
  *   spin=<deg/s>    idle rotation speed, default 3
  *   watch=a,b,c     service keywords for "Your services", default webex,zoom,microsoft,google,amazon
@@ -40,7 +40,7 @@
   const num = (k, d) => (qs.has(k) && isFinite(+qs.get(k)) ? +qs.get(k) : d);
   const CFG = {
     refreshMs: Math.max(60, num('refresh', 300)) * 1000,
-    idleMs: num('idle', 10) * 1000,
+    idleMs: num('idle', 20) * 1000,
     dwellMs: Math.max(4, num('dwell', 10)) * 1000,
     spinDegPerS: num('spin', 3),
     dpr: Math.min(window.devicePixelRatio || 1, num('dpr', 1.5)),
@@ -867,7 +867,17 @@
     [/\bO365\b/gi, 'O three six five'],
   ];
   const sayAs = (text) => SAY_AS.reduce((t, [re, to]) => t.replace(re, to), text);
-  const tts = (text) => { if (window.Tts && window.Tts.enabled) window.Tts.speak(sayAs(text)); };
+  // The overall synopsis always gets to finish: while it's being said, other
+  // lines (a tapped outage, a heads-up) are skipped and nothing stops it -
+  // except turning speech off.
+  let overviewOn = false;
+  const overviewBusy = () => overviewOn && window.Tts && window.Tts.busy;
+  const tts = (text) => {
+    if (!(window.Tts && window.Tts.enabled) || overviewBusy()) return;
+    overviewOn = false;
+    window.Tts.speak(sayAs(text));
+  };
+  const ttsStop = () => { if (window.Tts && !overviewBusy()) window.Tts.stop(); };
   // Narration: said the way a person would mention it in passing, not read
   // off the card. The tour gets one overall synopsis (see overviewSpeech);
   // picking an outage gets a line or two about it. Short sentences also come
@@ -954,8 +964,10 @@
   }
   function speakOverview() {
     if (!(window.Tts && window.Tts.enabled) || !S.outages.length) return;
+    if (overviewBusy()) return;
     S.overviewT = performance.now();
     tts(overviewSpeech());
+    overviewOn = true;
   }
   /** Tapped: a little more about this one, still short. */
   function outageSpeech(o, isNew) {
@@ -982,7 +994,7 @@
     if (o && S.pathOpen) closePath();
     const had = S.selected;
     S.selected = o;
-    if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); if (window.Tts) window.Tts.stop(); return; }
+    if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); ttsStop(); return; }
     if (!fromTour) sfx('select');   // tour steps are silent
     // Tour steps are silent (the tour gets one overall synopsis instead);
     // picking an outage yourself gets a short line about it.
@@ -1128,7 +1140,7 @@
   }
   function closePath() {
     pathRun++; S.pathOpen = false; S.path = null;
-    if (window.Tts) window.Tts.stop();
+    ttsStop();
     if (!pathCard.hidden) sfx('close');
     pathCard.hidden = true;
     pvTipAt(null);
