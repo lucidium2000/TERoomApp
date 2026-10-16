@@ -1166,6 +1166,7 @@
     pathTitle.textContent = `Path to ${p.name}`;
     pathMeta.textContent = host;
     pathBody.innerHTML = '<div class="pc-status">Starting\u2026</div>';
+    tts(say('pathStart', { svc: p.name }));
     pathBody.scrollTop = 0; pcFade();
     pathCard.hidden = false;
     window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = `<div class="pc-status">${esc(msg)}</div>`; })
@@ -1333,7 +1334,6 @@
       + `MTR (TCP 443) from a Globalping probe in ${esc([r.probe.city, r.probe.state].filter(Boolean).join(', '))} &mdash; ${esc(scopeTxt)}`
       + (last && last.ms != null ? ` &middot; <b>end to end ~${Math.round(last.ms)} ms over ${r.hops.length} hops</b>` : '');
     pathBody.innerHTML = `<div class="pc-viz">${pathSvg(r, pathBody.clientWidth)}</div>`
-      + `<div class="pc-legend"><span class="lg-link">link</span><span class="lg-warn">link delay +${PATH_HIGH / 2}–${PATH_HIGH} ms</span><span class="lg-bad">+${PATH_HIGH}+ ms</span><span class="lg-loss">loss</span><span class="lg-slow">slow to answer traces</span><span class="lg-silent">no reply</span><span class="lg-hint">hover a node or link for details</span></div>`
       + '<details class="pc-details"><summary>Hop details</summary>'
       + '<table class="pc-hops"><tr><th>#</th><th>hop</th><th>network</th><th>where</th><th>latency</th><th>loss</th></tr>'
       + r.hops.map((h) => `<tr class="${h.ip ? '' : 'pc-silent'}"><td>${h.n}</td>`

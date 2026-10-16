@@ -168,6 +168,11 @@
     "{nm}. {What}{place}, {when}. It's all clear."];
 
   // ── Path trace ──────────────────────────────────────────────────────────
+  const pathStart = X(['', 'Okay,', 'Sure,'], [
+    'let me trace the path to {svc}.', "I'll trace the route to {svc}.", "let's see how traffic gets to {svc}.",
+    'tracing the path to {svc} now.', "I'm checking the route to {svc}.", "let's follow the path to {svc}.",
+    'running a path trace to {svc}.', "let's see what's between here and {svc}.", 'mapping the route to {svc}.',
+    'one moment, tracing {svc}.']);
   const pathLead = X(['', 'From the probe,', 'Right now,'], [
     '{svc} is about {ms} milliseconds away.', 'it takes about {ms} milliseconds to reach {svc}.', '{svc} is roughly {ms} milliseconds out.',
     'the round trip to {svc} is about {ms} milliseconds.', '{svc} answers in about {ms} milliseconds.', 'reaching {svc} takes around {ms} milliseconds.',
@@ -205,7 +210,7 @@
     worstActiveRepeat, worstActiveOne, worstPastRepeat, worstPastOne, restTail,
     overviewRoomFine, overviewRoomDown, overviewRoomSlow,
     headsUp, whatNetNow, whatAppNow, whatNetThen, whatAppThen, tappedActive, tappedCleared,
-    pathLead, pathSlow, pathLoss, pathClean, pathNoAnswer,
+    pathStart, pathLead, pathSlow, pathLoss, pathClean, pathNoAnswer,
     voiceHello, speedSample,
   };
 })();
