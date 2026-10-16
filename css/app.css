@@ -100,11 +100,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .chip.on { color: var(--ink); background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .22); }
 
 .list {
-  list-style: none; margin: 0 -.4em; padding: 0 .4em; flex: 1; overflow-y: auto;
+  list-style: none; margin: 0 -.4em; padding: 0 .4em; flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
   scrollbar-width: thin; scrollbar-color: rgba(148,163,184,.3) transparent;
 }
 .row {
-  display: grid; grid-template-columns: 2.2em 1fr auto; gap: .7em; align-items: center;
+  display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: .7em; align-items: center;
   padding: .6em .55em; border-radius: 10px; cursor: pointer; min-height: 52px;
   border: 1px solid transparent;
 }
@@ -119,7 +119,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .row.application .ico { background: rgba(22, 189, 235, .16); color: var(--app); }
 .row .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .meta { color: var(--ink-2); font-size: .85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .ago { color: var(--ink-2); font-size: .85em; text-align: right; font-variant-numeric: tabular-nums; }
+.row .ago { color: var(--ink-2); font-size: .85em; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row.active .ago { color: var(--bad); font-weight: 700; }
 .list .empty { color: var(--ink-3); padding: 1em .5em; }
 
@@ -657,7 +657,9 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .rn-odot-active { animation: blink 1.4s infinite; }
 .rn-chip .rn-odot { width: .9em; height: .9em; min-width: 14px; min-height: 14px; margin-left: .2em; }
 
-/* "Your services": Internet Insights (left) + this room's connection (right). */
+/* "Your services": Internet Insights (left) + this room's connection (right).
+   It sits under the outage list, divided from it. */
+.services { margin-top: .7em; padding-top: .7em; border-top: 1px solid var(--line); flex: none; }
 .services h2 {
   margin: 0 0 .4em; font-size: .78em; color: var(--ink-3);
   text-transform: uppercase; letter-spacing: .12em; font-weight: 700;
