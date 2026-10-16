@@ -27,22 +27,41 @@
   };
 
   // ── This room, about one service (tapped outage, while active) ──────────
-  const ROOM_OPEN = ['', 'And', 'Also,', 'Plus,', 'Worth noting:', 'And locally,'];
+  const ROOM_OPEN = ['', 'And', 'Also,', 'Plus,', 'Worth noting:', 'And locally,', 'Here,', 'On our end,', 'In this room,', 'Locally,'];
   const roomDown = X(ROOM_OPEN, [
     "it's not reachable from this room.", "we can't reach it from here, either.", "this room can't get to it right now.",
     "it's not answering from here.", "it's down from this room too.", "this room can't reach it at the moment.",
     "it isn't responding from here.", "we're cut off from it in this room.", "from here, it's not answering at all.",
-    "this room is affected; it won't connect."]);
+    "this room is affected; it won't connect.", "we're getting no response from it here.", "it's unreachable from where we sit.",
+    "connections to it from here are failing.", "this room has lost it entirely.", "requests from here are going nowhere.",
+    "it's dark from this room.", "our checks from here can't reach it.", "it's not coming through here at all.",
+    "this room can't connect to it.", "from here, it simply doesn't answer.", "it's offline as far as this room can tell.",
+    "we're locked out of it here.", "this room's requests to it are timing out.", "it's gone quiet from here.",
+    "nothing gets through to it from this room.", "it isn't reachable on our end.", "from this room, it's down hard.",
+    "our probe from here gets no answer.", "it's out of reach from this room.", "this room is cut off from it right now."]);
   const roomSlow = X(ROOM_OPEN, [
     'you might notice it here, too.', "it's a bit slow from this room.", "it's dragging a little from here.",
     "this room's seeing it slow down.", 'you may feel that one here.', "it's a touch sluggish from this room.",
     "it's slower than usual from here.", 'this room is feeling some of it.', 'responses from here are a bit sluggish.',
-    "it's lagging a little in this room."]);
-  const roomFine = X(['', 'Good news:', 'Thankfully,', 'Still,', 'Either way,', "For what it's worth,", 'Happily,', 'Luckily,', 'On the bright side,'], [
+    "it's lagging a little in this room.", "it's answering, just slowly, from here.", "responses from here are taking longer than normal.",
+    "this room is getting slower answers from it.", "it's a little laggy from where we sit.", "from here, it's slower than its usual self.",
+    "our checks from here show it slowing down.", "it's working, but sluggishly, from this room.", "you'd notice a delay from here.",
+    "it's dragging its feet from this room.", "the response times from here are up.", "it's running behind from this room.",
+    "this room sees it lagging.", "it's a little slow on our end.", "from here, there's a noticeable delay.",
+    "our probe from here shows it slower than normal.", "it's taking its time answering this room.", "things are a bit slower from here.",
+    "this room is feeling some lag.", "it's not quite snappy from here.", "replies from it are slow in this room."]);
+  const roomFine = X(['', 'Good news:', 'Thankfully,', 'Still,', 'Either way,', "For what it's worth,", 'Happily,', 'Luckily,', 'On the bright side,',
+    'Reassuringly,', 'The upside:', 'Fortunately,', 'Relax:', 'Encouragingly,', 'Nicely,'], [
     "it's fine from this room.", 'from here, it still looks fine.', "this room isn't feeling it.",
     'from here, it still looks healthy.', "nothing's wrong from this room.", 'this room is getting through fine.',
     "it's still working fine from here.", 'here, it seems unaffected.', "from where we're sitting, it's fine.",
-    'this room can still reach it without trouble.']).concat(["It's fine from this room, so carry on.", "From here, all good. No need to panic."]);
+    'this room can still reach it without trouble.', "it's answering normally from here.", 'this room is unaffected.',
+    'our checks from here look normal.', "it's business as usual from this room.", "from where we sit, it's working.",
+    'this room still gets quick answers from it.', "it's healthy from our end.", 'nothing unusual from this room.',
+    "it's responding fine here.", 'this room has no trouble reaching it.', "we're getting normal responses from here.",
+    "it's running normally for this room.", "from here, there's nothing to see.", "it's all good from this room.",
+    'our probe from here is happy.', 'this room is getting through normally.', "it's steady from where we are.",
+    "everything's normal on our end.", "from this room, it's working as usual.", 'this room sees no problem.']).concat(["It's fine from this room, so carry on.", "From here, all good. No need to panic."]);
 
   // ── Overview: how the internet is doing ─────────────────────────────────
   const healthCalm = X(['', 'Right now,', 'At the moment,', 'For now,', 'Good news:', 'Overall,'], [
@@ -97,23 +116,33 @@
     'hiccups', 'blips', 'glitches', 'bumps', 'wobbles', 'hiccups too', 'blips as well', 'issues', 'disruptions', 'outages of their own']);
 
   // ── Overview: this room ─────────────────────────────────────────────────
-  const overviewRoomFine = X(['', 'And', 'Meanwhile,', 'Closer to home,', 'Locally,', 'On our side,'], [
+  const overviewRoomFine = X(['', 'And', 'Meanwhile,', 'Closer to home,', 'Locally,', 'On our side,', 'Here,', 'On our end,', 'For us,', 'Right here,',
+    'Where we are,', 'Back home,', 'In the meantime,', 'As for us,', 'Nearer by,', 'At our end,'], [
     'everything this room relies on is answering normally.', 'all the services you use look fine from here.',
     'this room is in good shape.', 'everything you use from this room is working.', 'all looks well from here.',
     "everything's answering fine from this room.", "this room's connections all look healthy.",
     "nothing's wrong with the services this room uses.", 'every service we check from here is fine.',
-    'this room is getting through to everything.']);
-  const NOTE = ['', 'One thing to note:', 'Closer to home,'];
+    'this room is getting through to everything.', 'every service this room uses is answering normally.', 'all our services look healthy.',
+    'nothing this room relies on is in trouble.', 'everything we use is working.', 'the services we use are all fine.',
+    'this room is unaffected by all of it.', 'our connections all look normal.', "everything's green for this room.",
+    'this room is getting normal responses everywhere.', 'none of this is reaching us.']);
+  const NOTE = ['', 'One thing to note:', 'Closer to home,', 'Locally,', 'Here,', 'On our end,', 'Heads up:', 'Worth knowing:'];
   const overviewRoomDown = X(NOTE, [
     "from this room, {svc} isn't answering{others}.", "here, {svc} isn't reachable right now{others}.", "this room can't reach {svc}{others}.",
     '{svc} is down from here{others}.', "we can't get to {svc} from this room{others}.", "{svc} isn't responding from here{others}.",
     'this room is cut off from {svc}{others}.', "{svc} won't connect from this room{others}.", 'from here, {svc} is unreachable{others}.',
-    "{svc} isn't getting through from this room{others}."]);
+    "{svc} isn't getting through from this room{others}.", '{svc} is unreachable from here{others}.', "this room's requests to {svc} are failing{others}.",
+    "{svc} isn't answering this room{others}.", "we've lost {svc} from here{others}.", '{svc} is offline as far as this room can tell{others}.',
+    '{svc} is dark from this room{others}.', 'our checks to {svc} from here are failing{others}.', "{svc} can't be reached from where we sit{others}.",
+    'this room gets no answer from {svc}{others}.', '{svc} is down on our end{others}.']);
   const overviewRoomSlow = X(NOTE, [
     'from this room, {svc} is slower than usual{others}.', 'here, {svc} is a little slow right now{others}.', '{svc} is lagging from this room{others}.',
     '{svc} is a bit sluggish from here{others}.', 'this room is seeing {svc} slow down{others}.', '{svc} is dragging a little from here{others}.',
     'responses from {svc} are slow in this room{others}.', '{svc} is taking longer than usual from here{others}.', 'from here, {svc} feels slow{others}.',
-    '{svc} is running slow for this room{others}.']);
+    '{svc} is running slow for this room{others}.', '{svc} is answering slowly from here{others}.', 'this room sees {svc} lagging{others}.',
+    '{svc} is slower than normal on our end{others}.', 'our checks to {svc} show it slowing{others}.', '{svc} is taking its time from here{others}.',
+    "{svc}'s responses are slow in this room{others}.", '{svc} is a little laggy from where we sit{others}.', '{svc} is dragging for this room{others}.',
+    'this room notices {svc} running slow{others}.', '{svc} has slowed down from here{others}.']);
 
   // ── New outage ──────────────────────────────────────────────────────────
   const headsUp = X(['Heads up:', 'Just in:', 'New outage:'], [
@@ -207,13 +236,14 @@
   // ── Insights: patterns across outages (js/insights.js) ─────────────────
   // {likely} is 'very likely' / 'likely' / 'possibly', from the pattern's
   // score. About a quarter of the lines carry light humour (a 4 out of 10).
-  const insightFirst = ['Connecting a few dots.', "Here's something interesting.", 'One pattern stands out.', 'Looking across the data,',
-    'Putting on my detective hat for a second.', "Now, here's where it gets interesting.", 'Reading between the lines,',
-    "Here's what the data is hinting at.", 'A quick bit of analysis.', 'Zooming out for a moment.', "If you look closely, there's a story here.",
-    'Time for a little internet detective work.'];
-  const insightNext = ['Another pattern:', 'Also worth noting.', "And here's another thread.", 'One more thing.', 'Meanwhile,',
-    'Elsewhere in the data,', 'Another connection:', 'And while we are at it,', 'Next clue.', 'On a related note,',
-    "Here's another one.", 'Plot twist, sort of.'];
+  // How the analyst opens: one natural phrase (never "Okay. So. ...").
+  const glue = (as, bs) => { const out = []; for (const a of as) for (const b of bs) out.push(a + b); return out; };
+  const insightFirst = glue(['Looking across the data', 'Connecting the dots', 'Reading between the lines', 'Zooming out for a moment', 'Taking a step back',
+    'If you look closely', 'Comparing the outages', 'Lining up the timelines', 'Putting the pieces together', 'Cross-checking the outages'],
+  ['', ', one thing stands out', ", here's a pattern", ', something interesting shows up', ", there's a story here", ', this jumps out']).map((t) => t + '.');
+  const insightNext = glue(['Another pattern', 'Another connection', 'Another thread', 'One more pattern', 'A second story', 'Another link',
+    'One more connection', 'Another observation', 'A related pattern', 'One more thread'],
+  ['.', ':', ' worth a mention.', ' in the data.', ' that stands out.', ' to consider.']);
 
   const sameCompanyFirst = [
     "{co}'s own network went down about {lead} minutes before {app} did. When a company's network fails first, its apps usually follow, so this is {likely} one story, not two.",
@@ -276,18 +306,22 @@
     "In {city}, {app} and {net} had problems at the same time. {likely} not a coincidence.",
     "{net} and {app} were both having a bad time around {city}. Misery loves company.",
     "Around {city}, {app} and {net} overlap. {likely} the same root cause."];
+  // Said when we DON'T know whether the app uses that network (see the KB in
+  // insights.js): describe the network, never claim the app is its customer.
   const netTypeTail = {
-    edge: [' {net} is an edge network, so {app} may simply sit behind it.', ' Since {net} runs edge and CDN services, {app} could be one of its customers.',
-      ' {net} is a CDN, and a lot of apps live behind CDNs.', ' {net} fronts a lot of websites, so a ripple effect would make sense.',
-      ' With {net} being an edge provider, that kind of knock-on effect is common.', ' {net} carries a lot of web traffic at the edge, so this fits.'],
-    transit: [' {net} is a backbone carrier, so plenty of traffic passes through it.', ' {net} is a transit provider; a lot of routes depend on it.',
-      ' {net} carries traffic for many others, so its problems tend to spread.', ' As a backbone carrier, {net} affects more than its own customers.',
-      " {net} is one of the internet's highways, so a closure there causes detours.", ' Backbone trouble at {net} would explain it.'],
-    cloud: [' {net} hosts a lot of services, and {app} could be one of them.', ' {net} is a big cloud provider, so {app} may run on it.',
-      ' Plenty of apps run on {net}, which would explain the overlap.', ' {app} {likely} has some of its infrastructure on {net}.',
-      ' Cloud providers like {net} host a lot of apps, so this fits.', " If {app} runs on {net}, that's the link."],
-    network: ['', '', '', '', '', ''],
+    edge: [" {net} runs edge and CDN services for many sites; whether {app} is one of them isn't clear from this data.", ' {net} fronts a lot of websites, but that alone doesn\'t mean {app} depends on it.',
+      ' {net} is a CDN, and plenty of apps use CDNs, though this data can\'t confirm {app} does.', ' {net} is an edge provider; the overlap could be a dependency, or just a shared location.',
+      ' Edge networks like {net} carry a lot of traffic, so a knock-on effect is possible, not proven.', ' It might be a dependency, or the two might simply share a building there.'],
+    transit: [' {net} is a backbone carrier, so plenty of traffic passes through it, possibly some of {app}\'s users.', ' {net} is a transit provider; its trouble can affect paths to many services.',
+      ' {net} carries traffic for many others, so its problems can spread, though the link to {app} isn\'t certain.', ' As a backbone carrier, {net} can affect users trying to reach {app}, not {app} itself.',
+      " {net} is one of the internet's highways; when it closes, some routes to {app} may detour.", ' Backbone trouble at {net} could explain part of it.'],
+    cloud: [' {net} is a big cloud provider; this data can\'t tell whether {app} runs there.', ' {net} hosts a lot of services; {app} may or may not be one of them.',
+      ' Plenty of apps run on {net}, but that doesn\'t confirm {app} does.', ' If {app} runs on {net}, that would be the link; this data can\'t confirm it.',
+      ' Cloud providers like {net} host many apps, so a link is possible.', " It's possible {app} has some infrastructure on {net}, but it isn't certain."],
+    network: [' Whether {app} depends on {net} isn\'t clear from this data.', ' The two may share a location there, or it may be coincidence.',
+      ' That might be a dependency, or just a shared place.', " It's a correlation, not proof.", ' Worth checking whether they share a path.', ' Could be connected, could be chance.'],
   };
+
 
   const cluster = [
     "Something happened around {city}: {n} different providers, including {a} and {b}, had problems within the same hour. That points to a local event, like a fiber cut or a power issue.",
@@ -370,17 +404,255 @@
     ' It could explain why {room} is down from here.', " This room can't reach {room} either, so they're {likely} connected.",
     ' {room} is down from this room too, and this is the {likely} reason.', " It may be why {room} isn't answering here."];
 
-  window.PHRASES = {
-    roomDown, roomSlow, roomFine,
-    healthCalm, healthFew, healthBusy,
-    worstActiveRepeat, worstActiveOne, worstPastRepeat, worstPastOne, restTail,
-    overviewRoomFine, overviewRoomDown, overviewRoomSlow,
-    headsUp, whatNetNow, whatAppNow, whatNetThen, whatAppThen, tappedActive, tappedCleared,
-    pathStart, pathLead, pathSlow, pathLoss, pathClean, pathNoAnswer,
-    voiceHello, speedSample,
-    insightFirst, insightNext, sameCompanyFirst, sameCompanyTogether, sameCompanyApart,
-    netAppFirst, netAppTogether, netAppPlain, cluster, sharedHosting, sameMinute,
-    repeatActive, repeatPast, wideNet, wideApp, maintenance, insightRoomSlow, insightRoomDown,
-    netTypeEdge: netTypeTail.edge, netTypeTransit: netTypeTail.transit, netTypeCloud: netTypeTail.cloud,
+  // ── Day context for the overview (Insights.context) ───────────────────
+  // Research notes behind these: ThousandEyes' weekly outage figures show only
+  // about a third to a half of outages land in business hours (providers work
+  // at night); routing (the control plane) is often behind large outages;
+  // fiber cuts cause routing churn nearby; CDN, DNS and login services are
+  // shared dependencies many apps lean on.
+  const CTX_OPEN = ['', 'For context,', 'Zooming out,', 'Looking at the day as a whole,', 'One more thing about today:', 'Interestingly,'];
+  const offHours = X(CTX_OPEN, [
+    'most of the outages, about {pct} percent, happened outside business hours, which is normal; providers do their work at night.',
+    'about {pct} percent of the trouble came outside working hours, the usual pattern for maintenance and changes.',
+    'the bulk of today\'s outages hit while most people were off the clock; about {pct} percent.',
+    'roughly {pct} percent of outages came at night or early morning, local time. Typical, since that\'s when changes get made.',
+    'most problems happened outside business hours, about {pct} percent, so fewer people would have noticed.',
+    'about {pct} percent of the outages landed outside the workday. The night shift earned its coffee.',
+    'the outages mostly came outside business hours, around {pct} percent, which points to planned work.',
+    'around {pct} percent of today\'s trouble came after hours, which is the usual rhythm of the internet.']);
+  const bizHours = X(CTX_OPEN, [
+    'about {pct} percent of today\'s outages hit during business hours, more than usual, so more people would have felt them.',
+    'unusually, most outages, about {pct} percent, landed in the middle of the workday.',
+    'roughly {pct} percent of the trouble came during working hours, which is when it hurts most.',
+    'more outages than normal fell in business hours today, about {pct} percent.',
+    'the timing was unlucky: about {pct} percent of outages arrived during the workday.',
+    'about {pct} percent of outages came while people were at their desks. Not ideal timing.',
+    'today skewed toward business hours, about {pct} percent of outages, which is above the usual third to half.',
+    'most problems, around {pct} percent, landed during working hours, so they would have been noticed.']);
+  const peakHour = X(CTX_OPEN, [
+    'the busiest hour was around {hour}, with {n} outages starting then.', 'things peaked around {hour}, when {n} outages started.',
+    '{hour} was the hot spot, with {n} outages kicking off.', 'if you had to pick a rough hour, it was around {hour}: {n} outages.',
+    'the worst stretch was around {hour}, {n} outages in one hour.', 'around {hour}, {n} outages started within the same hour.',
+    'the {hour} hour was the busiest, with {n} new outages.', 'activity spiked around {hour}, with {n} outages starting.']);
+  const busier = X(CTX_OPEN, [
+    'things have picked up in the last few hours compared with earlier in the day.', 'the last six hours have been busier than the rest of the day.',
+    'outages have been coming faster lately.', 'the pace has picked up recently.', 'it\'s been a busier stretch in the last few hours.',
+    'the trend is up: more outages lately than earlier.', 'activity has been climbing over the last few hours.',
+    'the last few hours have been noisier than the morning.']);
+  const quieter = X(CTX_OPEN, [
+    'things have calmed down over the last few hours.', 'the last six hours have been quieter than earlier.', 'the pace has slowed down recently.',
+    'it\'s been settling down lately.', 'outages have tapered off in the last few hours.', 'the trend is down: fewer outages lately.',
+    'it\'s quieter now than it was earlier today.', 'the internet seems to be catching its breath.']);
+  const region = X(CTX_OPEN, [
+    'most of the action, about {pct} percent, has been in {region}.', '{region} has seen the most trouble today, about {pct} percent of outages.',
+    'about {pct} percent of today\'s outages were in {region}.', 'the center of gravity today is {region}, with about {pct} percent of outages.',
+    '{region} has had the busiest day, roughly {pct} percent of the outages.', 'if you\'re in {region}, today has been a bit bumpier than elsewhere.',
+    '{region} accounts for most of the outages, around {pct} percent.', 'the map is busiest over {region} today.']);
+  const spread = X(CTX_OPEN, [
+    'outages touched {n} countries over the last day.', 'today\'s trouble reached {n} different countries.', '{n} countries saw at least one outage today.',
+    'the outages were spread across {n} countries.', 'it\'s been a global day: {n} countries affected.', 'outages popped up in {n} countries.',
+    'in all, {n} countries had some trouble today.', 'the map lights up in {n} countries.']);
+  const netMost = X(CTX_OPEN, [
+    'most of today\'s trouble was in networks: {net} network outages against {app} application ones.', 'networks had a harder day than apps, {net} outages to {app}.',
+    'it\'s mostly been network trouble today; apps have been steadier.', 'the networks took the brunt of it today, {net} outages.',
+    'network outages outnumber application outages {net} to {app}.', 'today was a network day: {net} network outages, {app} app outages.',
+    'the plumbing had more trouble than the apps today.', 'more pipes than apps had problems today, {net} to {app}.']);
+  const appMost = X(CTX_OPEN, [
+    'most of today\'s trouble was in applications: {app} app outages against {net} network ones.', 'apps had a harder day than networks, {app} outages to {net}.',
+    'it\'s mostly been application trouble today; networks have been steadier.', 'the apps took the brunt of it today, {app} outages.',
+    'application outages outnumber network outages {app} to {net}.', 'today was an app day: {app} app outages, {net} network ones.',
+    'the networks behaved; it was the apps that struggled.', 'more apps than networks had problems today, {app} to {net}.']);
+  const mixed = X(CTX_OPEN, [
+    'the trouble was split fairly evenly between networks and apps.', 'networks and apps shared the pain today, {net} and {app} outages.',
+    'it\'s been a mix of network and application outages.', 'about as many app problems as network problems today.',
+    'networks and applications both had their moments.', 'a balanced day, if that\'s the word: {net} network and {app} app outages.',
+    'no single layer stands out; it\'s a mix.', 'both layers had trouble in similar measure.']);
+  const blips = X(CTX_OPEN, [
+    'most outages were quick blips, over in a few minutes.', 'the typical outage today was short, just a few minutes.', 'most of today\'s trouble was brief.',
+    'short and sharp is the theme today; most outages cleared quickly.', 'the good news is most outages were over in minutes.',
+    'most outages were the blink-and-you-miss-it kind.', 'the majority of outages cleared within minutes.', 'today\'s outages were mostly short-lived.']);
+  const longest = X(CTX_OPEN, [
+    'the longest outage of the day was {N}, at about {mins} minutes.', '{N} had the day\'s longest outage, roughly {mins} minutes.',
+    'the marathon of the day: {N}, about {mins} minutes.', 'the longest one was at {N}, lasting about {mins} minutes.',
+    '{N} holds the record today, about {mins} minutes down.', 'the longest stretch belongs to {N}, around {mins} minutes.',
+    'if you\'re keeping score, {N} had the longest outage, about {mins} minutes.', 'the day\'s longest was {N}, close to {mins} minutes.']);
+  const quietSince = X(CTX_OPEN, [
+    'nothing new has started in the last {hours} hours.', 'it\'s been about {hours} hours since the last new outage.', 'no fresh outages for about {hours} hours now.',
+    'the last {hours} hours have been quiet.', 'the internet has been calm for the last {hours} hours.', 'we\'re on a {hours}-hour streak without a new outage.',
+    'all quiet for {hours} hours and counting.', 'no new trouble in roughly {hours} hours.']);
+  const edgeDay = X(CTX_OPEN, [
+    'CDNs and edge networks had a busy day: {a}, {b} and others.', 'edge providers, including {a} and {b}, had outages today.',
+    'it\'s been a rough day at the edge: {a} and {b} both had trouble.', '{n} edge or CDN providers had problems today, {a} and {b} among them.',
+    'today\'s list includes CDNs like {a} and {b}, which many websites depend on.', 'edge networks such as {a} and {b} had their share of trouble.',
+    'the CDNs, {a} and {b} included, had a bumpy day.', 'several edge providers stumbled today, including {a} and {b}.']);
+  const backboneDay = X(CTX_OPEN, [
+    'backbone carriers had a busy day: {a}, {b} and others.', 'transit providers, including {a} and {b}, had outages today.',
+    'some of the internet\'s highways had trouble today, {a} and {b} among them.', '{n} backbone carriers had problems today, including {a} and {b}.',
+    'carriers like {a} and {b} had outages; their problems tend to ripple outward.', 'the backbone wasn\'t spared today: {a} and {b} both had trouble.',
+    'transit networks, {a} and {b} included, had a bumpy day.', 'a few backbone carriers stumbled today, {a} and {b} among them.']);
+  const cloudDay = X(CTX_OPEN, [
+    'the cloud providers had a busy day: {a}, {b} and others.', 'big cloud networks, including {a} and {b}, had outages today.',
+    'it\'s been a cloudy day, in the network sense: {a} and {b} both had trouble.', '{n} cloud providers had network problems today, {a} and {b} among them.',
+    'cloud networks like {a} and {b} had outages, and lots of apps live there.', 'the clouds weren\'t clear today: {a} and {b} had trouble.',
+    'cloud providers, {a} and {b} included, had a bumpy day.', 'a few cloud networks stumbled today, including {a} and {b}.']);
+  const hubLead = X(CTX_OPEN, [
+    'a lot of today\'s activity touched {hub}.', '{hub} came up again and again today.', 'many of today\'s outages ran through {hub}.',
+    '{hub} has been at the center of things today.', '{hub} keeps showing up in today\'s outages.', 'all roads seem to lead through {hub} today.',
+    '{hub} was involved in many of today\'s outages.', 'if one place stands out today, it\'s {hub}.']);
+  // What a hub is (sources: the APNIC/LACNIC 2026 peering-capacity study; the
+  // exchanges' own descriptions). Said as "{hub} is <fact>."
+  const HUB_FACTS = {
+    Ashburn: ["home to Data Center Alley, one of the densest clusters of data centers in the world", 'where a huge share of US East Coast cloud traffic lives', 'home to some of the biggest cloud regions in the world'],
+    Frankfurt: ['home of DE-CIX, one of the largest internet exchanges in the world', "one of Europe's busiest interconnection hubs", 'where a big slice of European traffic meets'],
+    Amsterdam: ['home of AMS-IX, one of the major internet exchanges in Europe', 'one of the internet\'s big European crossroads', 'a major meeting point for European networks'],
+    London: ['home of LINX, one of the oldest and largest internet exchanges', "one of Europe's biggest interconnection points", 'a key crossroads between Europe and North America'],
+    Singapore: ["one of Asia's largest interconnection hubs", 'a landing point for many subsea cables', "home to one of the busiest exchanges in Asia"],
+    'Sao Paulo': ['home of IX.br, the largest internet exchange by number of members', "Latin America's biggest interconnection hub", 'where much of Brazil\'s internet meets'],
+    Chicago: ['one of the biggest interconnection hubs in the US Midwest', 'home to a major Equinix exchange', 'a key crossroads for North American networks'],
+    Dallas: ['a major interconnection hub in the US South', 'home to a major Equinix exchange', 'a key crossroads for networks across the US'],
+    'Hong Kong': ['one of the busiest internet hubs in Asia', 'home to a major Equinix exchange', 'a big crossroads for traffic into and out of Asia'],
+    Tokyo: ["Japan's main internet hub", 'a major crossroads for traffic across the Pacific', 'one of the biggest interconnection points in Asia'],
+    Paris: ['a major European interconnection point', "one of France's main internet hubs", 'a big meeting point for European networks'],
+    'New York': ['one of the busiest interconnection points on the US East Coast', 'close to where transatlantic cables land', 'a major crossroads for finance and media traffic'],
+    'Los Angeles': ['a gateway for transpacific cables', 'one of the biggest interconnection hubs on the US West Coast', 'a major crossroads for traffic to Asia'],
+    'San Jose': ["the heart of Silicon Valley's interconnection", 'home to some of the oldest internet exchange points', 'a major West Coast hub'],
+    Seattle: ['a Pacific Northwest gateway for traffic to Asia', 'a major West Coast interconnection point', 'close to some very large cloud campuses'],
+    Miami: ['the main gateway between North and Latin America', 'where many subsea cables to Latin America land', 'a key hub for traffic to the Caribbean and South America'],
+    Marseille: ['a major landing point for subsea cables to Africa, the Middle East and Asia', "one of Europe's key cable gateways", 'a crossroads for traffic between Europe and Asia'],
+    Dublin: ['home to many cloud regions for Europe', 'a favorite location for big cloud data centers', "one of Europe's cloud capitals"],
+    Sydney: ["Australia's main internet hub", 'where most of Australia\'s international cables land', "the center of Australia's interconnection"],
+    Mumbai: ["India's busiest landing point for subsea cables", "one of India's main internet hubs", 'a crossroads for traffic between India and the world'],
+    Johannesburg: ["one of Africa's biggest interconnection hubs", "the center of South Africa's internet", 'a major African meeting point for networks'],
   };
+  const hubFact = X(['', 'Worth knowing:', 'For context,', 'By the way,', 'Remember,'], [
+    '{hub} is {fact}.', '{hub}, after all, is {fact}.', 'that matters, because {hub} is {fact}.', '{hub} happens to be {fact}.',
+    'it\'s no small place: {hub} is {fact}.', 'keep in mind {hub} is {fact}.']);
+
+  // ── What the knowledge base says about a network/app overlap ────────────
+  const relUnlikely = X(['', 'One caveat:', 'To be fair,', 'Careful, though:'], [
+    "{app} runs on {co}'s own network, so it's unlikely to depend on {net}. The overlap around {city} more likely means a shared building or exchange point, or plain coincidence.",
+    "{co} runs its own global network, so {app} probably doesn't sit behind {net}. More likely the two just share a location around {city}.",
+    "{co} doesn't need {net} to deliver {app}; it has its own network. So this is {likely} a shared place, not a dependency.",
+    "since {co} operates its own backbone, {net} is unlikely to be in {app}'s path. A local event around {city} is the better explanation.",
+    "{app} lives on {co}'s own infrastructure, so a {net} outage shouldn't take it down. Same neighborhood, different houses.",
+    "{co} has its own network, so {app} and {net} are probably just neighbors around {city}, not partners.",
+    "it's tempting to link them, but {co} runs {app} on its own network. The overlap is {likely} about place, not dependency.",
+    "{app} and {net} overlapping around {city} doesn't mean one depends on the other; {co} has its own network."]);
+  const relKnown = X(['', 'And this one checks out:', 'Notably,'], [
+    ' {app} is known to run on {net}, so that link is real.', ' {app} is a known {net} customer, so the connection makes sense.',
+    ' {co} is known to use {net}, which makes this more than a coincidence.', " {app} relies on {net}, so this one's {likely} cause and effect.",
+    ' {net} is one of the providers {app} is known to use.', ' {app} runs at least partly on {net}, so the overlap fits.'].map((t) => t.trim())).map((t) => ' ' + t);
+  const sameCityApart = X(['', 'Note:', 'For what it\'s worth,'], [
+    '{a} and {b} both went down around {city} at the same time, but each runs its own network, so it\'s not shared hosting. More likely a shared location or a local event.',
+    '{a} and {b} overlap around {city}. They\'re separate companies with their own networks, so the link is {likely} the place, not the platform.',
+    '{a} and {b} had trouble together around {city}. Different companies, different networks; probably a shared exchange point or a local event.',
+    'around {city}, {a} and {b} failed together. Since each has its own network, look for something local, like power or an exchange point.',
+    '{a} and {b}, same city, same time. Not roommates, just neighbors who both lost power, maybe.',
+    '{a} and {b} overlapping around {city} {likely} points to the location, since they don\'t share infrastructure.']);
+
+  // ── Insights: new patterns ──────────────────────────────────────────────
+  const chain = X(['', 'Look at this sequence:', 'Here\'s a relay of sorts:'], [
+    '{a} had a network outage, and {gap} minutes after it cleared, {b} had one in the same place. That\'s {likely} a fault moving between connected networks.',
+    'first {a}, then {b}, both around {city}, {gap} minutes apart. They {likely} share a facility or a link.',
+    '{b} went down around {city} {gap} minutes after {a} recovered there. One handing trouble to the next, {likely}.',
+    '{a} cleared, and {gap} minutes later {b} failed nearby. That kind of relay {likely} points to shared infrastructure.',
+    'trouble seems to have hopped from {a} to {b} around {city}, {gap} minutes apart.',
+    '{a}, then {b}: back to back in {city}. The baton was passed, and nobody wanted it.',
+    'after {a} recovered in {city}, {b} went down {gap} minutes later. {likely} related.',
+    'the same city, two networks in a row: {a}, then {b}, {gap} minutes apart.']);
+  const aftershock = X(['', 'One to watch:', 'Déjà vu:'], [
+    '{N} had trouble around {city}, recovered, and then failed again {gap}. That kind of aftershock usually means the fix didn\'t hold.',
+    '{N} came back around {city}, then went down again {gap}. Repeat failures in the same place {likely} share a cause.',
+    'around {city}, {N} had a second outage {gap} after the first cleared.', '{N} failed twice around {city}, the second time {gap}.',
+    '{N} around {city}: down, up, and down again {gap}. Persistent.', 'the {N} problem around {city} came back {gap}. Aftershocks are a sign something is still unstable.',
+    '{N} had a relapse around {city}, {gap}.', 'once wasn\'t enough for {N} around {city}; it came back {gap}.']);
+  const workday = X(['', 'Timing matters here:', 'Bad timing:'], [
+    "{N}'s outage is active during the workday around {city}, so people there will notice.", "it's the middle of the business day around {city}, and {N} is down there.",
+    '{N} picked working hours around {city} to have trouble, so expect complaints.', "{N}'s outage around {city} is landing right in business hours.",
+    'around {city} it\'s office hours, and {N} is having a problem. Help desks will be busy.', "{N} is down around {city} while people are working. That's when it hurts.",
+    '{N} is having trouble around {city} during the workday. Somebody\'s meeting just froze.', 'business hours around {city}, and {N} is struggling.']);
+  // Likely causes, said after a pattern that supports them (research-based).
+  const causeRouting = [' Patterns like this often come down to routing, the internet\'s control plane.', ' When it spreads like this, routing changes are a common culprit.',
+    ' This kind of spread is often a routing issue rather than broken hardware.', ' A routing change is a frequent cause of patterns like this.',
+    ' Routing problems tend to look exactly like this.', ' That points more toward routing than a single broken box.'];
+  const causeFiber = [' Physical problems, like a fiber cut, often look like this.', ' A cut cable or a power problem in one place would explain it.',
+    ' When one area lights up like this, it\'s often something physical: fiber or power.', ' This has the shape of a local physical fault.',
+    ' A fiber cut nearby would cause exactly this kind of ripple.', ' Somebody may have found a buried cable the hard way.'];
+  const causeCentral = [' Global failures like this often trace back to a central piece, like sign-in, DNS or a configuration push.',
+    ' When one app fails everywhere at once, look at what every region shares: login, DNS, or a global config.',
+    ' A configuration change pushed worldwide can do exactly this.', ' Authentication is a classic single point of failure for patterns like this.',
+    ' This has the shape of a central service failing, not regional servers.', ' The usual suspects here are identity, DNS, or a bad global rollout.'];
+  const causeShared = [' Shared services like DNS, a CDN, or a login provider can cause failures like this.', ' When unrelated services fail together, a shared dependency like DNS or authentication is worth checking.',
+    ' Common building blocks such as DNS or sign-in services are often the link.', ' This is how a shared dependency failure usually looks.',
+    ' DNS and authentication are easy to forget, but lots of apps depend on them.', ' It\'s often the service everyone relies on that nobody thinks about.'];
+
+  // ── Fivefold expansion ──────────────────────────────────────────────────
+  // Each pool is said with a choice of natural lead-ins and endings that fit
+  // its sentences, so the same moment comes out many more ways. A lead-in
+  // ending in "." starts a new sentence; otherwise the line carries on.
+  const lc = (t) => (/^[A-Z][a-z']/.test(t) && !/^(I|I'm|I'll)\b/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+  const up = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  const join = (p, c) => (!p ? c : /[.!?]$/.test(p) ? `${p} ${up(c)}` : `${p} ${lc(c)}`);
+  // A line that already opens with its own short lead ("Happily,", "Good news:")
+  // doesn't get a second one stacked in front.
+  const opened = (c) => /^[A-Z][\w' ]{0,24}[,:] /.test(c) && !/^\{/.test(c);
+  const E = (pool, leads, ends = ['']) => {
+    const out = [];
+    for (const p of leads) for (const c of pool) for (const e of ends) { if (p && !/[.!?]$/.test(p) && opened(c)) continue; out.push(join(p, c) + e); }
+    return [...new Set(out)];
+  };
+  const OVERVIEW_LEAD = ['', 'Okay.', "Here's where things stand.", 'Quick status check.', 'Alright, here\'s the picture.'];
+  const WORST_LEAD = ['', "As for who's struggling,", 'Among the providers,', 'Looking at individual services,', 'In terms of providers,', 'If we single one out,'];
+  const ROOM_LEAD = ['', 'Finally,', 'And to wrap up,', 'Last but not least,', 'Lastly,', 'And finally,'];
+  const TAP_LEAD = ['', 'Okay.', 'Alright.', 'Here we go.', 'Let me tell you about this one.'];
+  const TIE_LEAD = ['', 'By the way,', 'Incidentally,', 'For the record,', 'As it happens,', 'Also worth knowing,'];
+  const PATH_LEAD = ['', 'Okay.', 'Here we go.', 'Results are in.', 'Trace complete.'];
+  const HOP_LEAD = ['', 'Looking at the hops.', 'Hop by hop.', 'Along the route.', 'On the way there.', 'As for the path itself.'];
+  const INSIGHT_END = ['', ' Worth keeping in mind.', ' Something to watch.', ' Make of that what you will.', ' Food for thought.'];
+  const NOTE_LEAD = ['', 'For context,', 'Keep in mind,', 'Also,', 'That said,', 'Worth knowing:'];
+  // A trailing sentence (" It's ...") with a lead-in of its own.
+  const ET = (pool, leads) => E(pool.map((t) => t.trim()), leads).map((t) => ' ' + t);
+
+  window.PHRASES = {
+    roomDown: E(roomDown, TIE_LEAD), roomSlow: E(roomSlow, TIE_LEAD), roomFine: E(roomFine, TIE_LEAD),
+    healthCalm: E(healthCalm, OVERVIEW_LEAD), healthFew: E(healthFew, OVERVIEW_LEAD), healthBusy: E(healthBusy, OVERVIEW_LEAD),
+    worstActiveRepeat: E(worstActiveRepeat, WORST_LEAD), worstActiveOne: E(worstActiveOne, WORST_LEAD),
+    worstPastRepeat: E(worstPastRepeat, WORST_LEAD), worstPastOne: E(worstPastOne, WORST_LEAD),
+    restTail: X(['a few', 'some', 'a couple of', 'a handful of', 'several', 'a few quick', 'some short', 'a couple of brief', 'some minor',
+      'a few small', 'a couple of quick', 'some passing', 'a scattering of', 'a few minor', 'some brief', 'a smattering of', 'a few short', 'a pair of',
+      'some quick', 'a few passing', 'a couple of short', 'some small', 'a few brief', 'a handful of quick', 'some fleeting'],
+      ['hiccups', 'blips', 'glitches', 'bumps', 'wobbles', 'hiccups too', 'blips as well', 'issues', 'disruptions', 'outages of their own',
+        'stumbles', 'interruptions', 'outages', 'problems', 'hiccups of their own', 'blips too', 'glitches as well', 'disruptions of their own']),
+    overviewRoomFine: E(overviewRoomFine, ROOM_LEAD), overviewRoomDown: E(overviewRoomDown, ROOM_LEAD), overviewRoomSlow: E(overviewRoomSlow, ROOM_LEAD),
+    headsUp: E(headsUp, ['', 'Breaking.', 'Fresh one.', 'Attention, please.', 'Just now.']),
+    // What went wrong, with an optional detail (it's followed by where).
+    whatNetNow: E(whatNetNow, [''], ['', ' of some kind', ' affecting users', ' across several sites', " that's still unfolding"]),
+    whatAppNow: E(whatAppNow, [''], ['', ' of some kind', ' affecting users', ' across several sites', " that's still unfolding"]),
+    whatNetThen: E(whatNetThen, [''], ['', ' of some kind', ' that affected users', ' across several sites', ' that came and went']),
+    whatAppThen: E(whatAppThen, [''], ['', ' of some kind', ' that affected users', ' across several sites', ' that came and went']),
+    tappedActive: E(tappedActive, TAP_LEAD), tappedCleared: E(tappedCleared, TAP_LEAD),
+    pathStart: E(pathStart, [''], ['', ' Give me a moment.', ' Stand by.', ' Hang on.', ' Coming right up.']),
+    pathLead: E(pathLead, PATH_LEAD), pathSlow: E(pathSlow, HOP_LEAD), pathLoss: E(pathLoss, HOP_LEAD), pathClean: E(pathClean, HOP_LEAD),
+    pathNoAnswer: E(pathNoAnswer, ['', 'Sorry.', 'Hmm.', 'Bad luck.', 'Well.']),
+    voiceHello: E(voiceHello, [''], ['', ' How do I sound?', ' Nice to meet you.', " I'll be your narrator.", ' Ready when you are.']),
+    speedSample: E(speedSample, [''], ['', ' Let me know.', ' How is that?', ' Tell me if it works.', ' Better?']),
+    insightFirst, insightNext,
+    sameCompanyFirst: E(sameCompanyFirst, [''], INSIGHT_END), sameCompanyTogether: E(sameCompanyTogether, [''], INSIGHT_END),
+    sameCompanyApart: E(sameCompanyApart, [''], INSIGHT_END), netAppFirst: E(netAppFirst, [''], INSIGHT_END),
+    netAppTogether: E(netAppTogether, [''], INSIGHT_END), netAppPlain: E(netAppPlain, [''], INSIGHT_END),
+    cluster: E(cluster, [''], INSIGHT_END), sharedHosting: E(sharedHosting, [''], INSIGHT_END), sameMinute: E(sameMinute, [''], INSIGHT_END),
+    repeatActive: E(repeatActive, [''], INSIGHT_END), repeatPast: E(repeatPast, [''], INSIGHT_END),
+    wideNet: E(wideNet, [''], INSIGHT_END), wideApp: E(wideApp, [''], INSIGHT_END), maintenance: E(maintenance, [''], INSIGHT_END),
+    insightRoomSlow: ET(insightRoomSlow, NOTE_LEAD), insightRoomDown: ET(insightRoomDown, NOTE_LEAD),
+    netTypeEdge: ET(netTypeTail.edge, NOTE_LEAD), netTypeTransit: ET(netTypeTail.transit, NOTE_LEAD), netTypeCloud: ET(netTypeTail.cloud, NOTE_LEAD),
+    // New situations
+    offHours, bizHours, peakHour, busier, quieter, region, spread, netMost, appMost, mixed, blips, longest, quietSince,
+    edgeDay, backboneDay, cloudDay, hubLead, hubFact, HUB_FACTS,
+    chain: E(chain, [''], INSIGHT_END), aftershock: E(aftershock, [''], INSIGHT_END), workday: E(workday, [''], INSIGHT_END),
+    causeRouting: ET(causeRouting, NOTE_LEAD), causeFiber: ET(causeFiber, NOTE_LEAD), causeShared: ET(causeShared, NOTE_LEAD),
+    causeCentral: ET(causeCentral, NOTE_LEAD),
+    netTypeNetwork: ET(netTypeTail.network, NOTE_LEAD),
+    relUnlikely: E(relUnlikely, [''], INSIGHT_END), relKnown, sameCityApart: E(sameCityApart, [''], INSIGHT_END),
+  };
+
 })();

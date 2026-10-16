@@ -1029,8 +1029,22 @@
     const others = bad.length > 1 ? (down ? `, and neither ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}` : `, and so ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}`) : '';
     const room = !probes.length ? '' : !bad.length ? say('overviewRoomFine')
       : say(down ? 'overviewRoomDown' : 'overviewRoomSlow', { svc: bad[0].name, others });
-    return [health, worst, room].filter(Boolean).join(' ');
+    return [health, worst, dayContext(), room].filter(Boolean).join(' ');
   }
+  /** One sentence about the day as a whole (Insights.context): the strongest
+   *  feature, with a little variety between the top two. */
+  function dayContext() {
+    if (!window.Insights || !window.Insights.context) return '';
+    const feats = window.Insights.context(S.outages, { now: dataNow() });
+    if (!feats.length) return '';
+    const f = feats.length > 1 && Math.random() < 0.35 ? feats[1] : feats[0], v = f.vars;
+    if (f.kind === 'hub') return say('hubLead', v) + ' ' + hubFactLine(v.hub);
+    return say(f.kind, { ...v, n: v.n });
+  }
+  const hubFactLine = (hub) => {
+    const facts = (PH.HUB_FACTS || {})[hub];
+    return facts ? say('hubFact', { hub, fact: pick(facts) }) : '';
+  };
   /** Say this and let it finish (see overviewBusy). */
   function speakProtected(text) {
     if (overviewBusy()) return;
@@ -1057,19 +1071,36 @@
     });
     return window.Insights.analyze(S.outages, { now: dataNow(), watch, probes });
   }
-  /** One finding as a sentence or three, with a lead-in. */
+  /** One finding as a sentence or three, with a lead-in. What the analyst
+   *  knows about who runs on what decides how a network/app overlap is told:
+   *  a known host is said plainly, a company with its own network gets a
+   *  caveat (shared place, not dependency), anything else stays unsure. */
   function insightSpeech(f, first) {
     const v = f.vars, likely = f.score > 0.8 ? 'very likely' : f.score > 0.6 ? 'likely' : 'possibly';
-    const pool = {
+    let pool = {
       sameCompany: v.together ? (v.first ? 'sameCompanyFirst' : 'sameCompanyTogether') : 'sameCompanyApart',
       netApp: v.first ? 'netAppFirst' : v.together ? 'netAppTogether' : 'netAppPlain',
-      cluster: 'cluster', sharedHosting: 'sharedHosting', sameMinute: 'sameMinute',
+      cluster: 'cluster', sharedHosting: v.separate ? 'sameCityApart' : 'sharedHosting', sameMinute: 'sameMinute',
       repeat: v.active ? 'repeatActive' : 'repeatPast', wide: v.net ? 'wideNet' : 'wideApp', maintenance: 'maintenance',
+      chain: 'chain', aftershock: 'aftershock', workday: 'workday',
     }[f.rule];
+    if (f.rule === 'netApp' && v.rel === 'unlikely') pool = 'relUnlikely';
     const vars = { ...v, likely, n: typeof v.n === 'number' ? numW(v.n) : v.n };
     const fill = (name) => pick(PH[name] || ['']).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : ''));
     let text = fill(first ? 'insightFirst' : 'insightNext') + ' ' + fill(pool);
-    if (f.rule === 'netApp' && v.type && v.type !== 'network') text += fill({ edge: 'netTypeEdge', transit: 'netTypeTransit', cloud: 'netTypeCloud' }[v.type]);
+    // One supporting note: what the relationship is, or a likely cause.
+    let note = '';
+    if (f.rule === 'netApp' && v.rel === 'known') note = fill('relKnown');
+    else if (f.rule === 'netApp' && v.rel !== 'unlikely') note = fill({ edge: 'netTypeEdge', transit: 'netTypeTransit', cloud: 'netTypeCloud' }[v.type] || 'netTypeNetwork');
+    else if (f.rule === 'cluster' || f.rule === 'chain') note = fill(Math.random() < 0.7 ? 'causeFiber' : 'causeRouting');
+    else if (f.rule === 'sameMinute') note = fill('causeShared');
+    else if (f.rule === 'wide' && !v.net) note = fill('causeCentral');
+    else if (f.rule === 'wide' && v.net) note = fill('causeRouting');
+    // A finding that gets a note doesn't also need a generic closing line.
+    if (note) text = text.replace(/ (Worth keeping in mind|Something to watch|Make of that what you will|Food for thought)\.$/, '');
+    text += note;
+    // A well-known hub in the story gets a word of context, if there's room.
+    if (v.hub && !note && Math.random() < 0.6) text += ' ' + hubFactLine(v.hub);
     if (v.room) text += fill(v.roomDown ? 'insightRoomDown' : 'insightRoomSlow');
     // Capital letters where sentences start ("{likely} ..." can open one).
     return text.replace(/(^|[.!?]\s+)([a-z])/g, (m, a, c) => a + c.toUpperCase());

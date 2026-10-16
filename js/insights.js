@@ -42,6 +42,40 @@
     { co: 'Cloudflare', net: /cloudflare/i, app: /cloudflare/i },
     { co: 'Akamai', net: /akamai|linode/i, app: /akamai/i },
   ];
+  // Who runs on what - well-documented relationships only. Big companies with
+  // their own global networks don't sit behind someone else's CDN, so an
+  // outage at, say, Cloudflare near an Office 365 outage is NOT a dependency;
+  // it's a shared building or exchange point, or chance. Anything not listed
+  // is treated as unknown and said with care.
+  const KB = [
+    { app: /office ?365|o365|microsoft|teams|outlook|onedrive|sharepoint|azure|bing|xbox|linkedin/i, co: 'Microsoft', own: /microsoft/i, uses: [] },
+    { app: /github/i, co: 'Microsoft', own: /github|microsoft/i, uses: [] },
+    { app: /google|gmail|youtube|workspace|meet/i, co: 'Google', own: /google/i, uses: [] },
+    { app: /aws|amazon/i, co: 'Amazon', own: /amazon|aws/i, uses: [] },
+    { app: /facebook|instagram|whatsapp|meta/i, co: 'Meta', own: /facebook|meta platforms/i, uses: [] },
+    { app: /apple|icloud/i, co: 'Apple', own: /apple/i, uses: [] },
+    { app: /webex/i, co: 'Cisco', own: /cisco|webex/i, uses: [] },
+    { app: /slack/i, co: 'Slack', own: null, uses: [/amazon|aws/i] },
+    { app: /atlassian|jira|confluence|bitbucket|trello/i, co: 'Atlassian', own: null, uses: [/amazon|aws/i] },
+    { app: /heroku/i, co: 'Heroku', own: null, uses: [/amazon|aws/i] },
+    { app: /netflix/i, co: 'Netflix', own: /netflix/i, uses: [/amazon|aws/i] },
+    { app: /zoom/i, co: 'Zoom', own: /zoom/i, uses: [/amazon|aws/i, /oracle/i] },
+    { app: /salesforce|tableau/i, co: 'Salesforce', own: /salesforce/i, uses: [/amazon|aws/i] },
+    { app: /shopify/i, co: 'Shopify', own: null, uses: [/google/i, /cloudflare/i] },
+    { app: /discord/i, co: 'Discord', own: null, uses: [/google/i, /cloudflare/i] },
+  ];
+  const kbOf = (o) => KB.find((k) => k.app.test(`${o.name} ${o.appId || ''}`)) || null;
+  /** How an app relates to a network: 'own' (its own network), 'known' (a
+   *  documented host), 'unlikely' (it runs its own network and this isn't one
+   *  of its known hosts), or 'unknown'. */
+  function relation(app, net) {
+    const k = kbOf(app);
+    if (!k) return { rel: 'unknown' };
+    if (k.own && k.own.test(net.name)) return { rel: 'own', co: k.co };
+    if (k.uses.some((re) => re.test(net.name))) return { rel: 'known', co: k.co };
+    return k.own ? { rel: 'unlikely', co: k.co } : { rel: 'unknown', co: k.co };
+  }
+
   // What kind of network a provider is: it changes what a failure means.
   const NET_TYPE = [
     ['edge', /cloudflare|akamai|fastly|edgecast|edgio|limelight|cdn77|stackpath|imperva|zscaler|incapsula/i],
@@ -68,6 +102,24 @@
     out.sort((x, y) => y.w - x.w);
     return [...new Set(out.map((c) => c.name))];
   }
+
+  /** Local hour at a place, estimated from its longitude (good to ~1 h). */
+  const localHour = (ms, lon) => ((new Date(ms).getUTCHours() + new Date(ms).getUTCMinutes() / 60 + lon / 15) % 24 + 24) % 24;
+  const centre = (o) => { const p = cityPts(o); return p.length ? p.reduce((a, l) => ({ lat: a.lat + l.lat / p.length, lon: a.lon + l.lon / p.length }), { lat: 0, lon: 0 }) : null; };
+  // Internet hubs that show up in this data, and what they are (sources: the
+  // APNIC/LACNIC 2026 peering-capacity study; Equinix/DE-CIX/AMS-IX/LINX/IX.br).
+  const HUBS = [
+    ['Ashburn', /ashburn|dulles|sterling|reston|^virginia$|washington/i], ['Frankfurt', /frankfurt/i], ['Amsterdam', /amsterdam/i],
+    ['London', /london|slough/i], ['Singapore', /singapore/i], ['Sao Paulo', /s[aã]o paulo/i], ['Chicago', /chicago/i],
+    ['Dallas', /dallas/i], ['Hong Kong', /hong kong/i], ['Tokyo', /tokyo/i], ['Paris', /paris/i], ['New York', /new york|newark|secaucus/i],
+    ['Los Angeles', /los angeles/i], ['San Jose', /san jose|santa clara|palo alto/i], ['Seattle', /seattle/i], ['Miami', /miami/i],
+    ['Marseille', /marseille/i], ['Dublin', /dublin/i], ['Sydney', /sydney/i], ['Mumbai', /mumbai/i], ['Johannesburg', /johannesburg/i],
+  ];
+  const hubOf = (city) => { const h = HUBS.find(([, re]) => re.test(city || '')); return h ? h[0] : null; };
+  /** A coarse continent from a coordinate. */
+  const continent = (l) => (l.lon < -30 ? (l.lat > 12 ? 'North America' : 'Latin America')
+    : l.lon < 60 ? (l.lat > 35 ? 'Europe' : l.lat > -40 && l.lon > -20 && l.lat < 35 && l.lon < 52 ? (l.lat > 12 && l.lon > 34 ? 'the Middle East' : 'Africa') : 'Europe')
+      : l.lat < -10 && l.lon > 110 ? 'Australia' : 'Asia');
 
   function analyze(outages, opts = {}) {
     const now = opts.now || Date.now();
@@ -102,9 +154,16 @@
         const first = leadMin >= 1 && leadMin <= 15;
         const together = Math.abs(a.e - n.e) <= 5 * MIN && !a.o.active && !n.o.active;   // recovered together
         const type = netType(n.o);
-        add({ rule: 'netApp', score: 0.5 + (cities.length > 1 ? 0.15 : 0) + (first ? 0.15 : 0) + (together ? 0.12 : 0) + (type === 'edge' ? 0.06 : 0),
+        let r = relation(a.o, n.o);
+        // A backbone carrier can sit on users' paths to any app, even one with
+        // its own network - so that's "unknown", told as a user-side effect.
+        if (r.rel === 'unlikely' && type === 'transit') r = { rel: 'unknown', co: r.co };
+        // A known host makes the link real; a company with its own network and
+        // no tie to this provider makes it a shared place, not a dependency.
+        const relScore = r.rel === 'known' ? 0.12 : r.rel === 'unlikely' ? -0.2 : 0;
+        add({ rule: 'netApp', score: 0.5 + (cities.length > 1 ? 0.15 : 0) + (first ? 0.15 : 0) + (together ? 0.12 : 0) + relScore,
           focus: a.o, outages: [a.o, n.o],
-          vars: { app: nameOf(a.o), net: nameOf(n.o), city: cities[0], lead: leadMin, first, together, type } });
+          vars: { app: nameOf(a.o), net: nameOf(n.o), city: cities[0], lead: leadMin, first, together, type, rel: r.rel, co: r.co || '' } });
       }
     }
 
@@ -133,8 +192,10 @@
         if (nameOf(a.o) === nameOf(b.o) || !overlap(a, b)) continue;
         const cities = sharedCities(a.o, b.o);
         if (!cities.length) continue;
-        add({ rule: 'sharedHosting', score: 0.55 + (cities.length > 1 ? 0.1 : 0), focus: a.o, outages: [a.o, b.o],
-          vars: { a: nameOf(a.o), b: nameOf(b.o), city: cities[0] } });
+        const ka = kbOf(a.o), kb = kbOf(b.o);
+        const separate = !!(ka && kb && ka.own && kb.own && ka.co !== kb.co);   // each runs its own network
+        add({ rule: 'sharedHosting', score: 0.55 + (cities.length > 1 ? 0.1 : 0) - (separate ? 0.1 : 0), focus: a.o, outages: [a.o, b.o],
+          vars: { a: nameOf(a.o), b: nameOf(b.o), city: cities[0], separate } });
       }
     }
 
@@ -188,6 +249,46 @@
       }
     }
 
+    // 10. A fault hopping between networks: one network fails in a city, then
+    //     a different network there within 30 minutes (not overlapping).
+    for (const a of nets) {
+      for (const b of nets) {
+        if (a === b || nameOf(a.o) === nameOf(b.o)) continue;
+        const gap = Math.round((b.s - a.e) / MIN);
+        if (gap < 0 || gap > 30) continue;
+        const cities = sharedCities(a.o, b.o);
+        if (!cities.length) continue;
+        add({ rule: 'chain', score: 0.5 + (gap <= 10 ? 0.1 : 0), focus: b.o, outages: [a.o, b.o],
+          vars: { a: nameOf(a.o), b: nameOf(b.o), city: cities[0], gap: Math.max(1, gap), hub: hubOf(cities[0]) } });
+      }
+    }
+
+    // 11. Aftershocks: the same provider failing again in the same city
+    //     within three hours of clearing.
+    for (const a of list) {
+      for (const b of list) {
+        if (a === b || nameOf(a.o) !== nameOf(b.o) || b.s <= a.e) continue;
+        const gapMin = Math.round((b.s - a.e) / MIN);
+        if (gapMin > 180) continue;
+        const cities = sharedCities(a.o, b.o);
+        if (!cities.length) continue;
+        add({ rule: 'aftershock', score: 0.48 + (gapMin < 60 ? 0.08 : 0), focus: b.o, outages: [a.o, b.o],
+          vars: { N: nameOf(b.o), city: cities[0], gap: gapMin < 60 ? 'within the hour' : `about ${Math.round(gapMin / 60)} ${Math.round(gapMin / 60) === 1 ? 'hour' : 'hours'} later` } });
+      }
+    }
+
+    // 12. An active outage in the middle of the local workday: people notice.
+    for (const x of list) {
+      if (!x.o.active) continue;
+      const c = centre(x.o);
+      if (!c) continue;
+      const h = localHour(now, c.lon);
+      if (h >= 9 && h < 17) add({ rule: 'workday', score: 0.55, focus: x.o, outages: [x.o], vars: { N: nameOf(x.o), city: cityName(cityPts(x.o)[0]) } });
+    }
+
+    // Hub context: when a pattern sits on a well-known internet hub, say so.
+    for (const f of found) if (f.vars.city && !f.vars.hub) f.vars.hub = hubOf(f.vars.city);
+
     // 9. This room: a pattern touching a service the room uses, while the
     //    room's own probe says it's slow or down, matters most here.
     const watched = (opts.watch || []);
@@ -210,5 +311,75 @@
     return out;
   }
 
-  window.Insights = { analyze, familyOf, netType };
+  /** The day as a whole, for one context sentence in the overview: each
+   *  feature comes with a score for how worth mentioning it is. */
+  function context(outages, opts = {}) {
+    const now = opts.now || Date.now(), out = [];
+    if (!outages.length) return out;
+    const add = (kind, score, vars = {}) => out.push({ kind, score, vars });
+    const withC = outages.map((o) => ({ o, c: centre(o) })).filter((x) => x.c);
+    // Business hours (local, estimated): typically only a third to a half.
+    if (withC.length >= 6) {
+      const biz = withC.filter((x) => { const h = localHour(x.o.start, x.c.lon); return h >= 9 && h < 17; }).length / withC.length;
+      if (biz < 0.4) add('offHours', 0.5, { pct: Math.round((1 - biz) * 100) });
+      else if (biz > 0.6) add('bizHours', 0.6, { pct: Math.round(biz * 100) });
+    }
+    // Busiest hour (in this screen's time).
+    {
+      const bins = new Array(24).fill(0);
+      for (const o of outages) bins[new Date(o.start).getHours()]++;
+      const max = Math.max(...bins);
+      if (max >= 4) { const h = bins.indexOf(max); add('peakHour', 0.35, { hour: new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' }), n: max }); }
+    }
+    // Trend: last 6 hours vs the 18 before, per hour.
+    {
+      const recent = outages.filter((o) => now - o.start < 6 * 3600e3).length / 6;
+      const before = outages.filter((o) => now - o.start >= 6 * 3600e3).length / 18;
+      if (recent > before * 1.6 && recent * 6 >= 4) add('busier', 0.55);
+      else if (recent < before * 0.5 && before * 18 >= 6) add('quieter', 0.5);
+    }
+    // Where: the region with most outages.
+    {
+      const by = {};
+      for (const x of withC) by[continent(x.c)] = (by[continent(x.c)] || 0) + 1;
+      const top = Object.entries(by).sort((a, b) => b[1] - a[1])[0];
+      if (top && top[1] / withC.length >= 0.5 && withC.length >= 5) add('region', 0.45, { region: top[0], pct: Math.round(top[1] / withC.length * 100) });
+      const countries = new Set(outages.flatMap((o) => cityPts(o).map(countryOf)));
+      if (countries.size >= 8) add('spread', 0.3, { n: countries.size });
+    }
+    // Network vs application.
+    {
+      const net = outages.filter((o) => o.kind === 'network').length, app = outages.length - net;
+      if (net >= app * 2 && net >= 5) add('netMost', 0.4, { net, app });
+      else if (app >= net * 2 && app >= 5) add('appMost', 0.45, { net, app });
+      else if (outages.length >= 8) add('mixed', 0.25, { net, app });
+    }
+    // Durations: mostly blips, or long ones; the longest.
+    {
+      const d = outages.map((o) => o.durationS || 0).sort((a, b) => a - b), med = d[Math.floor(d.length / 2)];
+      if (med < 10 * 60 && outages.length >= 5) add('blips', 0.35);
+      const longest = outages.slice().sort((a, b) => (b.durationS || 0) - (a.durationS || 0))[0];
+      if ((longest.durationS || 0) >= 45 * 60) add('longest', 0.5, { N: nameOf(longest), mins: Math.round(longest.durationS / 60) });
+    }
+    // Quiet lately.
+    {
+      const last = Math.max(...outages.map((o) => o.start)), ago = (now - last) / 3600e3;
+      if (ago >= 2 && !outages.some((o) => o.active)) add('quietSince', 0.55, { hours: Math.round(ago) });
+    }
+    // Which kind of network had the day: edge/CDN, backbone, cloud.
+    for (const [type, kind] of [['edge', 'edgeDay'], ['transit', 'backboneDay'], ['cloud', 'cloudDay']]) {
+      const names = [...new Set(outages.filter((o) => o.kind === 'network' && netType(o) === type).map(nameOf))];
+      if (names.length >= 2) add(kind, 0.4 + Math.min(0.2, (names.length - 2) * 0.05), { a: names[0], b: names[1], n: names.length });
+    }
+    // A hub at the centre of things.
+    {
+      const counts = {};
+      for (const o of outages) for (const l of cityPts(o)) { const h = hubOf(cityName(l)); if (h) counts[h] = (counts[h] || 0) + 1; }
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (top && top[1] >= 3) add('hub', 0.5, { hub: top[0], n: top[1] });
+    }
+    return out.sort((a, b) => b.score - a.score);
+  }
+
+  window.Insights = { analyze, context, familyOf, netType, hubOf, relation };
 })();
