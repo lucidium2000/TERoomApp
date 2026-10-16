@@ -127,6 +127,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .zoomctl {
   position: fixed; left: var(--gutter); top: 50%; transform: translateY(-50%);
   display: flex; flex-direction: column; gap: .5em;
+  z-index: 99;   /* above the debug panels, so the camera button can always switch them off */
 }
 .zoomctl button {
   width: 3.4em; height: 3.4em; min-width: 52px; min-height: 52px; border-radius: 14px;
@@ -471,12 +472,15 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 
 /* Device Lab (camera debug companion) */
 .devlab {
-  position: fixed; left: 16px; bottom: 16px; z-index: 98; width: 440px; max-width: calc(100vw - 32px);
+  /* To the right of the button column, never over it. */
+  position: fixed; left: calc(var(--gutter) + max(3.4em, 52px) + 14px); bottom: 16px; z-index: 98;
+  width: 440px; max-width: calc(100vw - var(--gutter) - max(3.4em, 52px) - 30px);
   max-height: 78vh; overflow: auto; padding: 10px 12px 12px; border-radius: 12px;
   background: rgba(5, 9, 18, .92); border: 1px solid rgba(255, 255, 255, .25);
   font: 12px/1.4 ui-monospace, Menlo, monospace; color: #cfe3f7;
 }
-.devlab h3 { margin: 0 0 4px; font: 700 13px system-ui, sans-serif; color: #9fe; }
+.devlab h3 { margin: 0 0 4px; font: 700 13px system-ui, sans-serif; color: #9fe; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.devlab .dl-close { font: 600 12px system-ui, sans-serif; }
 .devlab h4 { margin: 10px 0 3px; font: 700 11px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .1em; color: #7c8aa3; }
 .dl-row { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
 .dl-row span { color: #8aa0bc; flex: none; }

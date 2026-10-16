@@ -247,7 +247,7 @@
     if (panel) return;
     panel = document.createElement('section');
     panel.className = 'devlab';
-    panel.innerHTML = '<h3>Device Lab</h3>'
+    panel.innerHTML = '<h3>Device Lab <button class="dl-btn dl-close" data-act="close">\u2715 Close debug</button></h3>'
       + ['Room|room|', 'Sound|sound|<button class="dl-btn" data-act="mic">Enable mic</button>',
         'Camera|camera|<button class="dl-btn" data-act="zoomin">Zoom +</button><button class="dl-btn" data-act="zoomout">Zoom -</button>',
         'Network|net|<button class="dl-btn" data-act="net">Run RTT test</button>', 'Device|device|']
@@ -256,6 +256,7 @@
       const b = e.target.closest('[data-act]');
       if (!b) return;
       const a = b.dataset.act;
+      if (a === 'close') { if (window.Glass) window.Glass.setDebug(false); close(); return; }
       if (a === 'mic') { if (mic.on) { stopMic(); render(); } else startMic(); }
       else if (a === 'net') runNet(); else if (a === 'zoomin') zoomStep(1); else if (a === 'zoomout') zoomStep(-1);
       render();
