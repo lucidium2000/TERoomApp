@@ -1586,9 +1586,11 @@
   tlChart.addEventListener('pointercancel', endScrub);
 
   let toastTimer = 0;
-  function toast(msg, kind) {
+  /** high: near the top edge (speech messages) rather than under the header. */
+  function toast(msg, kind, high) {
     el.toast.textContent = msg; el.toast.hidden = false;
     el.toast.classList.toggle('info', kind === 'info');
+    el.toast.classList.toggle('high', !!high);
     el.toast.style.animation = 'none'; void el.toast.offsetWidth; el.toast.style.animation = '';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.toast.hidden = true; }, 6000);
@@ -2225,13 +2227,13 @@
     T.onChange((state) => {
       ttsUi();
       if (!T.enabled) return;
-      if (state === 'speakerror') { toast('Speech: ' + T.error); return; }
+      if (state === 'speakerror') { toast('Speech: ' + T.error, '', true); return; }
       if (state === 'activity') return;
       if (state === 'ready') {
         sfx('ready');
-        toast(`Speech ready (${T.info.device === 'webgpu' ? 'GPU' : 'CPU'})`, 'info');
+        toast(`Speech ready (${T.info.device === 'webgpu' ? 'GPU' : 'CPU'})`, 'info', true);
         if (S.selected && !S.touring) tts(outageSpeech(S.selected, false)); else speakOverview();
-      } else if (state === 'error') { sfx('error'); toast('Speech failed to load: ' + T.error); T.setEnabled(false); }
+      } else if (state === 'error') { sfx('error'); toast('Speech failed to load: ' + T.error, '', true); T.setEnabled(false); }
     });
     const ttsStats = () => {
       const st = T.stats;
@@ -2280,7 +2282,7 @@
         T.setDevice(d);
         voicePick.querySelectorAll('[data-device]').forEach((q) => q.classList.toggle('on', q === dev));
         sfx('select');
-        toast(T.enabled ? `Speech now on ${name} - reloading the voice\u2026` : `Speech will run on ${name}`, 'info');
+        toast(T.enabled ? `Speech now on ${name} - reloading the voice\u2026` : `Speech will run on ${name}`, 'info', true);
         return;
       }
       const spd = e.target.closest('[data-speed]');
@@ -2290,7 +2292,7 @@
         voicePick.querySelectorAll('[data-speed]').forEach((q) => q.classList.toggle('on', q === spd));
         sfx('select');
         if (T.enabled) T.speak(say('speedSample'));
-        else toast(`Speed: ${spd.textContent} (turn speech on to hear it)`, 'info');
+        else toast(`Speed: ${spd.textContent} (turn speech on to hear it)`, 'info', true);
         return;
       }
       const btn = e.target.closest('[data-voice]');
@@ -2300,7 +2302,7 @@
       voicePick.querySelectorAll('[data-voice]').forEach((q) => q.classList.toggle('on', q === btn));
       sfx('select');
       if (T.enabled) T.speak(say('voiceHello', { v: voiceName(btn.dataset.voice) }));
-      else toast(`Voice: ${voiceName(btn.dataset.voice)} (turn speech on to hear it)`, 'info');
+      else toast(`Voice: ${voiceName(btn.dataset.voice)} (turn speech on to hear it)`, 'info', true);
     });
     document.addEventListener('pointerdown', (e) => { if (!voicePick.hidden && !voicePick.contains(e.target) && e.target !== ttsBtn && !ttsBtn.contains(e.target)) closeVoices(); }, true);
     let ttsHold = 0, ttsHeld = false;
@@ -2318,8 +2320,8 @@
       if (on && window.Glass && window.Glass.on) { window.Glass.stop(); toast('Gestures off while speech is on', 'info'); }
       T.setEnabled(on);
       sfx(on ? 'on' : 'off');
-      if (on && T.state === 'loading') toast('Speech on - loading the voice model\u2026', 'info');
-      else if (!on) toast('Speech off', 'info');
+      if (on && T.state === 'loading') toast('Speech on - loading the voice model\u2026', 'info', true);
+      else if (!on) toast('Speech off', 'info', true);
     });
     ttsUi();
   } else {
