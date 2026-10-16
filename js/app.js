@@ -845,7 +845,9 @@
     if (S.touring && !S.spin) {
       const frac = (now - S.tourT0) / CFG.dwellMs;
       el.cardProgress.style.transform = floatProgress.style.transform = `scaleX(${Math.min(1, frac).toFixed(4)})`;
-      if (frac >= 1) nextTour();
+      // The overview and insights get to finish (up to a minute past the dwell).
+      const hold = overviewBusy() && now - S.tourT0 < CFG.dwellMs + 60000;
+      if (frac >= 1 && !hold) nextTour();
     }
   }
 
@@ -856,6 +858,14 @@
   }
 
   function nextTour() {
+    // After the overview, the tour visits what the analyst found (js/insights.js),
+    // one finding per stop, before carrying on silently.
+    if (S.insightQ && S.insightQ.length && window.Tts && window.Tts.enabled && !overviewBusy()) {
+      const f = S.insightQ.shift();
+      select(f.focus, { fromTour: true });
+      speakProtected(insightSpeech(f, S.insightN++ === 0));
+      return;
+    }
     const list = tourList();
     if (!list.length) return;
     S.tourIdx = (S.tourIdx + 1) % list.length;
@@ -869,7 +879,7 @@
     el.tourBtn.querySelector('span').textContent = on ? 'Touring' : 'Tour';
     el.tourBtn.querySelector('path').setAttribute('d', on ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z');
     el.cardProgress.style.transform = 'scaleX(0)';
-    if (on) { S.tourIdx = -1; S.overviewT = -Infinity; nextTour(); }
+    if (on) { S.tourIdx = -1; S.overviewT = -Infinity; S.insightQ = []; nextTour(); }
   }
 
   function userInput() {
@@ -992,12 +1002,48 @@
       : say(down ? 'overviewRoomDown' : 'overviewRoomSlow', { svc: bad[0].name, others });
     return [health, worst, room].filter(Boolean).join(' ');
   }
+  /** Say this and let it finish (see overviewBusy). */
+  function speakProtected(text) {
+    if (overviewBusy()) return;
+    tts(text);
+    overviewOn = true;
+  }
   function speakOverview() {
     if (!(window.Tts && window.Tts.enabled) || !S.outages.length) return;
     if (overviewBusy()) return;
     S.overviewT = performance.now();
-    tts(overviewSpeech());
-    overviewOn = true;
+    speakProtected(overviewSpeech());
+    // Then the analyst's best two or three findings, one per tour stop.
+    S.insightQ = findInsights().slice(0, 3);
+    S.insightN = 0;
+  }
+
+  // ── Insights: patterns across outages, turned into commentary ───────────
+  function findInsights() {
+    if (!window.Insights) return [];
+    const probes = (window.RoomNet && window.RoomNet.probes) || [];
+    const watch = CFG.watch.map((term) => {
+      const { preset, hits } = watchMatches(term), p = probeFor(term, probes);
+      return { term: p ? p.term : term, label: preset.label, match: (o) => hits.includes(o) };
+    });
+    return window.Insights.analyze(S.outages, { now: dataNow(), watch, probes });
+  }
+  /** One finding as a sentence or three, with a lead-in. */
+  function insightSpeech(f, first) {
+    const v = f.vars, likely = f.score > 0.8 ? 'very likely' : f.score > 0.6 ? 'likely' : 'possibly';
+    const pool = {
+      sameCompany: v.together ? (v.first ? 'sameCompanyFirst' : 'sameCompanyTogether') : 'sameCompanyApart',
+      netApp: v.first ? 'netAppFirst' : v.together ? 'netAppTogether' : 'netAppPlain',
+      cluster: 'cluster', sharedHosting: 'sharedHosting', sameMinute: 'sameMinute',
+      repeat: v.active ? 'repeatActive' : 'repeatPast', wide: v.net ? 'wideNet' : 'wideApp', maintenance: 'maintenance',
+    }[f.rule];
+    const vars = { ...v, likely, n: typeof v.n === 'number' ? numW(v.n) : v.n };
+    const fill = (name) => pick(PH[name] || ['']).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : ''));
+    let text = fill(first ? 'insightFirst' : 'insightNext') + ' ' + fill(pool);
+    if (f.rule === 'netApp' && v.type && v.type !== 'network') text += fill({ edge: 'netTypeEdge', transit: 'netTypeTransit', cloud: 'netTypeCloud' }[v.type]);
+    if (v.room) text += fill(v.roomDown ? 'insightRoomDown' : 'insightRoomSlow');
+    // Capital letters where sentences start ("{likely} ..." can open one).
+    return text.replace(/(^|[.!?]\s+)([a-z])/g, (m, a, c) => a + c.toUpperCase());
   }
   /** Tapped: a little more about this one, still short. */
   function outageSpeech(o, isNew) {
