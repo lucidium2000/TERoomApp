@@ -125,7 +125,7 @@ The page checks for a new published version about once a minute. When it finds o
 | `grabpan` | `1.6` | how far a fist grab turns the globe per unit of hand travel |
 | `gestures` | v2 | `v1` brings back the palm-hold gesture scheme and its guide (no hand cursor) |
 | `tts` | on | `0` hides the speaker button (spoken summaries) |
-| `ttsvoice` | af_heart | Kokoro voice, e.g. `am_michael`, `bf_emma`, `bm_george` |
+| `ttsvoice` | am_santa | Kokoro voice, e.g. `af_heart`, `am_michael`, `bf_emma`, `bm_george` |
 | `ttsspeed` | 1 | speaking speed, 0.5 to 2 |
 | `ttsdevice` | auto | `webgpu` or `wasm` (CPU); auto uses WebGPU when the browser offers it |
 | `ttsdtype` | auto | model precision: `fp32` (GPU default), `q8` (CPU default), `fp16`, `q4`, `q4f16` |

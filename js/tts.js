@@ -6,7 +6,7 @@
  * normal visit); turning it off unloads the model again. It never runs at
  * the same time as camera gestures (app.js switches one off for the other).
  *   tts=0          hide the speaker button
- *   ttsvoice=      a Kokoro voice (default af_heart; e.g. am_michael, bf_emma)
+ *   ttsvoice=      a Kokoro voice (default am_santa; e.g. af_heart, am_michael, bf_emma)
  *   ttsspeed=      0.5..2 (default 1)
  *   ttsdevice=     auto (WebGPU when available, else CPU) | webgpu | wasm
  *   ttsdtype=      fp32 | fp16 | q8 | q4 | q4f16 (default fp32 on WebGPU, q8 on CPU)
@@ -20,12 +20,12 @@
   const AVAILABLE = qs.get('tts') !== '0';
   let enabled = false, onChange = () => {};
   const OPTS = {
-    voice: qs.get('ttsvoice') || 'af_heart',
+    voice: qs.get('ttsvoice') || 'am_santa',
     speed: Math.max(0.5, Math.min(2, parseFloat(qs.get('ttsspeed')) || 1)),
     device: qs.get('ttsdevice') || 'auto',
     dtype: qs.get('ttsdtype') || '',
   };
-  const VOICES = ['af_heart', 'af_bella', 'af_nicole', 'am_michael', 'am_fenrir', 'am_puck', 'bf_emma', 'bm_george', 'bm_fable'];
+  const VOICES = ['am_santa', 'af_heart', 'af_bella', 'af_nicole', 'am_michael', 'am_fenrir', 'am_puck', 'bf_emma', 'bm_george', 'bm_fable'];
   const WORKER_URL = new URL('tts-worker.js' + (new URL(document.currentScript.src).search || ''), document.currentScript.src).href;
 
   let worker = null, state = 'off', info = null, progress = 0, error = '';
