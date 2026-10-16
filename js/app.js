@@ -915,9 +915,16 @@
       if (!watchMatches(term).hits.includes(o)) continue;
       const p = probeFor(term, probes);
       if (!p || p.status === 'pending') return '';
-      if (p.status === 'down') return pick(["And it's not reachable from this room.", "We can't reach it from here, either."]);
-      if (p.status === 'slow' || p.status === 'warn') return pick(["You might notice it here, too.", "It's a bit slow from this room, too."]);
-      return pick(["It's fine from this room, though.", 'From here, it still looks fine.', "This room isn't feeling it."]);
+      if (p.status === 'down') return pick([
+        "And it's not reachable from this room.", "We can't reach it from here, either.", "And this room can't get to it right now.",
+        "It's not answering from here, either.", "And yes, it's down from this room too.", "This room can't reach it at the moment."]);
+      if (p.status === 'slow' || p.status === 'warn') return pick([
+        'You might notice it here, too.', "It's a bit slow from this room, too.", "And it's dragging a little from here.",
+        "This room's seeing it slow down, too.", "You may feel that one here.", "It's a touch sluggish from this room as well."]);
+      return pick([
+        "It's fine from this room, though.", 'From here, it still looks fine.', "This room isn't feeling it.",
+        'From here, it still looks healthy.', "Nothing wrong from this room, though.", 'This room is getting through fine.',
+        "It's still working fine from here.", 'Here, it seems unaffected.', "From where we're sitting, it's fine."]);
     }
     return '';
   }
@@ -926,9 +933,18 @@
    *  whether this room is affected. Not outage by outage. */
   function overviewSpeech() {
     const all = S.outages, act = all.filter((q) => q.active).length;
-    const health = act === 0 ? pick(["The internet's in good shape right now.", 'Things are calm on the internet right now.'])
-      : act <= 2 ? pick([`Mostly calm on the internet right now, with ${act === 1 ? 'one outage' : 'two outages'} still going.`, `The internet's mostly healthy right now; ${act === 1 ? 'just one outage is' : 'two outages are'} still going.`])
-      : pick([`It's a busy time on the internet, with ${numW(act)} outages going right now.`, `There's a fair bit going on right now: ${numW(act)} active outages.`]);
+    const one = act === 1, few = one ? 'one outage' : 'two outages', fewIs = one ? 'one outage is' : 'two outages are';
+    const health = act === 0 ? pick([
+        "The internet's in good shape right now.", 'Things are calm on the internet right now.', "All quiet on the internet at the moment.",
+        "Nothing's broken out there right now.", "It's a calm moment on the internet.", "The internet's behaving itself right now."])
+      : act <= 2 ? pick([
+        `Mostly calm on the internet right now, with ${few} still going.`, `The internet's mostly healthy right now; just ${fewIs} still going.`,
+        `Pretty quiet out there, apart from ${few}.`, `Things look mostly fine right now, with ${few} still open.`,
+        `The internet's in decent shape; ${fewIs} still in progress.`, `A fairly calm picture, with ${few} still being worked on.`])
+      : pick([
+        `It's a busy time on the internet, with ${numW(act)} outages going right now.`, `There's a fair bit going on right now: ${numW(act)} active outages.`,
+        `The internet's a little rough right now, with ${numW(act)} outages in progress.`, `It's a noisy moment out there: ${numW(act)} outages are active.`,
+        `Quite a bit happening right now, ${numW(act)} outages at once.`, `Not the calmest moment; ${numW(act)} outages are still going.`]);
     // Services with the worst of the last day: active first, then how often
     // and how widely.
     const by = new Map();
@@ -940,26 +956,35 @@
     const top = [...by.values()].sort((a, b) => (b.active - a.active) || (b.n - a.n) || (b.spread - a.spread)).slice(0, 3);
     let worst = '';
     if (top.length) {
-      const t = top[0];
+      const t = top[0], N = t.name;
       worst = t.active
-        ? (t.n > 2 ? `${t.name} is having the hardest time, on and off all day and still going now.` : `${t.name} is the one to watch, with a problem going on now.`)
-        : (t.n > 2 ? `${t.name} has had the roughest day, on and off.` : `${t.name} had the biggest outage, though it's cleared now.`);
+        ? (t.n > 2 ? pick([`${N} is having the hardest time, on and off all day and still going now.`, `${N} has had a rough day, and it's still not over.`, `The one to watch is ${N}; it's been up and down all day and is still having trouble.`])
+          : pick([`${N} is the one to watch, with a problem going on now.`, `The main thing right now is ${N}, which is having trouble.`, `${N} is the story at the moment; it has an issue in progress.`]))
+        : (t.n > 2 ? pick([`${N} has had the roughest day, on and off.`, `${N} has had a bumpy day, with trouble on and off.`, `It's been an up and down day for ${N}.`])
+          : pick([`${N} had the biggest outage, though it's cleared now.`, `The biggest one today was at ${N}, and that's resolved.`, `${N} had the most notable outage today, now cleared.`]));
       // "Microsoft Office 365 ... and Microsoft" sounds like a repeat: a second
       // entry from the same company is named by what it is ("Microsoft's network").
-      const said = new Set([t.name.split(' ')[0]]);
+      const said = new Set([N.split(' ')[0]]);
       const rest = top.slice(1).map((g) => {
         const first = g.name.split(' ')[0], dup = said.has(first);
         said.add(first);
         return dup ? `${first}'s ${g.kind === 'network' ? 'network' : 'other services'}` : g.name;
       });
-      if (rest.length) worst += ` ${rest.join(' and ')} had ${pick(['a few hiccups too', 'some shorter blips', 'brief trouble as well'])}.`;
+      if (rest.length) worst += ` ${rest.join(' and ')} had ${pick([
+        'a few hiccups too', 'some shorter blips', 'brief trouble as well', 'a couple of short ones', 'some minor trouble',
+        'a few quick blips of their own', 'smaller issues', 'a few bumps along the way', 'some brief outages too'])}.`;
     }
     // This room's own view of the services it uses.
     const probes = ((window.RoomNet && window.RoomNet.probes) || []).filter((p) => p.status !== 'pending');
     const bad = probes.filter((p) => ['down', 'slow', 'warn'].includes(p.status));
+    const others = bad.length > 1 ? `, and so ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}` : '';
     const room = !probes.length ? ''
-      : !bad.length ? pick(['Everything this room relies on is answering normally.', "From here, all the services you use look fine."])
-      : `From this room, ${bad[0].name} ${bad[0].status === 'down' ? "isn't answering" : 'is slower than usual'}${bad.length > 1 ? `, and so ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}` : ''}.`;
+      : !bad.length ? pick([
+        'Everything this room relies on is answering normally.', 'From here, all the services you use look fine.', 'And this room is in good shape.',
+        'Everything you use from this room is working normally.', 'From this room, all looks well.', "As for this room, everything's answering fine."])
+      : bad[0].status === 'down'
+        ? pick([`From this room, ${bad[0].name} isn't answering${others}.`, `Here, ${bad[0].name} isn't reachable right now${others}.`, `One thing to note: this room can't reach ${bad[0].name}${others}.`])
+        : pick([`From this room, ${bad[0].name} is slower than usual${others}.`, `Here, ${bad[0].name} is a little slow right now${others}.`, `One thing to note: ${bad[0].name} is lagging from this room${others}.`]);
     return [health, worst, room].filter(Boolean).join(' ');
   }
   function speakOverview() {
@@ -971,15 +996,27 @@
   }
   /** Tapped: a little more about this one, still short. */
   function outageSpeech(o, isNew) {
-    const nm = nameOf(o), at = where(o);
-    if (isNew) return `Heads up: ${nm} just went down${at ? ' around ' + at : ''}.`;
+    const nm = nameOf(o), at = where(o), aroundAt = at ? ' around ' + at : '';
+    if (isNew) return pick([`Heads up: ${nm} just went down${aroundAt}.`, `New outage just now: ${nm}${aroundAt}.`, `Just in: ${nm} is having trouble${aroundAt}.`]);
     const others = o.locations.length > 1 ? ` and ${o.locations.length > 4 ? 'a few' : 'a couple of'} other places` : '';
     if (o.active) {
-      const what = o.kind === 'network' ? 'a network problem' : pick(["its service isn't responding properly", 'an application problem']);
-      return `${nm}. ${cap(what)}${at ? `, mostly around ${at}${others}` : ''}, and it's still going. ${roomTie(o)}`.trim();
+      const what = o.kind === 'network'
+        ? pick(['a network problem', 'trouble on its network', 'a problem in its network', 'a network issue', 'something wrong on its network', 'a fault in its network'])
+        : pick(["its service isn't responding properly", 'an application problem', "its servers aren't answering well", 'its service is struggling', "it's failing to respond", 'trouble with its service']);
+      const place = at ? `, mostly around ${at}${others}` : '';
+      return (pick([
+        `${nm}. ${cap(what)}${place}, and it's still going.`,
+        `${nm}: ${what}${place}. Still in progress.`,
+        `This is ${nm}. ${cap(what)}${place}, and it hasn't cleared yet.`]) + ' ' + roomTie(o)).trim();
     }
-    const what = o.kind === 'network' ? 'a network problem' : pick(["its service wasn't responding properly", 'an application problem']);
-    return `${nm}. ${cap(spokenWhen(o.start))}, ${what}${at ? ` around ${at}${others}` : ''}. It lasted ${spokenFor(o.durationS || 0)}, and it's cleared now.`;
+    const what = o.kind === 'network'
+      ? pick(['a network problem', 'some trouble on its network', 'a network issue', 'a fault in its network', 'a network hiccup', 'a short network problem'])
+      : pick(["its service wasn't responding properly", 'an application problem', "its servers weren't answering well", 'its service was struggling', 'it was failing to respond', 'some trouble with its service']);
+    const when = spokenWhen(o.start), dur = spokenFor(o.durationS || 0);
+    return pick([
+      `${nm}. ${cap(when)}, ${what}${at ? ` around ${at}${others}` : ''}. It lasted ${dur}, and it's cleared now.`,
+      `${nm} had ${what.startsWith('its ') || what.startsWith('it ') ? 'trouble' : what}${aroundAt} ${when}. That lasted ${dur} and is resolved.`,
+      `This was ${nm}, ${when}${aroundAt}. ${cap(what)} for ${dur}, all clear now.`]);
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -1334,10 +1371,13 @@
       return d > (best ? best.d : PATH_HIGH) ? { d, h } : best;
     }, null);
     const at = (h) => (h && h.city ? ' near ' + h.city : '');
-    tts(last && last.ms != null
-      ? `${p.name} is about ${Math.round(last.ms)} milliseconds away. `
-        + (slowLink ? `Most of the delay comes in one jump${at(slowLink.h)}.` : lossy.length ? `There's some packet loss along the way${at(lossy[0])}.` : pick(['The path looks clean.', 'No problems along the way.']))
-      : `${p.name} didn't answer the trace.`);
+    const ms = last && last.ms != null ? Math.round(last.ms) : null;
+    tts(ms != null
+      ? pick([`${p.name} is about ${ms} milliseconds away.`, `From the probe, ${p.name} is roughly ${ms} milliseconds out.`, `It takes about ${ms} milliseconds to reach ${p.name}.`]) + ' '
+        + (slowLink ? pick([`Most of the delay comes in one jump${at(slowLink.h)}.`, `There's one slow stretch${at(slowLink.h)}.`, `Most of that time is spent on a single hop${at(slowLink.h)}.`])
+          : lossy.length ? pick([`There's some packet loss along the way${at(lossy[0])}.`, `A few packets are getting lost${at(lossy[0])}.`, `There's a bit of loss on the path${at(lossy[0])}.`])
+          : pick(['The path looks clean.', 'No problems along the way.', 'Nothing looks wrong on the path.', 'Clean all the way there.', 'Every hop looks healthy.', "The route's in good shape."]))
+      : pick([`${p.name} didn't answer the trace.`, `The trace couldn't reach ${p.name}.`, `No answer from ${p.name} on that trace.`]));
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 1800);
   }
   function drawPath(now, R) {
