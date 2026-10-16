@@ -2254,6 +2254,7 @@
       const cur = T.opts.voice;
       const sp = T.opts.speed;
       voicePick.innerHTML = `<div class="vp-head"><b>Voice</b><span>${esc(ttsStats())}</span></div>`
+        + `<div class="vp-group vp-speed"><i>Runs on</i><div>${[['auto', 'Auto'], ['webgpu', 'GPU'], ['wasm', 'CPU']].map(([d, label]) => `<button data-device="${d}" class="${T.opts.device === d ? 'on' : ''}">${label}</button>`).join('')}</div></div>`
         + `<div class="vp-group vp-speed"><i>Speed</i><div>${SPEEDS.map(([x, label]) => `<button data-speed="${x}" class="${Math.abs(x - sp) < 0.01 ? 'on' : ''}">${label}</button>`).join('')}</div></div>`
         + GROUPS.map(([g, label]) => `<div class="vp-group"><i>${label}</i><div>`
           + T.voices.filter((v) => v.startsWith(g + '_')).map((v) => `<button data-voice="${v}" class="${v === cur ? 'on' : ''}">${voiceName(v)}</button>`).join('')
@@ -2263,9 +2264,25 @@
       voicePick.hidden = false;
       const h = voicePick.offsetHeight;
       voicePick.style.top = Math.max(8, Math.min(innerHeight - h - 8, b.top)) + 'px';
+      // Grey out GPU where the browser won't hand one out (the Desk Pro, today).
+      T.gpuAvailable().then((ok) => {
+        const g = voicePick.querySelector('[data-device="webgpu"]');
+        if (g && !ok) { g.classList.add('na'); g.textContent = 'GPU (not available)'; }
+      });
     }
     const closeVoices = () => { voicePick.hidden = true; };
     voicePick.addEventListener('click', (e) => {
+      const dev = e.target.closest('[data-device]');
+      if (dev) {
+        e.stopPropagation(); userInput();
+        const d = dev.dataset.device, name = { auto: 'Auto', webgpu: 'GPU', wasm: 'CPU' }[d];
+        if (d === T.opts.device) return;
+        T.setDevice(d);
+        voicePick.querySelectorAll('[data-device]').forEach((q) => q.classList.toggle('on', q === dev));
+        sfx('select');
+        toast(T.enabled ? `Speech now on ${name} - reloading the voice\u2026` : `Speech will run on ${name}`, 'info');
+        return;
+      }
       const spd = e.target.closest('[data-speed]');
       if (spd) {
         e.stopPropagation(); userInput();

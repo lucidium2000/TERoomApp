@@ -775,3 +775,4 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   .pv-glow, .pv-link, .pv-node, .pv-ping, .pv-src .pv-shape, .pc-scan i { animation: none !important; opacity: 1; stroke-dashoffset: 0; }
   .pv-glow { opacity: .16; } .pv-pkt { display: none; }
 }
+.vp-group button.na { opacity: .45; text-decoration: line-through; }

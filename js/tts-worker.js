@@ -27,9 +27,10 @@ async function load({ device, dtype }) {
   const t0 = performance.now();
   const { KokoroTTS } = await import(KOKORO_URL);
   let dev = device && device !== 'auto' ? device : 'wasm';
-  if (!device || device === 'auto') {
-    try { if (self.navigator.gpu && (await self.navigator.gpu.requestAdapter())) dev = 'webgpu'; } catch (_) { /* no adapter */ }
-  }
+  let gpu = false;
+  try { gpu = !!(self.navigator.gpu && (await self.navigator.gpu.requestAdapter())); } catch (_) { /* no adapter */ }
+  if (!device || device === 'auto') { if (gpu) dev = 'webgpu'; }
+  else if (dev === 'webgpu' && !gpu) throw new Error('no GPU available to the browser here - pick CPU or Auto');
   // fp32 on the GPU; the 8-bit model on the CPU (a quarter of the size, faster there).
   const dt = dtype || (dev === 'webgpu' ? 'fp32' : 'q8');
   const files = {};
