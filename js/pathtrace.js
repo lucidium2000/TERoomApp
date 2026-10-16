@@ -125,5 +125,5 @@
     }
   }
 
-  window.PathTrace = { run, settle };
+  window.PathTrace = { run, settle, roomInfo };
 })();

@@ -479,6 +479,34 @@
     perfMark('markers');
   }
 
+  // ── Local time and weather, under the title ──────────────────────────────
+  // The clock is this screen's own time zone; the weather is for the room's
+  // location (from its public IP, the same lookup the path trace uses).
+  const localClock = document.getElementById('localClock'), localWx = document.getElementById('localWx');
+  const localTemp = document.getElementById('localTemp'), localCity = document.getElementById('localCity');
+  function tickClock() {
+    localClock.textContent = new Date().toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  }
+  async function localWeather() {
+    try {
+      const room = window.PathTrace && window.PathTrace.roomInfo ? await window.PathTrace.roomInfo() : null;
+      if (!room || !isFinite(room.lat)) return;
+      const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + room.lat.toFixed(3) + '&longitude=' + room.lon.toFixed(3)
+        + '&current=temperature_2m,weather_code,is_day' + (WX_C ? '' : '&temperature_unit=fahrenheit'));
+      const c = (await r.json()).current;
+      if (!c) return;
+      const g = localWx.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
+      localWx.width = localWx.height = Math.round(18 * dpr);
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, 18, 18);
+      drawWx(c.weather_code, c.is_day === 1, 9, 9, 16, g);
+      localWx.hidden = false;
+      localTemp.textContent = `${Math.round(c.temperature_2m)}\u00B0`;
+      localCity.textContent = room.city || '';
+      document.getElementById('localSep').hidden = false;
+    } catch (_) { /* no weather is fine */ }
+  }
+
   // ── Weather on city labels (Open-Meteo: free, no key, CORS) ────────────
   // Fetched for a selected outage's locations in one batched request, cached
   // 15 minutes, drawn as temperature + a small vector symbol (no emoji font
@@ -500,56 +528,57 @@
     }).catch(() => need.forEach((l) => wx.delete(wxKey(l))));
   }
   /** WMO weather code -> simple symbol, drawn centred at (x, y), size s. */
-  function drawWx(code, day, x, y, s) {
+  function drawWx(code, day, x, y, s, g) {
+    const c2 = g || ctx;   // draws on the globe overlay unless given another canvas
     const kind = code === 0 ? 'clear' : code <= 2 ? 'partly' : code === 3 ? 'cloud' : code <= 48 ? 'fog'
       : code <= 67 || (code >= 80 && code <= 82) ? 'rain' : code <= 77 || code <= 86 ? 'snow' : 'storm';
     const sun = (cx, cy, r) => {
       if (day) {
-        ctx.strokeStyle = ctx.fillStyle = '#fbbf24'; ctx.lineWidth = Math.max(1, r * 0.28);
-        ctx.beginPath(); ctx.arc(cx, cy, r * 0.55, 0, 2 * Math.PI); ctx.fill();
+        c2.strokeStyle = c2.fillStyle = '#fbbf24'; c2.lineWidth = Math.max(1, r * 0.28);
+        c2.beginPath(); c2.arc(cx, cy, r * 0.55, 0, 2 * Math.PI); c2.fill();
         for (let i = 0; i < 8; i++) {
           const a = i * Math.PI / 4;
-          ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r * 0.8, cy + Math.sin(a) * r * 0.8); ctx.lineTo(cx + Math.cos(a) * r * 1.1, cy + Math.sin(a) * r * 1.1); ctx.stroke();
+          c2.beginPath(); c2.moveTo(cx + Math.cos(a) * r * 0.8, cy + Math.sin(a) * r * 0.8); c2.lineTo(cx + Math.cos(a) * r * 1.1, cy + Math.sin(a) * r * 1.1); c2.stroke();
         }
       } else {
-        ctx.fillStyle = '#cbd5e1';
-        ctx.beginPath(); ctx.arc(cx, cy, r * 0.75, 0, 2 * Math.PI); ctx.fill();
-        ctx.fillStyle = 'rgba(5,7,13,1)';
-        ctx.beginPath(); ctx.arc(cx + r * 0.35, cy - r * 0.25, r * 0.62, 0, 2 * Math.PI); ctx.fill();
+        c2.fillStyle = '#cbd5e1';
+        c2.beginPath(); c2.arc(cx, cy, r * 0.75, 0, 2 * Math.PI); c2.fill();
+        c2.fillStyle = 'rgba(5,7,13,1)';
+        c2.beginPath(); c2.arc(cx + r * 0.35, cy - r * 0.25, r * 0.62, 0, 2 * Math.PI); c2.fill();
       }
     };
     const cloud = (cx, cy, w, color) => {
-      ctx.fillStyle = color || '#cbd5e1';
-      ctx.beginPath();
-      ctx.arc(cx - w * 0.25, cy + w * 0.05, w * 0.22, 0, 2 * Math.PI);
-      ctx.arc(cx + w * 0.02, cy - w * 0.1, w * 0.3, 0, 2 * Math.PI);
-      ctx.arc(cx + w * 0.28, cy + w * 0.06, w * 0.2, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.fillRect(cx - w * 0.25, cy + w * 0.05, w * 0.53, w * 0.21);
+      c2.fillStyle = color || '#cbd5e1';
+      c2.beginPath();
+      c2.arc(cx - w * 0.25, cy + w * 0.05, w * 0.22, 0, 2 * Math.PI);
+      c2.arc(cx + w * 0.02, cy - w * 0.1, w * 0.3, 0, 2 * Math.PI);
+      c2.arc(cx + w * 0.28, cy + w * 0.06, w * 0.2, 0, 2 * Math.PI);
+      c2.fill();
+      c2.fillRect(cx - w * 0.25, cy + w * 0.05, w * 0.53, w * 0.21);
     };
-    ctx.save();
-    ctx.lineCap = 'round';
+    c2.save();
+    c2.lineCap = 'round';
     if (kind === 'clear') sun(x, y, s * 0.5);
     else if (kind === 'partly') { sun(x + s * 0.18, y - s * 0.18, s * 0.38); cloud(x - s * 0.05, y + s * 0.08, s * 0.8); }
     else if (kind === 'cloud') cloud(x, y, s);
     else if (kind === 'fog') {
-      ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = s * 0.12;
-      for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(x - s * 0.4, y + i * s * 0.25); ctx.lineTo(x + s * 0.4, y + i * s * 0.25); ctx.stroke(); }
+      c2.strokeStyle = '#cbd5e1'; c2.lineWidth = s * 0.12;
+      for (let i = -1; i <= 1; i++) { c2.beginPath(); c2.moveTo(x - s * 0.4, y + i * s * 0.25); c2.lineTo(x + s * 0.4, y + i * s * 0.25); c2.stroke(); }
     } else {
       cloud(x, y - s * 0.12, s * 0.9);
       if (kind === 'rain') {
-        ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = s * 0.1;
-        for (const dx of [-0.22, 0, 0.22]) { ctx.beginPath(); ctx.moveTo(x + dx * s, y + s * 0.22); ctx.lineTo(x + dx * s - s * 0.07, y + s * 0.45); ctx.stroke(); }
+        c2.strokeStyle = '#60a5fa'; c2.lineWidth = s * 0.1;
+        for (const dx of [-0.22, 0, 0.22]) { c2.beginPath(); c2.moveTo(x + dx * s, y + s * 0.22); c2.lineTo(x + dx * s - s * 0.07, y + s * 0.45); c2.stroke(); }
       } else if (kind === 'snow') {
-        ctx.fillStyle = '#f8fafc';
-        for (const dx of [-0.22, 0, 0.22]) { ctx.beginPath(); ctx.arc(x + dx * s, y + s * 0.36, s * 0.07, 0, 2 * Math.PI); ctx.fill(); }
+        c2.fillStyle = '#f8fafc';
+        for (const dx of [-0.22, 0, 0.22]) { c2.beginPath(); c2.arc(x + dx * s, y + s * 0.36, s * 0.07, 0, 2 * Math.PI); c2.fill(); }
       } else {
-        ctx.fillStyle = '#fbbf24';
-        ctx.beginPath(); ctx.moveTo(x + s * 0.05, y + s * 0.12); ctx.lineTo(x - s * 0.12, y + s * 0.38); ctx.lineTo(x + s * 0.02, y + s * 0.38);
-        ctx.lineTo(x - s * 0.06, y + s * 0.58); ctx.lineTo(x + s * 0.16, y + s * 0.3); ctx.lineTo(x + s * 0.02, y + s * 0.3); ctx.closePath(); ctx.fill();
+        c2.fillStyle = '#fbbf24';
+        c2.beginPath(); c2.moveTo(x + s * 0.05, y + s * 0.12); c2.lineTo(x - s * 0.12, y + s * 0.38); c2.lineTo(x + s * 0.02, y + s * 0.38);
+        c2.lineTo(x - s * 0.06, y + s * 0.58); c2.lineTo(x + s * 0.16, y + s * 0.3); c2.lineTo(x + s * 0.02, y + s * 0.3); c2.closePath(); c2.fill();
       }
     }
-    ctx.restore();
+    c2.restore();
   }
 
   function outageVisible(o) { return S.filter === 'all' || o.kind === S.filter; }
@@ -2593,6 +2622,8 @@
     let resumeGlass = false;
     try { resumeGlass = sessionStorage.getItem('te-resume-glass') === '1'; sessionStorage.removeItem('te-resume-glass'); } catch (_) { /* */ }
     if ((qs.get('glass') === '1' || resumeGlass) && window.Glass) window.Glass.start();
+    tickClock(); setInterval(tickClock, 15000);
+    setTimeout(localWeather, 2500); setInterval(localWeather, 15 * 60e3);
     let resumeTts = false;
     try { resumeTts = sessionStorage.getItem('te-resume-tts') === '1'; sessionStorage.removeItem('te-resume-tts'); } catch (_) { /* */ }
     if (resumeTts && !resumeGlass && window.Tts) { window.Tts.setEnabled(true); document.getElementById('ttsBtn').setAttribute('aria-pressed', 'true'); }

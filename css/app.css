@@ -786,3 +786,8 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   .pv-glow { opacity: .16; } .pv-pkt { display: none; }
 }
 .vp-group button.na { opacity: .45; text-decoration: line-through; }
+
+/* Local time and weather under the title. */
+.brand .local { margin: .25em 0 0; color: var(--ink-2); font-size: .82em; font-weight: 600; display: flex; align-items: center; gap: .1em; font-variant-numeric: tabular-nums; }
+.brand .local canvas { width: 18px; height: 18px; margin: 0 .3em 0 .15em; }
+.brand .local #localCity { color: var(--ink-3); font-weight: 500; margin-left: .2em; }
