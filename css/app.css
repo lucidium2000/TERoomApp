@@ -75,13 +75,15 @@ body.free .wxbar { right: var(--gutter); }
   background: var(--glass); border: 1px solid var(--line); border-radius: 18px;
   padding: 1.1em;
 }
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: .6em; }
-.stat {
-  background: rgba(255, 255, 255, .035); border: 1px solid var(--line); border-radius: 12px;
-  padding: .6em .8em;
+.stats {
+  /* One slim strip inside the Outages section: four figures, hairline dividers. */
+  display: grid; grid-template-columns: repeat(4, 1fr); margin: 0 0 .7em;
+  background: rgba(255, 255, 255, .03); border: 1px solid var(--line); border-radius: 12px;
 }
-.stat b { display: block; font-size: 2em; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.stat span { color: var(--ink-2); font-size: .82em; text-transform: uppercase; letter-spacing: .08em; }
+.stat { padding: .5em .4em .45em; text-align: center; min-width: 0; }
+.stat + .stat { border-left: 1px solid var(--line); }
+.stat b { display: block; font-size: 1.45em; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { display: block; color: var(--ink-3); font-size: .62em; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat.net b { color: var(--net); }
 .stat.app b { color: var(--app); }
 
@@ -244,8 +246,7 @@ body.signage .chips, body.signage .tour, body.signage .card-close { display: non
     top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 38vh;
     border-radius: 18px 18px 0 0; padding: .9em 16px;
   }
-  .stats { grid-template-columns: repeat(4, 1fr); }
-  .stat b { font-size: 1.4em; }
+  .stat b { font-size: 1.25em; }
   .watch { display: none; }
   .timeline { display: none; }
   .card { left: 16px; right: 16px; width: auto; bottom: calc(38vh + 12px); }

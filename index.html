@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=131">
+  <link rel="stylesheet" href="css/app.css?v=133">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -30,13 +30,6 @@
   </div>
 
   <aside class="panel" id="panel">
-    <div class="stats">
-      <div class="stat"><b id="statActive">–</b><span>Active now</span></div>
-      <div class="stat"><b id="statLoc">–</b><span>Locations</span></div>
-      <div class="stat app"><b id="statApp">–</b><span>Application</span></div>
-      <div class="stat net"><b id="statNet">–</b><span>Network</span></div>
-    </div>
-
     <!-- This room first: each service's Internet Insights status (left) and
          this room's live connection to it (right). -->
     <section class="services sec" id="services">
@@ -47,6 +40,12 @@
     <!-- Then every outage in the last 24 hours. -->
     <section class="outages sec">
       <h2 class="sec-title">Outages <small>Internet Insights &middot; last 24 hours</small></h2>
+      <div class="stats">
+        <div class="stat"><b id="statActive">–</b><span>Active</span></div>
+        <div class="stat"><b id="statLoc">–</b><span>Locations</span></div>
+        <div class="stat app"><b id="statApp">–</b><span>Apps</span></div>
+        <div class="stat net"><b id="statNet">–</b><span>Network</span></div>
+      </div>
       <div class="chips" role="tablist">
         <button class="chip on" data-filter="all">All</button>
         <button class="chip" data-filter="network">Network</button>
