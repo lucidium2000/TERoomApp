@@ -150,6 +150,7 @@
     flight: null, touring: false, tourIdx: -1, tourT0: 0,
     land: null, borders: null, stars: null, w: 0, h: 0,
   };
+  if (qs.get('debug') === '1') window.__S = S;   // ?debug=1: app state in the console
 
   // Resampling tolerance of 1px is invisible on 110m data and roughly halves projection work.
   const projection = d3.geoOrthographic().clipAngle(90).precision(1);
@@ -630,9 +631,13 @@
    *  mouse within ~20 px of it on the globe.) */
   function wxFocus(loc, p) {
     if (loc === S.locHover || loc === S.locPick) return true;
-    const m = S.mouse;
-    return !!(m && performance.now() - m.t < 4000 && Math.hypot(m.x - p[0], m.y - p[1]) < 22);
+    const near = (m) => m && performance.now() - m.t < 4000
+      && (Math.hypot(m.x - p[0], m.y - p[1]) < 22 || inBox(m, S.wxBoxes && S.wxBoxes.get(wxKey(loc))));
+    return !!(near(S.mouse) || near(S.handPt));
   }
+  const inBox = (m, b) => !!(b && m.x >= b.x0 && m.x <= b.x1 && m.y >= b.y0 && m.y <= b.y1);
+  /** The pointer (mouse or hand cursor) over this box? */
+  const pointerIn = (b) => [S.mouse, S.handPt].some((m) => m && performance.now() - m.t < 4000 && inBox(m, b));
   /** Where this device connects from (its public IP's location, the same one
    *  the local weather and path traces use): a still, green reticle - a shape
    *  and colour no outage uses, and no pulse, so it never reads as one. */
@@ -716,6 +721,9 @@
 
   function drawOutages(now, R) {
     S.hits = [];
+    // Weather label boxes: this frame's become the next frame's hover test.
+    S.wxBoxes = S.wxBoxesNext || new Map(); S.wxBoxesNext = new Map();
+    S.wxOffer = S.wxOfferNext || null; S.wxOfferNext = null; S.wxTaps = [];
     drawPath(now, R);
     const k = Math.max(0.7, Math.min(1.6, R / 430));
     const sel = S.selected;
@@ -803,6 +811,26 @@
           drawWx(wxv.code, wxv.day, ix, y, 16 * k);
           ctx.fillStyle = '#e6edf7';
           ctx.fillText(temp, ix + 8 * k + 4 * k, y + 0.5);
+          // The weather part leads to that place's forecast card: hovered, it
+          // offers "Show forecast" just below; a tap on either opens it.
+          const wbox = { x0: ix - 10 * k, y0: y - 11 * k, x1: x + w + 5 * k, y1: y + 11 * k };
+          const pill = { x0: ix - 10 * k, y0: y + 13 * k, x1: ix - 10 * k + 104 * k, y1: y + 33 * k };
+          const offer = pointerIn(wbox) || pointerIn(pill) || (S.wxOffer === wxKey(loc) && pointerIn({ ...pill, y0: wbox.y0 }));
+          S.wxBoxesNext.set(wxKey(loc), { x0: x - 5 * k, y0: y - 11 * k, x1: offer ? Math.max(x + w + 5 * k, pill.x1) : x + w + 5 * k, y1: offer ? pill.y1 : y + 11 * k });
+          S.wxTaps.push({ box: wbox, loc }); if (offer) S.wxTaps.push({ box: pill, loc });
+          if (offer) {
+            S.wxOfferNext = wxKey(loc);
+            ctx.save();
+            ctx.fillStyle = 'rgba(22,189,235,0.92)';
+            ctx.beginPath();
+            const r = 10 * k;
+            if (ctx.roundRect) ctx.roundRect(pill.x0, pill.y0, pill.x1 - pill.x0, pill.y1 - pill.y0, r); else ctx.rect(pill.x0, pill.y0, pill.x1 - pill.x0, pill.y1 - pill.y0);
+            ctx.fill();
+            ctx.fillStyle = '#04121a';
+            ctx.font = `700 ${Math.round(11.5 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+            ctx.fillText('Show forecast \u203A', pill.x0 + 10 * k, (pill.y0 + pill.y1) / 2 + 0.5);
+            ctx.restore();
+          }
         }
       }
     }
@@ -2173,6 +2201,13 @@
       lastTap = { t, x: e.clientX, y: e.clientY };
     }
     if (down && !down.moved && e.type === 'pointerup') {
+      // Tap on a city's weather (or its "Show forecast"): that place's forecast card.
+      const wt = (S.wxTaps || []).find((h) => inBox({ x: e.clientX, y: e.clientY }, h.box));
+      if (wt) {
+        openWxCard({ lat: wt.loc.lat, lon: wt.loc.lon, name: wt.loc.label || String(wt.loc.name).split(',')[0] });
+        down = null; S.dragging = false;
+        return;
+      }
       // Tap on this room's pin: show its card for a few seconds.
       const q = S.roomPt;
       if (q && Math.hypot(q.x - e.clientX, q.y - e.clientY) < 22) {
@@ -2576,7 +2611,8 @@
       const elx = document.elementFromPoint(x, y);
       if (!elx) return false;
       if (elx === canvas) return S.hits.some((h) => Math.hypot(h.x - x, h.y - y) < h.r)
-        || !!(S.roomPt && Math.hypot(S.roomPt.x - x, S.roomPt.y - y) < 22);
+        || !!(S.roomPt && Math.hypot(S.roomPt.x - x, S.roomPt.y - y) < 22)
+        || (S.wxTaps || []).some((h) => inBox({ x, y }, h.box));
       return !!elx.closest('button, a, li, .chip, .svc, [role="button"], #tlChart, .rn-row, [data-id]');
     }
     function clickAt(x, y) {
@@ -2869,14 +2905,20 @@
   const wxCard = document.getElementById('wxCard');
   let wxAskT = 0;
   /** Say the full forecast now (turning speech on if it was off). */
-  function speakForecast() {
+  function speakForecast(place) {
     const T = window.Tts;
     if (!T) return;
+    const placeText = () => {
+      if (!place || !N) return null;
+      const rec = placeWx(place);
+      const t = rec.brief ? N.weather(rec.brief, place.name) : '';
+      return t ? { text: t } : null;
+    };
     if (!T.enabled) { T.setEnabled(true); toast('Speech on - getting the forecast\u2026', 'info', true); }
     clearInterval(wxAskT);
     let tries = 0;
     wxAskT = setInterval(() => {
-      const w = T.state === 'ready' ? weatherSpeech() : null;
+      const w = T.state === 'ready' ? (place ? placeText() : weatherSpeech()) : null;
       if (!w && ++tries <= 120 && T.enabled) return;   // up to a minute
       clearInterval(wxAskT);
       if (!w) { if (T.enabled) toast('The forecast isn\u2019t available right now', 'info'); return; }
@@ -2893,12 +2935,33 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawWx(code, day, size / 2, size / 2, size * 0.9, g);
   };
+  // The card shows this room's area, or another place (a city's weather on
+  // the globe). Other places are fetched on demand and kept for 10 minutes.
+  let wxPlace = null;
+  const wxPlaces = new Map();
+  const meteoUrl = (lat, lon) => 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lon.toFixed(3)
+    + '&current=temperature_2m,weather_code,is_day,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation'
+    + '&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&forecast_days=1&timezone=auto'
+    + (WX_C ? '' : '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch');
+  function placeWx(pl) {
+    const key = `${pl.lat.toFixed(2)},${pl.lon.toFixed(2)}`, got = wxPlaces.get(key);
+    if (got && Date.now() - got.at < 10 * 60e3) return got;
+    const rec = { at: Date.now(), brief: null, now: null, loading: true };
+    wxPlaces.set(key, rec);
+    Promise.all([
+      window.WxBrief ? window.WxBrief.get(pl.lat, pl.lon, { fahrenheit: !WX_C }).catch(() => null) : null,
+      fetch(meteoUrl(pl.lat, pl.lon)).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([b, n]) => { rec.brief = b; rec.now = n; rec.loading = false; if (wxPlace === pl && !wxCard.hidden) renderWxCard(); });
+    return rec;
+  }
   function renderWxCard() {
-    const w = S.wxBrief, n = S.wxNow, room = S.room || {}, deg = '\u00B0';
+    const pl = wxPlace, rec = pl ? placeWx(pl) : null;
+    const w = pl ? rec.brief : S.wxBrief, n = pl ? rec.now : S.wxNow, room = S.room || {}, deg = '\u00B0';
     const WMO = (window.WxBrief && window.WxBrief.WMO) || {};
-    document.getElementById('wxcTitle').textContent = `${(w && w.city) || room.city || 'Local'} weather`;
-    document.getElementById('wxcSrc').textContent = (w && w.source === 'nws' ? 'National Weather Service' : 'Open-Meteo')
-      + (n ? ' \u00B7 now from Open-Meteo' : '');
+    document.getElementById('wxcTitle').textContent = `${pl ? pl.name : (w && w.city) || room.city || 'Local'} weather`;
+    document.getElementById('wxcSrc').textContent = !w && !n ? '' : (w && w.source === 'nws' ? 'National Weather Service' : 'Open-Meteo')
+      + (n && w && w.source === 'nws' ? ' \u00B7 now from Open-Meteo' : '');
+    wxCard.classList.toggle('no-now', !(n && n.current));
     const c = n && n.current, d = n && n.daily;
     if (c) {
       wxIcon(document.getElementById('wxcIcon'), c.weather_code, c.is_day === 1, 56);
@@ -2926,31 +2989,37 @@
       + `<b class="wxp-t${q.isDay ? '' : ' night'}">${q.temp != null ? q.temp + deg : ''}${q.low != null ? `<i>${q.low}${deg}</i>` : ''}</b></li>`).join('');
     const shown = ps.slice(w && w.source === 'nws' ? 1 : 0, 7);
     list.querySelectorAll('canvas').forEach((cv) => { const q = shown[+cv.dataset.i]; wxIcon(cv, q.code, q.isDay, 22); });
-    if (!w && !c) document.getElementById('wxcText').textContent = 'Getting the forecast\u2026';
+    if (!w && !c) document.getElementById('wxcText').textContent = pl && !rec.loading ? 'No forecast for here right now.' : 'Getting the forecast\u2026';
   }
-  function openWxCard() {
+  /** Open the card: this room's area (no place), or a place {lat, lon, name}. */
+  function openWxCard(place) {
     userInput(); sfx('open');
+    wxPlace = place && isFinite(place.lat) ? place : null;
+    // Cloud speech only has this room's forecast pre-rendered.
+    document.getElementById('wxcSpeak').hidden = !window.Tts || (!!wxPlace && cloudMode());
     renderWxCard();
     wxCard.hidden = false;
     // Just below the clock and weather, lined up with their right edge.
     const r = document.querySelector('.wxbar').getBoundingClientRect();
     wxCard.style.top = ((r.bottom + 8) / UIZ) + 'px';
     wxCard.style.right = (Math.max(8, innerWidth - r.right) / UIZ) + 'px';
-    if (!S.wxBrief && S.room && window.WxBrief) {
+    if (!wxPlace && !S.wxBrief && S.room && window.WxBrief) {
       window.WxBrief.get(S.room.lat, S.room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) { S.wxBrief = w; if (!wxCard.hidden) renderWxCard(); } }).catch(() => {});
     }
   }
   const closeWxCard = () => { if (!wxCard.hidden) { wxCard.hidden = true; sfx('close'); } };
-  if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden) openWxCard(); else closeWxCard(); });
+  if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden || wxPlace) openWxCard(null); else closeWxCard(); });
   document.getElementById('wxcClose').addEventListener('click', (e) => { e.stopPropagation(); closeWxCard(); });
-  document.getElementById('wxcSpeak').addEventListener('click', (e) => { e.stopPropagation(); userInput(); sfx('tap'); speakForecast(); });
+  document.getElementById('wxcSpeak').addEventListener('click', (e) => { e.stopPropagation(); userInput(); sfx('tap'); speakForecast(wxPlace); });
   // Show radar: the past hour, looping, with the globe turned to this area.
   document.getElementById('wxcRadar').addEventListener('click', (e) => {
     e.stopPropagation(); userInput(); sfx('on');
     if (S.setRadarMode) S.setRadarMode('loop');
+    const keep = wxPlace;
     closeWxCard();
     select(null);
-    if (S.room && isFinite(S.room.lat)) zoomTo(Math.max(view.zoom, 2.6), [S.room.lon, S.room.lat]);
+    const at = keep || S.room;
+    if (at && isFinite(at.lat)) zoomTo(Math.max(view.zoom, 2.6), [at.lon, at.lat]);
     toast('Weather radar: past hour', 'info');
   });
   wxCard.addEventListener('pointerdown', (e) => e.stopPropagation());

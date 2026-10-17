@@ -921,6 +921,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   box-shadow: 0 20px 60px rgba(0, 0, 0, .55); animation: rise .25s ease-out;
 }
 .wx-card[hidden] { display: none; }
+.wx-card.no-now .wxc-now { display: none; }
 .wx-card h3 { margin: 0; font-size: 1.05em; }
 .wxc-src { margin: .15em 0 .7em; font-size: .72em; color: var(--ink-3); }
 .wxc-now { display: grid; grid-template-columns: auto 1fr; gap: .2em .8em; align-items: center; }
