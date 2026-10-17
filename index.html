@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=159">
+  <link rel="stylesheet" href="css/app.css?v=161">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -27,6 +27,7 @@
     <h3 id="wxcTitle">Weather</h3>
     <p class="wxc-src" id="wxcSrc"></p>
     <div class="wxc-now"><canvas id="wxcIcon" width="64" height="64"></canvas><div class="wxc-big"><b id="wxcTemp"></b><span id="wxcDesc"></span></div><dl class="wxc-stats" id="wxcStats"></dl></div>
+    <ol class="wxc-hourly" id="wxcHourly"></ol>
     <div class="wxc-alerts" id="wxcAlerts"></div>
     <p class="wxc-text" id="wxcText"></p>
     <ol class="wxc-periods" id="wxcPeriods"></ol>
@@ -57,14 +58,10 @@
       <h2 class="sec-title">Around the World <button class="win-btn" id="winBtn" title="Time window: tap to change">Last 24 hours</button></h2>
       <div class="stats">
         <div class="stat"><b id="statActive">–</b><span>Active</span></div>
-        <div class="stat app"><b id="statApp">–</b><span>Apps</span></div>
-        <div class="stat net"><b id="statNet">–</b><span>Network</span></div>
+        <button class="stat app" data-filter="application" title="Show only application outages"><b id="statApp">–</b><span>Apps</span></button>
+        <button class="stat net" data-filter="network" title="Show only network outages"><b id="statNet">–</b><span>Network</span></button>
         <div class="stat"><b id="statLoc">–</b><span>Locations</span></div>
-      </div>
-      <div class="chips" role="tablist">
-        <button class="chip on" data-filter="all">All</button>
-        <button class="chip" data-filter="network">Network</button>
-        <button class="chip" data-filter="application">Apps</button>
+        <button class="filter-all on" data-filter="all" title="Show all outages">All</button>
       </div>
       <ol class="list" id="list"></ol>
     </section>
@@ -260,7 +257,7 @@
   <script src="js/radar.js?v=7"></script>
   <script src="js/glglobe.js?v=24"></script>
   <script src="js/glass.js?v=84"></script>
-  <script src="js/app.js?v=197"></script>
+  <script src="js/app.js?v=201"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

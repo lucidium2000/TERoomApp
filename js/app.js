@@ -514,6 +514,7 @@
       const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + room.lat.toFixed(3) + '&longitude=' + room.lon.toFixed(3)
         + '&current=temperature_2m,weather_code,is_day,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation'
         + '&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&forecast_days=1&timezone=auto'
+        + '&hourly=temperature_2m,weather_code,precipitation_probability,is_day&forecast_hours=13'
         + (WX_C ? '' : '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch'));
       const wj = r.ok ? await r.json() : null, c = wj && wj.current;
       S.wxNow = wj;   // the forecast card's "now" section
@@ -811,9 +812,10 @@
           drawWx(wxv.code, wxv.day, ix, y, 16 * k);
           ctx.fillStyle = '#e6edf7';
           ctx.fillText(temp, ix + 8 * k + 4 * k, y + 0.5);
-          // The weather part leads to that place's forecast card: hovered, it
-          // offers "Show forecast" just below; a tap on either opens it.
-          const wbox = { x0: ix - 10 * k, y0: y - 11 * k, x1: x + w + 5 * k, y1: y + 11 * k };
+          // The label (city name or weather) leads to that place's forecast
+          // card: hovered, it offers "Show forecast" just below; a tap on
+          // either opens it.
+          const wbox = { x0: x - 5 * k, y0: y - 11 * k, x1: x + w + 5 * k, y1: y + 11 * k };   // the whole label: name and weather
           const pill = { x0: ix - 10 * k, y0: y + 13 * k, x1: ix - 10 * k + 104 * k, y1: y + 33 * k };
           const offer = pointerIn(wbox) || pointerIn(pill) || (S.wxOffer === wxKey(loc) && pointerIn({ ...pill, y0: wbox.y0 }));
           S.wxBoxesNext.set(wxKey(loc), { x0: x - 5 * k, y0: y - 11 * k, x1: offer ? Math.max(x + w + 5 * k, pill.x1) : x + w + 5 * k, y1: offer ? pill.y1 : y + 11 * k });
@@ -2287,11 +2289,15 @@
     renderStats(); renderList(); renderTimeline();
   });
 
-  document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+  // Filters: the Apps and Network totals are the buttons (tap the one that's
+  // on again for all), plus a small All on the line between them.
+  const filterEls = document.querySelectorAll('.stats [data-filter]');
+  filterEls.forEach((c) => c.addEventListener('click', () => {
     sfx('tap');
     userInput();
-    S.filter = c.dataset.filter;
-    document.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c));
+    S.filter = c.dataset.filter === S.filter ? 'all' : c.dataset.filter;
+    filterEls.forEach((x) => x.classList.toggle('on', x.dataset.filter === S.filter));
+    document.querySelector('.stats').classList.toggle('filtered', S.filter !== 'all');
     if (S.selected && !outageVisible(S.selected)) select(null);
     renderList();
   }));
@@ -2942,6 +2948,7 @@
   const meteoUrl = (lat, lon) => 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lon.toFixed(3)
     + '&current=temperature_2m,weather_code,is_day,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation'
     + '&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&forecast_days=1&timezone=auto'
+    + '&hourly=temperature_2m,weather_code,precipitation_probability,is_day&forecast_hours=13'
     + (WX_C ? '' : '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch');
   function placeWx(pl) {
     const key = `${pl.lat.toFixed(2)},${pl.lon.toFixed(2)}`, got = wxPlaces.get(key);
@@ -2977,8 +2984,25 @@
         ['Rain chance', d && d.precipitation_probability_max ? `${d.precipitation_probability_max[0]}%` : ''],
         ['Sunrise / set', d ? `${time(d.sunrise[0])} / ${time(d.sunset[0])}` : ''],
       ].filter((x) => x[1]);
-      document.getElementById('wxcStats').innerHTML = stats.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+      document.getElementById('wxcStats').innerHTML = stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
     }
+    // Hourly: the next 12 hours (Open-Meteo), starting with the coming hour.
+    const hr = n && n.hourly, hourly = document.getElementById('wxcHourly');
+    if (hr && hr.time) {
+      const nowMs = Date.now() - 30 * 60e3, cells = [];
+      hr.time.forEach((t, i) => {
+        // Times are the place's own wall clock: shown as they are, compared
+        // with now through its UTC offset.
+        const wall = Date.parse(t + 'Z'), at = wall - (n.utc_offset_seconds || 0) * 1000;
+        if (at >= nowMs && cells.length < 12) {
+          cells.push({ label: new Date(wall).toLocaleTimeString([], { hour: 'numeric', timeZone: 'UTC' }), temp: hr.temperature_2m[i],
+            code: hr.weather_code[i], day: hr.is_day[i] === 1, pop: hr.precipitation_probability ? hr.precipitation_probability[i] : null });
+        }
+      });
+      hourly.innerHTML = cells.map((c, i) => `<li><span class="wxh-t">${i === 0 ? 'Now' : esc(c.label)}</span><canvas data-h="${i}"></canvas>`
+        + `<b>${Math.round(c.temp)}${deg}</b><span class="wxh-p">${c.pop ? c.pop + '%' : ''}</span></li>`).join('');
+      hourly.querySelectorAll('canvas').forEach((cv) => { const c = cells[+cv.dataset.h]; wxIcon(cv, c.code, c.day, 20); });
+    } else hourly.innerHTML = '';
     document.getElementById('wxcAlerts').innerHTML = ((w && w.alertInfo) || []).map((a) => `<div class="wxc-alert"><b>${esc(a.event)}</b>${a.headline ? `<span>${esc(a.headline)}</span>` : ''}</div>`).join('');
     const now = w && w.periods && w.periods[0];
     document.getElementById('wxcText').textContent = now && now.detailed ? `${now.name}: ${now.detailed}` : '';
@@ -2996,8 +3020,12 @@
     userInput(); sfx('open');
     wxPlace = place && isFinite(place.lat) ? place : null;
     // Cloud speech only has this room's forecast pre-rendered.
-    document.getElementById('wxcSpeak').hidden = !window.Tts || (!!wxPlace && cloudMode());
+    const canSpeak = !!window.Tts && !(wxPlace && cloudMode());
+    document.getElementById('wxcSpeak').hidden = !canSpeak;
     renderWxCard();
+    wxIdle();
+    // And say it straight away (turning the voice on if it was off).
+    if (canSpeak) speakForecast(wxPlace);
     wxCard.hidden = false;
     // Just below the clock and weather, lined up with their right edge.
     const r = document.querySelector('.wxbar').getBoundingClientRect();
@@ -3007,7 +3035,19 @@
       window.WxBrief.get(S.room.lat, S.room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) { S.wxBrief = w; if (!wxCard.hidden) renderWxCard(); } }).catch(() => {});
     }
   }
-  const closeWxCard = () => { if (!wxCard.hidden) { wxCard.hidden = true; sfx('close'); } };
+  const closeWxCard = () => { clearTimeout(wxIdleT); if (!wxCard.hidden) { wxCard.hidden = true; sfx('close'); } };
+  // Left alone, the card closes itself after a minute (not while its forecast
+  // is still being spoken); any touch, scroll or hover on it starts the minute again.
+  let wxIdleT = 0;
+  const wxIdle = () => {
+    clearTimeout(wxIdleT);
+    wxIdleT = setTimeout(function tick() {
+      if (wxCard.hidden) return;
+      if (window.Tts && window.Tts.busy) { wxIdleT = setTimeout(tick, 5000); return; }
+      closeWxCard();
+    }, 60e3);
+  };
+  ['pointerdown', 'pointermove', 'wheel', 'scroll', 'keydown'].forEach((t) => wxCard.addEventListener(t, wxIdle, { passive: true }));
   if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden || wxPlace) openWxCard(null); else closeWxCard(); });
   document.getElementById('wxcClose').addEventListener('click', (e) => { e.stopPropagation(); closeWxCard(); });
   document.getElementById('wxcSpeak').addEventListener('click', (e) => { e.stopPropagation(); userInput(); sfx('tap'); speakForecast(wxPlace); });
