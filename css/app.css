@@ -723,7 +723,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .outages .sec-title::before { background: var(--net); }
 .sec-title small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); font-size: .9em; }
 .svc {
-  display: grid; grid-template-columns: .7em minmax(0, 1fr) 56px 3.9em 5.4em; gap: .55em;
+  display: grid; grid-template-columns: .7em minmax(0, 1fr) 56px 4.2em; gap: .6em;
   align-items: center; padding: .28em .3em; border-radius: 8px; cursor: pointer;
 }
 .svc + .svc { border-top: 1px solid rgba(148, 163, 184, .08); }
@@ -760,24 +760,23 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .pe-ghost { color: var(--ink-2); border: 1px solid var(--line); }
 .pe-ghost:first-child { margin-right: auto; }
 .pe-save { color: #04121a; background: var(--app); }
-.svc-ii { align-self: flex-start; padding: 0; font-size: .74em; font-weight: 600; color: var(--ink-3); cursor: pointer; }
-.svc-ii.ii-active { color: var(--bad); }
-.svc-ii.ii-recent { color: var(--warn); }
-.svc-ii.ii-clear { color: var(--ok); opacity: .8; }
+.svc-desc { font-size: .74em; font-weight: 600; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* The line under the name follows the row's state (the HTTP code and speed). */
+.svc-ok .svc-desc { color: var(--ok); }
+.svc-warn .svc-desc { color: var(--warn); }
+.svc-bad .svc-desc { color: var(--bad); }
+.svc-wait .svc-desc { color: var(--ink-3); }
 .svc-ms { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .svc .rn-code { text-align: right; }
 .svc-down .svc-ms { color: var(--bad); }
 .rn-chip .svc-dot { width: .6em; height: .6em; }
 /* A dot that leads to an outage gets a finger-sized tap area around it. */
-.svc-dot[data-term] { position: relative; cursor: pointer; }
-.svc-dot[data-term]::after { content: ""; position: absolute; inset: -.9em; border-radius: 50%; }
 @media (max-width: 900px) { .services { display: none; } }
 /* Narrow panels: drop the sparkline before the names/status get squeezed. */
 .services { container-type: inline-size; }
-.svc-ii { white-space: nowrap; }
 @container (max-width: 360px) {
-  .svc { grid-template-columns: .7em minmax(0, 1fr) 3.6em 4.9em; gap: .45em; }
-  .svc .rn-spark, .svc > span:not(.rn-code) { display: none; }
+  .svc { grid-template-columns: .7em minmax(0, 1fr) 3.6em; gap: .45em; }
+  .svc .rn-spark, .svc > span { display: none; }
 }
 
 /* Timeline scrubbing */

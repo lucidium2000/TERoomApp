@@ -1315,7 +1315,6 @@
   /** "Your services": one row per watched service, combining its Internet
    *  Insights status (outages on the globe) with this room's live connection
    *  to it (latency, sparkline, HTTP result). The dot is the worse of the two. */
-  const LEVEL = { ok: 0, warn: 1, bad: 2 };
   function probeFor(term, probes) {
     const t = term.toLowerCase();
     const alias = { aws: 'amazon', teams: 'microsoft' }[t] || t;
@@ -1326,26 +1325,27 @@
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
     const ms = (p) => (!p ? '\u2014' : p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
     const code = (p) => (p && p.code ? `<span class="rn-code rn-c${String(p.code)[0]}">${p.code} ${esc(p.reason || '')}</span>` : '<span class="rn-code">\u2014</span>');
+    // Just this device's own checks: the colour and the line under each name
+    // come from the HTTP response (code and speed), not Internet Insights.
     const rows = CFG.watch.map((term) => {
-      const { preset, hits } = watchMatches(term);
+      const { preset } = watchMatches(term);
       const p = probeFor(term, probes);
-      const active = hits.some((o) => o.active);
-      const ii = active ? 'active' : hits.length ? 'recent' : 'clear';
-      const iiText = active ? 'active outage' : hits.length ? `${hits.length} in 24h` : 'clear';
-      const iiLvl = active ? 'bad' : hits.length ? 'warn' : 'ok';
-      const netLvl = p ? ({ slow: 'bad', down: 'bad', warn: 'warn' }[p.status] || 'ok') : 'ok';
-      const lvl = LEVEL[iiLvl] >= LEVEL[netLvl] ? iiLvl : netLvl;
+      const st = p ? p.status : 'pending';
+      const lvl = !p || st === 'pending' ? 'wait' : ({ down: 'bad', slow: 'bad', warn: 'warn' }[st] || 'ok');
+      let desc = !p ? 'no check' : st === 'pending' ? 'checking\u2026' : st === 'down' ? 'no reply'
+        : p.code ? `${p.code} ${p.reason || ''}`.trim() : 'reachable';
+      if (st === 'slow' && p.last != null) desc += ' \u00B7 slower than usual';
+      else if (st === 'warn') desc += ' \u00B7 a bit slow';
       const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '') + ' - tap for path' : 'no local probe';
-      return { term, label: preset.label, p, ii, iiText, lvl, title, idx: p ? probes.indexOf(p) : -1, hits: hits.length };
+      return { label: preset.label, p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
     });
     rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
-      + `<i class="svc-dot"${r.hits ? ` data-term="${esc(r.term)}" title="tap to go to the latest ${esc(r.label)} outage"` : ''}></i>`
+      + '<i class="svc-dot"></i>'
       + `<div class="svc-main"><span class="svc-top"><span class="svc-name">${esc(r.label)}</span>`
       + (r.idx >= 0 ? `<button class="svc-edit${r.p.custom ? ' custom' : ''}" data-edit="${r.idx}" aria-label="Edit the address checked for ${esc(r.label)}" title="Edit the address checked">${PENCIL}</button>` : '')
-      + '</span>'
-      + `<button class="svc-ii ii-${r.ii}" data-term="${esc(r.term)}"${r.hits ? ' title="tap to view the outage"' : ''}>${esc(r.iiText)}</button></div>`
-      + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b>${code(r.p)}</div>`).join('');
-    rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"${r.hits ? ` data-term="${esc(r.term)}"` : ''}></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
+      + `</span><span class="svc-desc${r.codeCls}">${esc(r.desc)}</span></div>`
+      + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b></div>`).join('');
+    rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
   }
 
   // ── Path trace (click a "From this room" row) ──────────────────────────
@@ -1712,17 +1712,7 @@
   [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
     const ed = e.target.closest('.svc-edit');
     if (ed) { e.stopPropagation(); openProbeEdit(+ed.dataset.edit, ed); return; }
-    // The Internet Insights status - or the red / amber status dot - jumps to
-    // that provider's most recent outage in the list (an active one first);
-    // the rest of the row opens the path trace.
-    const ii = e.target.closest('.svc-ii, .svc-dot[data-term]');
-    if (ii) {
-      e.stopPropagation(); userInput(); sfx('tap');
-      const { preset, hits } = watchMatches(ii.dataset.term);
-      const o = hits.slice().sort((a, b) => (b.active - a.active) || (b.start - a.start))[0];
-      if (o) { closePath(); select(o); } else toast(`${preset.label}: no outages in the last 24 hours`);
-      return;
-    }
+    // A row opens the path trace to that service.
     const t = e.target.closest('[data-i]');
     const probes = window.RoomNet && window.RoomNet.probes;
     if (t && probes) openPath(probes[+t.dataset.i]);
