@@ -659,12 +659,20 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 
 /* "Your services": Internet Insights (left) + this room's connection (right).
    It sits under the outage list, divided from it. */
-.services { margin-top: .7em; padding-top: .7em; border-top: 1px solid var(--line); flex: none; }
-.services h2 {
-  margin: 0 0 .4em; font-size: .78em; color: var(--ink-3);
-  text-transform: uppercase; letter-spacing: .12em; font-weight: 700;
+/* Panel sections: metrics, then "Your services", then "Outages" - each with a
+   divider and a title with a small accent bar. The outage list takes the rest
+   of the height and scrolls. */
+.panel .sec { border-top: 1px solid var(--line); padding-top: .85em; }
+.services { flex: none; }
+.outages { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .6em; }
+.sec-title {
+  display: flex; align-items: baseline; gap: .5em; margin: 0 0 .5em;
+  font-size: .8em; color: var(--ink-2); text-transform: uppercase; letter-spacing: .12em; font-weight: 800;
 }
-.services h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: .4em; }
+.sec-title::before { content: ""; width: 3px; height: 1em; border-radius: 2px; background: var(--app); align-self: center; }
+.outages .sec-title { margin-bottom: 0; }
+.outages .sec-title::before { background: var(--net); }
+.sec-title small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); font-size: .9em; }
 .svc {
   display: grid; grid-template-columns: .7em minmax(0, 1fr) 56px 3.9em 5.4em; gap: .55em;
   align-items: center; padding: .28em .3em; border-radius: 8px; cursor: pointer;
