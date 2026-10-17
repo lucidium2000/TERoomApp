@@ -2337,19 +2337,24 @@
   }
 
   // ── Weather radar (js/radar.js, RainViewer) ─────────────────────────────
-  // A toggle (remembered on this device, on by default), the credit line
-  // RainViewer's terms require while it's showing, and a Past hour button that
-  // loops the last hour of radar like a weather app. WebGL only.
+  // The weather button cycles live radar -> the past hour, looped like a
+  // weather app -> off (remembered on this device; live by default). The
+  // credit RainViewer's terms require shows while it's on. WebGL only.
   const radarBtn = document.getElementById('radarBtn'), radarCredit = document.getElementById('radarCredit');
-  const radarPlay = document.getElementById('radarPlay'), radarTime = radarCredit.querySelector('b');
+  const radarTime = document.getElementById('radarTime');
   if (window.Radar && window.Radar.enabled && glr) {
+    window.Radar.setMaxTex(glr.info.maxTex || 4096);
     const RADAR_A = Math.max(0.1, Math.min(1, num('radaralpha', 0.75)));
     const STEP_MS = 700, FADE = 0.35, HOLD_MS = 1600;   // per frame; crossfade share; pause on the latest
-    const pref = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === '1'; } catch (_) { return d; } };
-    const save = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch (_) { /* private mode */ } };
-    let radarOn = pref('te-radar', true), animOn = pref('te-radar-anim', false);
+    const MODES = ['live', 'loop', 'off'];
+    let mode = 'live';
+    try { mode = localStorage.getItem('te-radar-mode') || (localStorage.getItem('te-radar') === '0' ? 'off' : 'live'); } catch (_) { /* default */ }
+    if (!MODES.includes(mode)) mode = 'live';
     let frames = { n: 0, times: [] }, loopRaf = 0, loopT0 = 0, shownIdx = -1;
-    const label = (i) => { radarTime.textContent = frames.times[i] ? fmtTime(frames.times[i]) + (frames.n > 1 ? (i === frames.n - 1 ? ' (latest)' : '') : '') : ''; };
+    const label = (i) => {
+      const t = frames.times[i];
+      radarTime.textContent = !t ? '' : frames.n > 1 ? `Radar \u00B7 past hour \u00B7 ${fmtTime(t)}${i === frames.n - 1 ? ' (latest)' : ''}` : `Radar \u00B7 ${fmtTime(t)}`;
+    };
     function loop(t) {
       if (!glr || frames.n < 2) { loopRaf = 0; return; }
       const n = frames.n, cycle = n * STEP_MS + HOLD_MS, x = (t - loopT0) % cycle;
@@ -2360,39 +2365,34 @@
       loopRaf = requestAnimationFrame(loop);
     }
     const onFrames = (imgs, times) => {
-      if (!glr) return;
+      if (!glr || mode === 'off') return;
       glr.setRadarFrames(imgs, RADAR_A);
       frames = { n: imgs.length, times };
-      radarCredit.hidden = !radarOn;
+      radarCredit.hidden = false; radarTime.hidden = false;
       shownIdx = -1;
       if (frames.n > 1) { if (!loopRaf) { loopT0 = performance.now(); loopRaf = requestAnimationFrame(loop); } }
       else { if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; } label(0); }
     };
     const applyRadar = () => {
-      radarBtn.setAttribute('aria-pressed', String(radarOn));
-      radarPlay.setAttribute('aria-pressed', String(animOn));
-      radarCredit.hidden = !radarOn || !frames.n;
-      window.Radar.setAnimate(animOn);
-      if (radarOn) window.Radar.start(onFrames);
-      else {
+      radarBtn.setAttribute('aria-pressed', String(mode !== 'off'));
+      radarBtn.dataset.mode = mode;
+      if (mode === 'off') {
         window.Radar.stop();
         if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; }
         frames = { n: 0, times: [] };
+        radarCredit.hidden = true; radarTime.hidden = true;
         if (glr) glr.setRadar(null);
+        return;
       }
+      window.Radar.setAnimate(mode === 'loop');
+      window.Radar.start(onFrames);
     };
     radarBtn.addEventListener('click', () => {
       userInput();
-      radarOn = !radarOn; save('te-radar', radarOn);
-      sfx(radarOn ? 'on' : 'off');
-      toast(radarOn ? 'Weather radar on' : 'Weather radar off', 'info');
-      applyRadar();
-    });
-    radarPlay.addEventListener('click', () => {
-      userInput();
-      animOn = !animOn; save('te-radar-anim', animOn);
-      sfx('toggle');
-      toast(animOn ? 'Radar: looping the past hour' : 'Radar: latest frame', 'info');
+      mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+      try { localStorage.setItem('te-radar-mode', mode); } catch (_) { /* private mode */ }
+      sfx(mode === 'off' ? 'off' : 'on');
+      toast({ live: 'Weather radar: live', loop: 'Weather radar: past hour', off: 'Weather radar off' }[mode], 'info');
       applyRadar();
     });
     applyRadar();

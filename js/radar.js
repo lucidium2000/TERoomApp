@@ -3,19 +3,20 @@
  * Free for personal, educational and small community use, no key; credit
  * "Weather data by RainViewer" must be visible (app.js shows it). Since 2026
  * the free tier is capped at zoom 7 and 100 requests a minute per IP - this
- * uses zoom 2 (16 small tiles) every 10 minutes, well inside that.
+ * uses zoom 3 (64 tiles) every 10 minutes, paced to stay inside that.
  *
  * Every 10 minutes: read the frame list, fetch the latest radar frame as Web
  * Mercator tiles, stitch them, and reproject to the plain longitude/latitude
- * layout the globe's textures use (2048 x 1024). onFrames(canvases, times)
+ * layout the globe's textures use (4096 x 2048). onFrames(canvases, times)
  * gets the result; the globe draws it in its shader (glglobe.js).
  *
- * Animated (the past hour): the last 7 frames, 10 minutes apart, at zoom 1
- * (4 tiles each: 28 requests to start, then one new frame per update);
- * built frames are cached, so only what's new is fetched.
+ * Animated (the past hour): the last 7 frames, 10 minutes apart, at zoom 2
+ * (16 tiles each); built frames are cached, so after the first load only the
+ * newest frame is fetched each update. Requests are paced (token bucket).
  *
  * URL: radar=0 hides it entirely; radarcolor=<0-8> RainViewer colour scheme
- * (default 4, The Weather Channel); radarz=<1-3> tile zoom (default 2).
+ * (default 4, The Weather Channel); radarz=<1-4> live tile zoom (default 3);
+ * radarloopz=<1-3> past-hour zoom (default 2).
  */
 (function () {
   'use strict';
@@ -23,19 +24,34 @@
   const qs = new URLSearchParams(location.search);
   const INDEX = 'https://api.rainviewer.com/public/weather-maps.json';
   const COLOR = Math.max(0, Math.min(8, parseInt(qs.get('radarcolor'), 10) || 4));
-  const Z = Math.max(1, Math.min(3, parseInt(qs.get('radarz'), 10) || 2));
-  const TILE = 512, EVERY = 10 * 60e3, LOOP_FRAMES = 7, LOOP_Z = 1;
+  // Detail: zoom 3 for the live frame (4096 x 2048 on the globe), zoom 2 for
+  // the past-hour loop (2048 x 1024 per frame) - four times the pixels of the
+  // first version. Capped by the GPU's texture size (setMaxTex).
+  let Z = Math.max(1, Math.min(4, parseInt(qs.get('radarz'), 10) || 3));
+  let LOOP_Z = Math.max(1, Math.min(3, parseInt(qs.get('radarloopz'), 10) || 2));
+  const TILE = 512, EVERY = 10 * 60e3, LOOP_FRAMES = 7;
+  // RainViewer's free tier allows 100 requests a minute per IP: keep a token
+  // bucket of 80 a minute, so a full first load can't trip it.
+  let tokens = 80, tokenT = performance.now();
+  async function token() {
+    for (;;) {
+      const now = performance.now();
+      tokens = Math.min(80, tokens + (now - tokenT) * 80 / 60000); tokenT = now;
+      if (tokens >= 1) { tokens -= 1; return; }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
 
   let timer = 0, lastKey = '', onFrames = () => {}, frameTime = 0, running = false, animate = false, gen = 0;
   const built = new Map();   // "path|z" -> canvas, a few dozen at most
 
-  const loadImg = (url) => new Promise((resolve, reject) => {
+  const loadImg = (url) => token().then(() => new Promise((resolve, reject) => {
     const im = new Image();
     im.crossOrigin = 'anonymous';   // the tiles allow it; WebGL needs it
     im.onload = () => resolve(im);
     im.onerror = () => reject(new Error('tile failed: ' + url));
     im.src = url;
-  });
+  }));
 
   /** One radar frame as an equirectangular canvas (cached). */
   async function build(host, path, z) {
@@ -106,5 +122,10 @@
     get animate() { return animate; },
     stop() { running = false; clearInterval(timer); timer = 0; },
     get time() { return frameTime; },
+    /** Keep the stitched size within the GPU's maximum texture size. */
+    setMaxTex(px) {
+      while (Z > 1 && TILE * (1 << Z) > px) Z--;
+      while (LOOP_Z > 1 && TILE * (1 << LOOP_Z) > px) LOOP_Z--;
+    },
   };
 })();
