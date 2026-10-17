@@ -3024,8 +3024,9 @@
     document.getElementById('wxcSpeak').hidden = !canSpeak;
     renderWxCard();
     wxIdle();
-    // And say it straight away (turning the voice on if it was off).
-    if (canSpeak) speakForecast(wxPlace);
+    // Say it straight away only if the voice is already on; otherwise the
+    // card's Hear the forecast button turns it on.
+    if (canSpeak && window.Tts.enabled) speakForecast(wxPlace);
     wxCard.hidden = false;
     // Just below the clock and weather, lined up with their right edge.
     const r = document.querySelector('.wxbar').getBoundingClientRect();
@@ -3050,7 +3051,14 @@
   ['pointerdown', 'pointermove', 'wheel', 'scroll', 'keydown'].forEach((t) => wxCard.addEventListener(t, wxIdle, { passive: true }));
   if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden || wxPlace) openWxCard(null); else closeWxCard(); });
   document.getElementById('wxcClose').addEventListener('click', (e) => { e.stopPropagation(); closeWxCard(); });
-  document.getElementById('wxcSpeak').addEventListener('click', (e) => { e.stopPropagation(); userInput(); sfx('tap'); speakForecast(wxPlace); });
+  // Hear the forecast: plays it (turning the voice on if needed); tapped
+  // while it's talking, it stops.
+  document.getElementById('wxcSpeak').addEventListener('click', (e) => {
+    e.stopPropagation(); userInput(); sfx('tap');
+    const T = window.Tts;
+    if (T && T.enabled && T.busy) { clearInterval(wxAskT); overviewOn = false; T.stop(); return; }
+    speakForecast(wxPlace);
+  });
   // Show radar: the past hour, looping, with the globe turned to this area.
   document.getElementById('wxcRadar').addEventListener('click', (e) => {
     e.stopPropagation(); userInput(); sfx('on');
