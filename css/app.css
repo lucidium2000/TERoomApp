@@ -120,7 +120,14 @@ body.free .wxbar { right: var(--gutter); }
   border: 1px solid transparent;
 }
 .row + .row { margin-top: .15em; }
-.row.sel { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .16); }
+/* Shaded by type, like the card: a tint fading from the left plus a thin
+   accent edge - orange for network outages, cyan for application ones. */
+.row.network { background: linear-gradient(90deg, rgba(241, 94, 34, .16), rgba(241, 94, 34, .03) 70%); box-shadow: inset 3px 0 0 rgba(241, 94, 34, .75); }
+.row.application { background: linear-gradient(90deg, rgba(22, 189, 235, .16), rgba(22, 189, 235, .03) 70%); box-shadow: inset 3px 0 0 rgba(22, 189, 235, .75); }
+.row.network:hover { background: linear-gradient(90deg, rgba(241, 94, 34, .22), rgba(241, 94, 34, .06) 70%); }
+.row.application:hover { background: linear-gradient(90deg, rgba(22, 189, 235, .22), rgba(22, 189, 235, .06) 70%); }
+.row.network.sel { background: linear-gradient(90deg, rgba(241, 94, 34, .3), rgba(241, 94, 34, .1) 70%); border-color: rgba(241, 94, 34, .5); }
+.row.application.sel { background: linear-gradient(90deg, rgba(22, 189, 235, .3), rgba(22, 189, 235, .1) 70%); border-color: rgba(22, 189, 235, .5); }
 .row .ico {
   width: 2.2em; height: 2.2em; border-radius: 8px; display: grid; place-items: center;
   font-size: .8em; font-weight: 800; overflow: hidden;
