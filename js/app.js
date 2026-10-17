@@ -510,6 +510,7 @@
       drawWx(c.weather_code, c.is_day === 1, 14, 14, 25, g);
       localWx.hidden = false;
       localTemp.textContent = `${Math.round(c.temperature_2m)}\u00B0`;
+      S.roomWx = { code: c.weather_code, day: c.is_day === 1, t: c.temperature_2m };
       localCity.textContent = room.city || '';
     } catch (_) { /* no weather is fine */ }
   }
@@ -605,7 +606,8 @@
     if (!room || !isFinite(room.lat) || (room.lat === 0 && room.lon === 0)) return;
     const p = proj.point(room.lon, room.lat);
     if (!p) return;
-    const [x, y] = p, r = 9 * k, h = 25 * k;   // head radius; tip-to-head-centre height
+    const [x, y] = p, r = 6.5 * k, h = 18 * k;   // head radius; tip-to-head-centre height
+    S.roomPt = { x, y: y - h * 0.6 };   // for hover and tap
     ctx.save();
     // Pin: a round head tapering to a point on the location.
     const cy = y - h, a = Math.acos(r / h);   // tangent points from the tip
@@ -620,6 +622,46 @@
     ctx.lineWidth = 1.5 * k; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(x, cy, r * 0.4, 0, 2 * Math.PI); ctx.fill();
+    ctx.restore();
+    if (roomFocus()) roomTag(x + r + 8 * k, cy, k);
+  }
+  /** Hovered (mouse or hand cursor) or tapped in the last few seconds. */
+  function roomFocus() {
+    const q = S.roomPt, t = performance.now();
+    if (!q) return false;
+    if (S.roomPick && t < S.roomPick) return true;
+    const near = (m) => m && t - m.t < 4000 && Math.hypot(m.x - q.x, m.y - q.y) < 20;
+    return near(S.mouse) || near(S.handPt);
+  }
+  /** "Your location", the place, and its weather, in a small card. */
+  function roomTag(x, y, k) {
+    const room = S.room, w = S.roomWx;
+    const place = [room.city, room.region && room.region !== room.city ? room.region : room.country].filter(Boolean).join(', ');
+    const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.save();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = font(800, 9.5); const capW = ctx.measureText('YOUR LOCATION').width;
+    ctx.font = font(600, 13); const placeW = ctx.measureText(place).width;
+    const temp = w ? `${Math.round(w.t)}\u00B0` : '';
+    ctx.font = font(700, 13); const tempW = w ? ctx.measureText(temp).width : 0;
+    const wxW = w ? 10 * k + 18 * k + 4 * k + tempW : 0;
+    const pad = 9 * k, bw = Math.max(capW, placeW + wxW) + pad * 2, bh = 40 * k, top = y - bh / 2;
+    ctx.fillStyle = 'rgba(5,7,13,0.88)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, top, bw, bh, 8 * k); else ctx.rect(x, top, bw, bh);
+    ctx.fill();
+    ctx.lineWidth = 1 * k; ctx.strokeStyle = 'rgba(52,211,153,0.55)'; ctx.stroke();
+    ctx.font = font(800, 9.5); ctx.fillStyle = '#34d399';
+    ctx.fillText('YOUR LOCATION', x + pad, top + 12 * k);
+    const ly = top + 27 * k;
+    ctx.font = font(600, 13); ctx.fillStyle = '#e6edf7';
+    ctx.fillText(place, x + pad, ly);
+    if (w) {
+      const ix = x + pad + placeW + 10 * k + 9 * k;
+      drawWx(w.code, w.day, ix, ly, 18 * k);
+      ctx.font = font(700, 13); ctx.fillStyle = '#ffffff';
+      ctx.fillText(temp, ix + 9 * k + 4 * k, ly);
+    }
     ctx.restore();
   }
 
@@ -1883,6 +1925,15 @@
       lastTap = { t, x: e.clientX, y: e.clientY };
     }
     if (down && !down.moved && e.type === 'pointerup') {
+      // Tap on this room's pin: show its card for a few seconds.
+      const q = S.roomPt;
+      if (q && Math.hypot(q.x - e.clientX, q.y - e.clientY) < 22) {
+        S.roomPick = performance.now() + 8000;
+        sfx('select');
+        down = null; S.dragging = false;
+        return;
+      }
+      S.roomPick = 0;
       // Tap: pick the nearest marker, else clear the selection.
       let best = null, bd = Infinity;
       for (const h of S.hits) {
@@ -2271,6 +2322,7 @@
         }
       }
       hcDot.style.transform = `translate3d(${hc.x.toFixed(1)}px, ${hc.y.toFixed(1)}px, 0)`;
+      S.handPt = { x: hc.x, y: hc.y, t };   // hover on the globe (the room pin)
       if (t - (hc.overT || 0) > 120) {   // what's under the dot, a few times a second
         hc.overT = t;
         handCursor.classList.toggle('over', !hc.grabbing && clickable(hc.x, hc.y));
@@ -2280,7 +2332,8 @@
     function clickable(x, y) {
       const elx = document.elementFromPoint(x, y);
       if (!elx) return false;
-      if (elx === canvas) return S.hits.some((h) => Math.hypot(h.x - x, h.y - y) < h.r);
+      if (elx === canvas) return S.hits.some((h) => Math.hypot(h.x - x, h.y - y) < h.r)
+        || !!(S.roomPt && Math.hypot(S.roomPt.x - x, S.roomPt.y - y) < 22);
       return !!elx.closest('button, a, li, .chip, .svc, [role="button"], #tlChart, .rn-row, [data-id]');
     }
     function clickAt(x, y) {
