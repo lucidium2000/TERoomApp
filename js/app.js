@@ -586,6 +586,13 @@
 
   function outageVisible(o) { return S.filter === 'all' || o.kind === S.filter; }
 
+  /** Is this location the one being looked at? (Card hover/tap, or the
+   *  mouse within ~20 px of it on the globe.) */
+  function wxFocus(loc, p) {
+    if (loc === S.locHover || loc === S.locPick) return true;
+    const m = S.mouse;
+    return !!(m && performance.now() - m.t < 4000 && Math.hypot(m.x - p[0], m.y - p[1]) < 22);
+  }
   function drawOutages(now, R) {
     S.hits = [];
     drawPath(now, R);
@@ -656,7 +663,9 @@
         const label = loc.label;
         const x = p[0] + 14 * k, y = p[1];
         const tw = loc.tw || (loc.tw = ctx.measureText(label).width / k);
-        const wxv = wx.get(wxKey(loc)), hasWx = wxv && wxv !== 'pending';
+        // Weather only for the location being looked at (hovered or tapped in
+        // the card, or under the mouse on the globe): keeps the map clean.
+        const wxv = wx.get(wxKey(loc)), hasWx = wxv && wxv !== 'pending' && wxFocus(loc, p);
         const temp = hasWx ? `${Math.round(wxv.t)}\u00B0` : '';
         const tempW = hasWx ? ctx.measureText(temp).width : 0;
         const extra = hasWx ? 8 * k + 16 * k + 4 * k + tempW : 0;   // gap, icon, gap, temperature
@@ -1770,6 +1779,9 @@
     S.dragging = true; S.vel.lon = S.vel.lat = 0;
   });
 
+  // Mouse position over the globe, for weather on the city under it.
+  canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') S.mouse = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener('pointerleave', () => { S.mouse = null; });
   canvas.addEventListener('pointermove', (e) => {
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
