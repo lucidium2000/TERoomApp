@@ -2384,7 +2384,19 @@
     S.lastInput = now();
     setTour(on);
     if (!on) S.lastInput = now();
+    // Starting the tour with speech off: a small "Muted" note by the speaker
+    // button, so it's clear the tour won't be narrated.
+    if (on && window.Tts && !window.Tts.enabled) mutedHint();
   });
+  function mutedHint() {
+    const btn = document.getElementById('ttsBtn');
+    if (!btn || btn.hidden) return;
+    let tip = document.getElementById('mutedTip');
+    if (!tip) { tip = document.createElement('div'); tip.id = 'mutedTip'; tip.className = 'muted-tip'; tip.textContent = 'Muted'; btn.appendChild(tip); }
+    tip.classList.remove('show'); void tip.offsetWidth; tip.classList.add('show');
+    clearTimeout(mutedHint.t);
+    mutedHint.t = setTimeout(() => tip.classList.remove('show'), 2600);
+  }
 
   // Redraw in the same task as the resize: a resized canvas is blank until it
   // is drawn again, and waiting for the next frame can show that as a flash.
