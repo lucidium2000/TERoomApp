@@ -816,7 +816,12 @@
           // card: hovered, it offers "Show forecast" just below; a tap on
           // either opens it.
           const wbox = { x0: x - 5 * k, y0: y - 11 * k, x1: x + w + 5 * k, y1: y + 11 * k };   // the whole label: name and weather
-          const pill = { x0: ix - 10 * k, y0: y + 13 * k, x1: ix - 10 * k + 104 * k, y1: y + 33 * k };
+          // A small pill, sized to its words, tucked just under the label. It
+          // doesn't grow with the zoom the way labels do (kp is capped).
+          const kp = Math.min(k, 1.05);
+          ctx.save(); ctx.font = `700 ${Math.round(9.5 * kp)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+          const pillW = ctx.measureText('Show forecast \u203A').width + 12 * kp; ctx.restore();
+          const pill = { x0: x + w + 5 * k - pillW, y0: y + 12 * k, x1: x + w + 5 * k, y1: y + 12 * k + 15 * kp };
           const offer = pointerIn(wbox) || pointerIn(pill) || (S.wxOffer === wxKey(loc) && pointerIn({ ...pill, y0: wbox.y0 }));
           S.wxBoxesNext.set(wxKey(loc), { x0: x - 5 * k, y0: y - 11 * k, x1: offer ? Math.max(x + w + 5 * k, pill.x1) : x + w + 5 * k, y1: offer ? pill.y1 : y + 11 * k });
           S.wxTaps.push({ box: wbox, loc }); if (offer) S.wxTaps.push({ box: pill, loc });
@@ -825,12 +830,12 @@
             ctx.save();
             ctx.fillStyle = 'rgba(22,189,235,0.92)';
             ctx.beginPath();
-            const r = 10 * k;
+            const r = 7.5 * kp;
             if (ctx.roundRect) ctx.roundRect(pill.x0, pill.y0, pill.x1 - pill.x0, pill.y1 - pill.y0, r); else ctx.rect(pill.x0, pill.y0, pill.x1 - pill.x0, pill.y1 - pill.y0);
             ctx.fill();
             ctx.fillStyle = '#04121a';
-            ctx.font = `700 ${Math.round(11.5 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-            ctx.fillText('Show forecast \u203A', pill.x0 + 10 * k, (pill.y0 + pill.y1) / 2 + 0.5);
+            ctx.font = `700 ${Math.round(9.5 * kp)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+            ctx.fillText('Show forecast \u203A', pill.x0 + 6 * kp, (pill.y0 + pill.y1) / 2 + 0.5);
             ctx.restore();
           }
         }
