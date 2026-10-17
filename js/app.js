@@ -511,8 +511,11 @@
       // cloud speech gets its own, rendered by the GitHub Action.
       if (window.WxBrief) window.WxBrief.get(room.lat, room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) S.wxBrief = w; }).catch(() => {});
       const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + room.lat.toFixed(3) + '&longitude=' + room.lon.toFixed(3)
-        + '&current=temperature_2m,weather_code,is_day' + (WX_C ? '' : '&temperature_unit=fahrenheit'));
-      const c = r.ok ? (await r.json()).current : null;
+        + '&current=temperature_2m,weather_code,is_day,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation'
+        + '&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&forecast_days=1&timezone=auto'
+        + (WX_C ? '' : '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch'));
+      const wj = r.ok ? await r.json() : null, c = wj && wj.current;
+      S.wxNow = wj;   // the forecast card's "now" section
       if (!c) throw new Error('weather ' + r.status);
       const g = localWx.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
       localWx.width = localWx.height = Math.round(28 * dpr);
@@ -2725,6 +2728,13 @@
       toast({ live: 'Weather radar: live', loop: 'Weather radar: past hour', off: 'Weather radar off' }[mode], 'info');
       applyRadar();
     });
+    /** Set the radar to a mode from elsewhere (the forecast card). */
+    S.setRadarMode = (m) => {
+      if (!MODES.includes(m)) return;
+      mode = m;
+      try { localStorage.setItem('te-radar-mode2', mode); } catch (_) { /* private mode */ }
+      applyRadar();
+    };
     applyRadar();
   } else {
     radarBtn.hidden = true;
@@ -2851,20 +2861,18 @@
     ttsBtn.hidden = true;
   }
 
-  // Tap the weather by the clock (top right): the full local forecast, said
-  // straight away. Turns speech on if it was off (the tap allows audio), and
-  // waits for the voice (or the cloud clips) to be ready.
+  // Tap the weather by the clock (top right): the local forecast card - now
+  // (feels like, humidity, wind, high/low), the weather service's forecast in
+  // its own words, the next few periods and any alert - with a button to
+  // hear it said.
   const wxLine = document.querySelector('.wxbar .local');
+  const wxCard = document.getElementById('wxCard');
   let wxAskT = 0;
-  if (wxLine && window.Tts) wxLine.addEventListener('click', (e) => {
-    e.stopPropagation();
-    userInput();
-    sfx('tap');
+  /** Say the full forecast now (turning speech on if it was off). */
+  function speakForecast() {
     const T = window.Tts;
+    if (!T) return;
     if (!T.enabled) { T.setEnabled(true); toast('Speech on - getting the forecast\u2026', 'info', true); }
-    if (!S.wxBrief && S.room && window.WxBrief) {
-      window.WxBrief.get(S.room.lat, S.room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) S.wxBrief = w; }).catch(() => {});
-    }
     clearInterval(wxAskT);
     let tries = 0;
     wxAskT = setInterval(() => {
@@ -2877,7 +2885,79 @@
       T.stop();
       speakProtected(w.text || '', w.clips);
     }, 500);
+  }
+  const wxIcon = (cv, code, day, size) => {
+    const g = cv.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
+    cv.width = cv.height = Math.round(size * dpr);
+    cv.style.width = cv.style.height = size + 'px';
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawWx(code, day, size / 2, size / 2, size * 0.9, g);
+  };
+  function renderWxCard() {
+    const w = S.wxBrief, n = S.wxNow, room = S.room || {}, deg = '\u00B0';
+    const WMO = (window.WxBrief && window.WxBrief.WMO) || {};
+    document.getElementById('wxcTitle').textContent = `${(w && w.city) || room.city || 'Local'} weather`;
+    document.getElementById('wxcSrc').textContent = (w && w.source === 'nws' ? 'National Weather Service' : 'Open-Meteo')
+      + (n ? ' \u00B7 now from Open-Meteo' : '');
+    const c = n && n.current, d = n && n.daily;
+    if (c) {
+      wxIcon(document.getElementById('wxcIcon'), c.weather_code, c.is_day === 1, 56);
+      document.getElementById('wxcTemp').textContent = `${Math.round(c.temperature_2m)}${deg}`;
+      document.getElementById('wxcDesc').textContent = (WMO[c.weather_code] || '').replace(/^./, (x) => x.toUpperCase());
+      const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'], dir = dirs[Math.round(((c.wind_direction_10m || 0) % 360) / 45) % 8];
+      const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
+      const stats = [
+        ['Feels like', `${Math.round(c.apparent_temperature)}${deg}`],
+        ['High / low', d ? `${Math.round(d.temperature_2m_max[0])}${deg} / ${Math.round(d.temperature_2m_min[0])}${deg}` : ''],
+        ['Humidity', `${Math.round(c.relative_humidity_2m)}%`],
+        ['Wind', `${dir} ${Math.round(c.wind_speed_10m)} ${WX_C ? 'km/h' : 'mph'}`],
+        ['Rain chance', d && d.precipitation_probability_max ? `${d.precipitation_probability_max[0]}%` : ''],
+        ['Sunrise / set', d ? `${time(d.sunrise[0])} / ${time(d.sunset[0])}` : ''],
+      ].filter((x) => x[1]);
+      document.getElementById('wxcStats').innerHTML = stats.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+    }
+    document.getElementById('wxcAlerts').innerHTML = ((w && w.alertInfo) || []).map((a) => `<div class="wxc-alert"><b>${esc(a.event)}</b>${a.headline ? `<span>${esc(a.headline)}</span>` : ''}</div>`).join('');
+    const now = w && w.periods && w.periods[0];
+    document.getElementById('wxcText').textContent = now && now.detailed ? `${now.name}: ${now.detailed}` : '';
+    const list = document.getElementById('wxcPeriods');
+    const ps = (w && w.periods) || [];
+    list.innerHTML = ps.slice(w && w.source === 'nws' ? 1 : 0, 7).map((q, i) => `<li><canvas data-i="${i}"></canvas><span class="wxp-n">${esc(q.name)}</span>`
+      + `<span class="wxp-s">${esc(q.short)}</span><span class="wxp-p">${q.pop ? q.pop + '%' : ''}</span>`
+      + `<b class="wxp-t${q.isDay ? '' : ' night'}">${q.temp != null ? q.temp + deg : ''}${q.low != null ? `<i>${q.low}${deg}</i>` : ''}</b></li>`).join('');
+    const shown = ps.slice(w && w.source === 'nws' ? 1 : 0, 7);
+    list.querySelectorAll('canvas').forEach((cv) => { const q = shown[+cv.dataset.i]; wxIcon(cv, q.code, q.isDay, 22); });
+    if (!w && !c) document.getElementById('wxcText').textContent = 'Getting the forecast\u2026';
+  }
+  function openWxCard() {
+    userInput(); sfx('open');
+    renderWxCard();
+    wxCard.hidden = false;
+    // Just below the clock and weather, lined up with their right edge.
+    const r = document.querySelector('.wxbar').getBoundingClientRect();
+    wxCard.style.top = ((r.bottom + 8) / UIZ) + 'px';
+    wxCard.style.right = (Math.max(8, innerWidth - r.right) / UIZ) + 'px';
+    if (!S.wxBrief && S.room && window.WxBrief) {
+      window.WxBrief.get(S.room.lat, S.room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) { S.wxBrief = w; if (!wxCard.hidden) renderWxCard(); } }).catch(() => {});
+    }
+  }
+  const closeWxCard = () => { if (!wxCard.hidden) { wxCard.hidden = true; sfx('close'); } };
+  if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden) openWxCard(); else closeWxCard(); });
+  document.getElementById('wxcClose').addEventListener('click', (e) => { e.stopPropagation(); closeWxCard(); });
+  document.getElementById('wxcSpeak').addEventListener('click', (e) => { e.stopPropagation(); userInput(); sfx('tap'); speakForecast(); });
+  // Show radar: the past hour, looping, with the globe turned to this area.
+  document.getElementById('wxcRadar').addEventListener('click', (e) => {
+    e.stopPropagation(); userInput(); sfx('on');
+    if (S.setRadarMode) S.setRadarMode('loop');
+    closeWxCard();
+    select(null);
+    if (S.room && isFinite(S.room.lat)) zoomTo(Math.max(view.zoom, 2.6), [S.room.lon, S.room.lat]);
+    toast('Weather radar: past hour', 'info');
   });
+  wxCard.addEventListener('pointerdown', (e) => e.stopPropagation());
+  document.addEventListener('pointerdown', (e) => { if (!wxCard.hidden && !e.target.closest('.wx-card, .wxbar .local')) closeWxCard(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWxCard(); });
+  if (!window.Tts) document.getElementById('wxcSpeak').hidden = true;
+  if (!(window.Radar && window.Radar.enabled && glr)) document.getElementById('wxcRadar').hidden = true;
 
   // ── Free mode + floating callout ─────────────────────────────────────────
   const floatEl = document.getElementById('float');

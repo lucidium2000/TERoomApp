@@ -37,6 +37,20 @@
     95: 'thunderstorms', 96: 'thunderstorms with hail', 99: 'severe thunderstorms with hail',
   };
 
+  /** A forecast's words -> a WMO-style code, for the same icons the globe uses. */
+  function codeOf(t) {
+    t = String(t || '').toLowerCase();
+    if (/thunder|t-storm/.test(t)) return 95;
+    if (/snow|flurr|sleet|ice|wintry/.test(t)) return 73;
+    if (/shower/.test(t)) return 80;
+    if (/rain/.test(t)) return 63;
+    if (/drizzle/.test(t)) return 53;
+    if (/fog|haze|smoke|mist/.test(t)) return 45;
+    if (/partly|mostly sunny|mostly clear/.test(t)) return 2;
+    if (/cloudy|overcast/.test(t)) return 3;
+    return /sunny|clear/.test(t) ? 0 : 2;
+  }
+
   async function nws(lat, lon, f, headers) {
     const j = async (url) => { const r = await f(url, { headers }); if (!r.ok) throw new Error('nws ' + r.status); return r.json(); };
     const pt = await j(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
@@ -55,8 +69,16 @@
       .sort((x, y) => (order[x.severity] ?? 4) - (order[y.severity] ?? 4))
       .map((q) => q.event))].slice(0, 2);
     const city = p.relativeLocation && p.relativeLocation.properties ? p.relativeLocation.properties.city : '';
+    // The next few periods, for the forecast card.
+    const list = periods.slice(0, 8).map((q) => ({
+      name: q.name, temp: q.temperature, isDay: q.isDaytime, short: q.shortForecast, detailed: q.detailedForecast,
+      pop: q.probabilityOfPrecipitation && q.probabilityOfPrecipitation.value != null ? q.probabilityOfPrecipitation.value : null,
+      wind: [q.windDirection, q.windSpeed].filter(Boolean).join(' '), code: codeOf(q.shortForecast),
+    }));
+    const headlines = ((al && al.features) || []).map((x) => x.properties).filter((q) => q && q.event && q.status === 'Actual')
+      .map((q) => ({ event: q.event, headline: q.headline || '', severity: q.severity || '' }));
     return {
-      source: 'nws', city,
+      source: 'nws', city, periods: list, alertInfo: headlines.slice(0, 3),
       now: { name: a.name, text: speakable(a.detailedForecast || a.shortForecast), short: speakable(a.shortForecast), temp: a.temperature, isDay: a.isDaytime },
       next: b ? { name: b.name, short: speakable(b.shortForecast), temp: b.temperature, isDay: b.isDaytime } : null,
       alerts,
@@ -66,7 +88,7 @@
   async function openMeteo(lat, lon, f, fahrenheit) {
     const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lon.toFixed(3)
       + '&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max'
-      + '&forecast_days=2&timezone=auto' + (fahrenheit ? '&temperature_unit=fahrenheit&wind_speed_unit=mph' : '');
+      + '&forecast_days=5&timezone=auto' + (fahrenheit ? '&temperature_unit=fahrenheit&wind_speed_unit=mph' : '');
     const r = await f(u);
     if (!r.ok) throw new Error('open-meteo ' + r.status);
     const d = await r.json(), c = d.current, dy = d.daily;
@@ -78,8 +100,14 @@
       + `and a low of ${deg(dy.temperature_2m_min[0])}.`
       + (rain >= 30 ? ` Chance of rain is ${rain} percent.` : '')
       + (wind >= 20 ? ` Breezy, with wind around ${wind} ${fahrenheit ? 'miles' : 'kilometers'} per hour.` : '');
+    const day = (i) => new Date(dy.time[i] + 'T12:00').toLocaleDateString([], { weekday: 'long' });
+    const periods = dy.time.map((_, i) => ({
+      name: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : day(i), temp: Math.round(dy.temperature_2m_max[i]), low: Math.round(dy.temperature_2m_min[i]),
+      isDay: true, short: (WMO[dy.weather_code[i]] || 'mixed').replace(/^./, (x) => x.toUpperCase()), detailed: '',
+      pop: dy.precipitation_probability_max ? dy.precipitation_probability_max[i] : null, wind: '', code: dy.weather_code[i],
+    }));
     return {
-      source: 'open-meteo', city: '',
+      source: 'open-meteo', city: '', periods, alertInfo: [],
       now: { name: 'Today', text, short: WMO[c.weather_code] || 'mixed', temp: Math.round(dy.temperature_2m_max[0]), isDay: true },
       next: dy.weather_code[1] != null ? { name: 'Tomorrow', short: WMO[dy.weather_code[1]] || 'mixed', temp: Math.round(dy.temperature_2m_max[1]), isDay: true } : null,
       alerts: [],
@@ -97,5 +125,5 @@
     try { return await openMeteo(lat, lon, f, opts.fahrenheit !== false); } catch (_) { return null; }
   }
 
-  root.WxBrief = { get, speakable };
+  root.WxBrief = { get, speakable, codeOf, WMO };
 })(typeof window !== 'undefined' ? window : globalThis);

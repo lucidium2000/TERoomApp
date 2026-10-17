@@ -910,6 +910,50 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 
 /* Local time and weather under the title. */
 .wxbar .local { margin: .15em 0 0; color: var(--ink-2); font-size: .9em; font-weight: 600; display: flex; align-items: center; gap: .1em; font-variant-numeric: tabular-nums; }
+/* The forecast card (tap the weather by the clock). */
+.wxbar .wx-more {
+  display: inline-flex; align-items: center; gap: .15em; margin-left: .45em; padding: .1em .35em .1em .5em; border-radius: 99px;
+  font-size: .78em; font-weight: 700; color: var(--app); background: rgba(22, 189, 235, .1); border: 1px solid rgba(22, 189, 235, .3);
+}
+.wx-card {
+  position: fixed; z-index: 125; width: 23em; max-height: calc(100vh / var(--ui-zoom) - 40px); overflow: auto; zoom: var(--ui-zoom);
+  padding: 1em 1.1em 1.1em; background: rgba(9, 14, 26, .96); border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .55); animation: rise .25s ease-out;
+}
+.wx-card[hidden] { display: none; }
+.wx-card h3 { margin: 0; font-size: 1.05em; }
+.wxc-src { margin: .15em 0 .7em; font-size: .72em; color: var(--ink-3); }
+.wxc-now { display: grid; grid-template-columns: auto 1fr; gap: .2em .8em; align-items: center; }
+.wxc-big b { display: block; font-size: 2.2em; font-weight: 700; line-height: 1; }
+.wxc-big span { color: var(--ink-2); font-size: .9em; }
+.wxc-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: .5em .6em; margin: .7em 0 0; }
+.wxc-stats dt { font-size: .66em; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); font-weight: 700; }
+.wxc-stats dd { margin: .1em 0 0; font-size: .86em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wxc-alerts:empty { display: none; }
+.wxc-alert { margin-top: .8em; padding: .5em .7em; border-radius: 10px; background: rgba(251, 191, 36, .12); border: 1px solid rgba(251, 191, 36, .45); font-size: .82em; }
+.wxc-alert b { display: block; color: #fde68a; }
+.wxc-alert span { color: var(--ink-2); }
+.wxc-text { margin: .8em 0 0; font-size: .84em; line-height: 1.45; color: var(--ink-2); }
+.wxc-text:empty { display: none; }
+.wxc-periods { list-style: none; margin: .8em 0 0; padding: .3em 0 0; border-top: 1px solid var(--line); }
+.wxc-periods li { display: grid; grid-template-columns: 24px 6.5em minmax(0, 1fr) 2.6em 3.4em; gap: .5em; align-items: center; padding: .35em 0; font-size: .84em; }
+.wxc-periods li + li { border-top: 1px solid rgba(148, 163, 184, .08); }
+.wxp-n { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wxp-s { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wxp-p { color: #7dd3fc; font-size: .9em; text-align: right; font-variant-numeric: tabular-nums; }
+.wxp-t { text-align: right; font-variant-numeric: tabular-nums; }
+.wxp-t.night { color: var(--ink-2); font-weight: 500; }
+.wxp-t i { font-style: normal; color: var(--ink-3); font-weight: 500; margin-left: .3em; }
+.wxc-actions { display: flex; gap: .5em; margin-top: .9em; flex-wrap: wrap; }
+.wxc-radar {
+  display: inline-flex; align-items: center; gap: .45em; padding: .5em 1em; border-radius: 99px; min-height: 38px;
+  font-weight: 700; font-size: .84em; color: #d1fae5; background: rgba(52, 211, 153, .14); border: 1px solid rgba(52, 211, 153, .5); cursor: pointer;
+}
+.wxc-speak {
+  display: inline-flex; align-items: center; gap: .45em; padding: .5em 1em; border-radius: 99px; min-height: 38px;
+  font-weight: 700; font-size: .84em; color: #04121a; background: var(--app); cursor: pointer;
+}
+.wx-card .card-close { position: absolute; top: .45em; right: .55em; }
 /* Tap the weather to hear the forecast. */
 .wxbar .local { pointer-events: auto; cursor: pointer; border-radius: 8px; transition: background .15s; }
 .wxbar .local:hover { background: rgba(255, 255, 255, .06); }
