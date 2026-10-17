@@ -66,14 +66,22 @@
     const where = (o) => { const top = o.locations.slice().sort((a, b) => b.n - a.n)[0]; return cityOf(top) || countryOf(top) || ''; };
     const hubFactLine = (hub) => { const facts = (PH.HUB_FACTS || {})[hub]; return facts ? say('hubFact', { hub, fact: pick(facts) }) : ''; };
 
-    /** One sentence about the day as a whole (Insights.context). */
+    /** A sentence or two about the day as a whole (Insights.context): the
+     *  strongest feature, and a second, different one when there is one. */
     function dayContext(outages, now) {
       if (!Insights || !Insights.context) return '';
       const feats = Insights.context(outages, { now });
       if (!feats.length) return '';
-      const f = feats.length > 1 && rnd() < 0.35 ? feats[1] : feats[0], v = f.vars;
-      if (f.kind === 'hub') return say('hubLead', v) + ' ' + hubFactLine(v.hub);
-      return say(f.kind, v);
+      const line = (f) => (f.kind === 'hub' ? say('hubLead', f.vars) + ' ' + hubFactLine(f.vars.hub) : say(f.kind, f.vars));
+      const first = feats.length > 1 && rnd() < 0.35 ? feats[1] : feats[0];
+      const second = feats.find((f) => f !== first && f.kind !== first.kind && f.kind !== 'hub');
+      const a = line(first);
+      if (!second) return a;
+      // Don't open both with the same lead-in ("Looking at the day as a whole").
+      const lead = (t) => t.split(/[,.:]/)[0].toLowerCase();
+      let b = line(second);
+      for (let i = 0; i < 5 && lead(b) === lead(a); i++) b = line(second);
+      return a + ' ' + b;
     }
 
     return {
@@ -109,6 +117,23 @@
           if (rest.length) worst += ` ${rest.join(' and ')} had ${fill('restTail')}.`;
         }
         return [health, worst, dayContext(outages, now)].filter(Boolean).join(' ');
+      },
+
+      /** The local weather rundown (js/wxbrief.js): a lead-in, the forecast
+       *  as the weather service words it, what comes next, any alert. */
+      weather(w, cityFallback) {
+        if (!w || !w.now || !w.now.text) return '';
+        const city = w.city || cityFallback || 'the area';
+        const low = (t) => (t ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+        const parts = [say('wxLead', { city }), say('wxNow', { period: w.now.name, period_l: low(w.now.name), text: w.now.text, text_l: low(w.now.text) })];
+        if (w.next && w.next.short && w.next.temp != null) {
+          // The NWS writes short forecasts in title case ("Mostly Clear").
+          const short = w.next.short.toLowerCase();
+          parts.push(say('wxNext', { period: w.next.name, period_l: low(w.next.name), short, short_l: short,
+            hilo: w.next.isDay ? 'a high near' : 'a low around', temp: `${w.next.temp} degrees` }));
+        }
+        for (const event of (w.alerts || []).slice(0, 1)) parts.push(say('wxAlert', { event }));
+        return parts.join(' ').replace(/\.\./g, '.').replace(/\s+/g, ' ').trim();
       },
 
       /** The synopsis's closing line about this room. probes: [{name, status}].

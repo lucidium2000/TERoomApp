@@ -84,6 +84,10 @@ jobs:
       - name: Render speech
         id: speech
         continue-on-error: true
+        env:
+          # Where the room is, for the spoken weather (Settings > Secrets and
+          # variables > Actions > Variables). Unset: no weather line.
+          WEATHER_POINT: ${{ vars.WEATHER_POINT }}
         run: |
           rm -rf "$OUT/speech.new"
           node scripts/speech/render.mjs "$OUT/outages.json" "$OUT/speech.new" "$PREV/speech"

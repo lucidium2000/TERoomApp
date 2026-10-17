@@ -653,6 +653,29 @@
     causeCentral: ET(causeCentral, NOTE_LEAD),
     netTypeNetwork: ET(netTypeTail.network, NOTE_LEAD),
     relUnlikely: E(relUnlikely, [''], INSIGHT_END), relKnown, sameCityApart: E(sameCityApart, [''], INSIGHT_END),
+    // Weather for this room's area (js/wxbrief.js): a lead-in, the forecast as
+    // the weather service words it, what's next, and any alert in effect.
+    wxLead: [
+      'And a quick look outside here in {city}.', 'Now, the weather in {city}.', 'Meanwhile, outside in {city}.',
+      'Switching to the weather in {city}.', 'Before I go, the weather in {city}.', 'And for the weather here in {city}.',
+      'One more thing: the forecast for {city}.', 'Stepping outside for a moment, here in {city}.',
+      'Away from the internet, the sky over {city}.', 'Closer to home, the weather in {city}.',
+      'Now the local weather for {city}.', 'Let me check the window. {city}.', 'Over to the weather in {city}.',
+      'On a different kind of cloud, the forecast for {city}.', 'Rounding things off with the weather in {city}.',
+      "Here's the local forecast for {city}.", 'And the outlook outside, in {city}.', "Now, what's happening over {city}.",
+      'As for the actual weather in {city}.', 'Not the network kind of storm, the real one. Weather in {city}.',
+    ],
+    wxNow: ['{period}: {text}', '{period}, {text_l}', 'For {period_l}: {text}', 'Looking at {period_l}: {text}'],
+    wxNext: [
+      'Then {period_l}, {short}, {hilo} {temp}.', '{period} looks {short_l}, {hilo} {temp}.', 'After that, {period_l}: {short_l}, {hilo} {temp}.',
+      'Looking ahead to {period_l}, {short_l} with {hilo} {temp}.', 'And {period_l}, {short_l}, {hilo} {temp}.',
+      'Into {period_l}: {short_l}, {hilo} {temp}.',
+    ],
+    wxAlert: [
+      "Heads up, there's a {event} in effect.", 'Worth knowing: a {event} is in effect.', 'Note the {event} in effect for the area.',
+      "And there's an active {event} here, so keep an eye on it.", 'The weather service has a {event} out for the area.',
+      'Also, a {event} is currently in effect.',
+    ],
   };
 
 })();

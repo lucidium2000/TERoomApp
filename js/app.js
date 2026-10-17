@@ -499,6 +499,9 @@
       const room = window.PathTrace && window.PathTrace.roomInfo ? await window.PathTrace.roomInfo() : null;
       if (!room || !isFinite(room.lat)) return;
       S.room = room;   // the globe marks it (drawRoom)
+      // The spoken rundown for the tour (js/wxbrief.js); live speech only -
+      // cloud speech gets its own, rendered by the GitHub Action.
+      if (window.WxBrief) window.WxBrief.get(room.lat, room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) S.wxBrief = w; }).catch(() => {});
       const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + room.lat.toFixed(3) + '&longitude=' + room.lon.toFixed(3)
         + '&current=temperature_2m,weather_code,is_day' + (WX_C ? '' : '&temperature_unit=fahrenheit'));
       const c = r.ok ? (await r.json()).current : null;
@@ -997,6 +1000,14 @@
     // one finding per stop, before carrying on silently.
     if (S.insightQ && S.insightQ.length && window.Tts && window.Tts.enabled && !overviewBusy()) {
       const f = S.insightQ.shift();
+      if (f.weather) {
+        // No outage to show for this one: carry on the tour, and say it.
+        const w = weatherSpeech();
+        const list = tourList();
+        if (list.length) { S.tourIdx = (S.tourIdx + 1) % list.length; select(list[S.tourIdx], { fromTour: true }); }
+        if (w) speakProtected(w.text || '', w.clips);
+        return;
+      }
       select(f.focus, { fromTour: true });
       speakInsight(f, S.insightN++ === 0);
       return;
@@ -1088,9 +1099,20 @@
     const room = overviewRoom();
     if (cloudMode()) speakProtected('', [speechClip(['overview']), room.clip]);
     else speakProtected([N.overviewCore(S.outages, dataNow()), room.text].filter(Boolean).join(' '));
-    // Then the analyst's best two or three findings, one per tour stop.
-    S.insightQ = findInsights().slice(0, 3);
+    // Then the analyst's best findings (up to five), one per tour stop, and
+    // the local weather to round it off.
+    S.insightQ = findInsights().slice(0, 5);
+    if (weatherSpeech()) S.insightQ.push({ weather: true });
     S.insightN = 0;
+  }
+
+  /** The local weather rundown to say: live text, or the clip the GitHub
+   *  Action rendered for this room's area (null when there's none). */
+  function weatherSpeech() {
+    if (!N) return null;
+    if (cloudMode()) { const c = speechClip(['weather']); return c ? { clips: [c] } : null; }
+    const text = S.wxBrief ? N.weather(S.wxBrief, S.room && S.room.city) : '';
+    return text ? { text } : null;
   }
 
   // ── Insights: patterns across outages, turned into commentary ───────────

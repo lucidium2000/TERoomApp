@@ -12,7 +12,7 @@
 //
 // Usage: node render.mjs <outages.json> <outdir> [<previous speech dir>]
 //   writes <outdir>/manifest.json and <outdir>/<hash>.mp3
-// Env: SPEECH_VOICE (default af_heart), SPEECH_DTYPE (default q8: a quarter
+// Env: WEATHER_POINT ("lat,lon": also say the weather there), SPEECH_VOICE (default af_heart), SPEECH_DTYPE (default q8: a quarter
 // of the download and faster, near-identical for speech), SPEECH_BUDGET_S
 // (default 600: stop rendering new lines after this long; what's done is
 // published and the next run carries on - the most important lines go first).
@@ -37,13 +37,13 @@ const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const MAX = parseInt(process.env.SPEECH_MAX, 10) || 0;   // render at most this many new clips (testing)
 
 // ── The app's narration code, run as-is in a sandbox ──────────────────────
-const sandbox = { console, URLSearchParams, location: { search: '' }, performance, setTimeout, clearTimeout };
+const sandbox = { console, URLSearchParams, location: { search: '' }, performance, setTimeout, clearTimeout, fetch };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-for (const f of ['phrases.js', 'insights.js', 'narrate.js', 'roomnet.js']) {
+for (const f of ['phrases.js', 'insights.js', 'narrate.js', 'roomnet.js', 'wxbrief.js']) {
   vm.runInContext(await readFile(join(APP_JS, f), 'utf8'), sandbox, { filename: f });
 }
-const { PHRASES, Insights, Narrate, RoomNet } = sandbox;
+const { PHRASES, Insights, Narrate, RoomNet, WxBrief } = sandbox;
 const N = Narrate.create({ PH: PHRASES, Insights });
 const SERVICES = RoomNet.probes.map((p) => p.name);   // Webex, Microsoft 365, Zoom, Google, AWS
 
@@ -67,7 +67,7 @@ const whenBucket = (ms) => { const m = (now - ms) / 60000; return m < 5 ? 'now' 
 const state = outages.map((o) => `${o.id}:${o.active ? 1 : 0}`).sort().join(',');
 
 say(['overview'], 'overview|' + state + '|' + Math.floor(now / 3600e3), () => N.overviewCore(outages, now));
-const findings = N.findings(outages, now, {}).slice(0, 3);
+const findings = N.findings(outages, now, {}).slice(0, 5);
 const insights = findings.map((f, i) => {
   say(['insights', i], `insight|${i}|${f.rule}|${f.outages.map((o) => o.id).join(',')}`, () => N.insight(f, i === 0));
   return { rule: f.rule, score: Math.round(f.score * 100) / 100, focus: f.focus.id, outages: f.outages.map((o) => o.id) };
@@ -75,6 +75,15 @@ const insights = findings.map((f, i) => {
 for (const o of outages.slice().sort((a, b) => (b.active - a.active) || (b.start - a.start))) {
   say(['outages', o.id, 'tap'], `tap|${o.id}|${o.active ? 1 : 0}|${o.active ? '' : whenBucket(o.start)}`, () => N.tapped(o, now));
   say(['outages', o.id, 'new'], `new|${o.id}`, () => N.headsUp(o));
+}
+// The weather where the device is (WEATHER_POINT "lat,lon", a repository
+// variable): the National Weather Service's forecast words (Open-Meteo
+// outside the US). Re-rendered only when the forecast's words change.
+const WP = (process.env.WEATHER_POINT || '').split(',').map(Number);
+if (WP.length === 2 && WP.every(isFinite)) {
+  const w = await WxBrief.get(WP[0], WP[1], { fetch, ua: 'TERoomApp speech (github.com/lucidium2000/TERoomApp)' });
+  if (w) say(['weather'], 'weather|' + JSON.stringify(w), () => N.weather(w, process.env.WEATHER_CITY || ''));
+  else console.log('weather: no forecast');
 }
 // Live parts: a fixed set of variants, rendered once and reused forever.
 const variants = (path, n, seed, make) => { for (let k = 0; k < n; k++) say([...path, k], `${seed}|${k}`, make); };
@@ -98,7 +107,7 @@ for (let n = 1; n <= 500; n += n < 100 ? 1 : 10) lines.push({ path: ['num', Stri
 
 // Most important first, in case the time budget runs out: the synopsis and
 // findings, the live clips, numbers, then outages (newest first, as added).
-const rank = (l) => ({ overview: 0, insights: 1, room: 2, path: 3, num: 4, outages: 5 }[l.path[0]] ?? 6);
+const rank = (l) => ({ overview: 0, insights: 1, weather: 1, room: 2, path: 3, num: 4, outages: 5 }[l.path[0]] ?? 6);
 lines.sort((a, b) => rank(a) - rank(b));
 
 // ── Render what's new; reuse what isn't ───────────────────────────────────
