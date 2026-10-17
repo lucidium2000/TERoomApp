@@ -419,6 +419,10 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
   border: 1px solid var(--line); min-height: 32px;
 }
 .gesture.show.dormant .g-info { display: block; }
+.gesture .g-q {
+  display: inline-grid; place-items: center; width: 1.35em; height: 1.35em; margin-left: .35em; border-radius: 50%;
+  border: 1.5px solid currentColor; font-size: .9em; font-weight: 800; line-height: 1; vertical-align: -.1em;
+}
 
 /* Gesture guide */
 .guide {
