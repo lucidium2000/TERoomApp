@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=142">
+  <link rel="stylesheet" href="css/app.css?v=143">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -25,7 +25,7 @@
   <div class="wxbar">
     <p class="date" id="localDate"></p>
     <p class="clock" id="localClock"></p>
-    <p class="local"><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span></p>
+    <p class="local" role="button" tabindex="0" title="Hear the forecast" aria-label="Local weather: tap to hear the forecast"><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span></p>
     <p class="radar-time" id="radarTime" hidden><span>NOAA &middot; RainViewer Radar</span><b><i></i><em></em></b></p>
   </div>
 
@@ -236,7 +236,7 @@
   <script src="js/radar.js?v=7"></script>
   <script src="js/glglobe.js?v=24"></script>
   <script src="js/glass.js?v=84"></script>
-  <script src="js/app.js?v=178"></script>
+  <script src="js/app.js?v=179"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

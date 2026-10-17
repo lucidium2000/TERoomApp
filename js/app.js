@@ -2679,6 +2679,34 @@
     ttsBtn.hidden = true;
   }
 
+  // Tap the weather by the clock (top right): the full local forecast, said
+  // straight away. Turns speech on if it was off (the tap allows audio), and
+  // waits for the voice (or the cloud clips) to be ready.
+  const wxLine = document.querySelector('.wxbar .local');
+  let wxAskT = 0;
+  if (wxLine && window.Tts) wxLine.addEventListener('click', (e) => {
+    e.stopPropagation();
+    userInput();
+    sfx('tap');
+    const T = window.Tts;
+    if (!T.enabled) { T.setEnabled(true); toast('Speech on - getting the forecast\u2026', 'info', true); }
+    if (!S.wxBrief && S.room && window.WxBrief) {
+      window.WxBrief.get(S.room.lat, S.room.lon, { fahrenheit: !WX_C }).then((w) => { if (w) S.wxBrief = w; }).catch(() => {});
+    }
+    clearInterval(wxAskT);
+    let tries = 0;
+    wxAskT = setInterval(() => {
+      const w = T.state === 'ready' ? weatherSpeech() : null;
+      if (!w && ++tries <= 120 && T.enabled) return;   // up to a minute
+      clearInterval(wxAskT);
+      if (!w) { if (T.enabled) toast('The forecast isn\u2019t available right now', 'info'); return; }
+      // Asked for: it goes now, even over the tour's narration.
+      overviewOn = false;
+      T.stop();
+      speakProtected(w.text || '', w.clips);
+    }, 500);
+  });
+
   // ── Free mode + floating callout ─────────────────────────────────────────
   const floatEl = document.getElementById('float');
   const floatProgress = document.getElementById('floatProgress');

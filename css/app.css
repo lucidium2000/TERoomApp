@@ -841,6 +841,10 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 
 /* Local time and weather under the title. */
 .wxbar .local { margin: .15em 0 0; color: var(--ink-2); font-size: .9em; font-weight: 600; display: flex; align-items: center; gap: .1em; font-variant-numeric: tabular-nums; }
+/* Tap the weather to hear the forecast. */
+.wxbar .local { pointer-events: auto; cursor: pointer; border-radius: 8px; transition: background .15s; }
+.wxbar .local:hover { background: rgba(255, 255, 255, .06); }
+.wxbar .local:active { background: rgba(255, 255, 255, .12); }
 .wxbar .local canvas { width: 31px; height: 31px; margin: 0 .3em 0 .2em; }
 .wxbar .local #localTemp { font-size: 1.35em; font-weight: 700; color: var(--ink); }
 .wxbar .local #localCity { color: var(--ink-3); font-weight: 500; margin-left: .2em; }
