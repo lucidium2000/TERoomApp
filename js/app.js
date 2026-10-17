@@ -633,7 +633,8 @@
     const near = (m) => m && t - m.t < 4000 && Math.hypot(m.x - q.x, m.y - q.y) < 20;
     return near(S.mouse) || near(S.handPt);
   }
-  /** "Your location", the place, and its weather, in a small card. */
+  /** "Your location", the place and its weather, and the internet provider
+   *  this device connects through (from its public IP), in a small card. */
   function roomTag(x, y, k) {
     const room = S.room, w = S.roomWx;
     const place = [room.city, room.region && room.region !== room.city ? room.region : room.country].filter(Boolean).join(', ');
@@ -645,7 +646,9 @@
     const temp = w ? `${Math.round(w.t)}\u00B0` : '';
     ctx.font = font(700, 13); const tempW = w ? ctx.measureText(temp).width : 0;
     const wxW = w ? 10 * k + 18 * k + 4 * k + tempW : 0;
-    const pad = 9 * k, bw = Math.max(capW, placeW + wxW) + pad * 2, bh = 40 * k, top = y - bh / 2;
+    const isp = room.org ? `via ${room.org}${room.asn ? ` (AS${room.asn})` : ''}` : '';
+    ctx.font = font(500, 11); const ispW = isp ? ctx.measureText(isp).width : 0;
+    const pad = 9 * k, bw = Math.max(capW, placeW + wxW, ispW) + pad * 2, bh = (isp ? 56 : 40) * k, top = y - bh / 2;
     ctx.fillStyle = 'rgba(5,7,13,0.88)';
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x, top, bw, bh, 8 * k); else ctx.rect(x, top, bw, bh);
@@ -661,6 +664,10 @@
       drawWx(w.code, w.day, ix, ly, 18 * k);
       ctx.font = font(700, 13); ctx.fillStyle = '#ffffff';
       ctx.fillText(temp, ix + 9 * k + 4 * k, ly);
+    }
+    if (isp) {
+      ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8';
+      ctx.fillText(isp, x + pad, top + 44 * k);
     }
     ctx.restore();
   }
