@@ -49,6 +49,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   margin: 0; font-size: 1.6em; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1;
   display: flex; align-items: center; gap: 0.5em;
 }
+/* Optical alignment: the logo's T crossbar reaches its left edge but the
+   stem sits ~4px in; nudge the title so its I lines up with the T stem. */
+.brand-text { padding-left: 3px; }
 .brand .updated { margin: .2em 0 0; font-size: .72em; font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 /* Local time and weather, radar line: top right, beside the panel. */
 .wxbar {

@@ -1,4 +1,5 @@
-/* Live weather radar for the globe, from RainViewer (rainviewer.com).
+/* Live weather radar for the globe: NOAA MRMS over North America (sharp,
+ * quality-controlled), RainViewer (rainviewer.com) for the rest of the world.
  *
  * Free for personal, educational and small community use, no key; credit
  * "Weather data by RainViewer" must be visible (app.js shows it). Since 2026
@@ -16,7 +17,7 @@
  * newest frame is fetched each update. Requests are paced (token bucket).
  *
  * URL: radar=0 hides it entirely; radarcolor=<0-8> RainViewer colour scheme
- * (default 4, The Weather Channel); radarz=<1-4> live tile zoom (default 3);
+ * (default 6, NEXRAD Level III); radarus=0 skips the NOAA layer; radarz=<1-4> live tile zoom (default 3);
  * radarloopz=<1-3> past-hour zoom (default 2); radarsoft=<px> smoothing blur
  * (default 1.2, 0 = off).
  */
@@ -25,7 +26,16 @@
 
   const qs = new URLSearchParams(location.search);
   const INDEX = 'https://api.rainviewer.com/public/weather-maps.json';
-  const COLOR = Math.max(0, Math.min(8, parseInt(qs.get('radarcolor'), 10) || 4));
+  // Colour scheme 6 (NEXRAD Level III) matches NOAA's palette at the seam.
+  const COLOR = Math.max(0, Math.min(8, parseInt(qs.get('radarcolor'), 10) || 6));
+  // North America: NOAA's MRMS quality-controlled reflectivity (US public
+  // domain, no key, CORS open), as one plain lon/lat image per frame - about
+  // 1.9 km a pixel, five times sharper than the global layer, and free of the
+  // clutter rings raw radar has. Its domain covers southern Canada too.
+  const REG = qs.get('radarus') !== '0';
+  const REG_BOX = [-130, 20, -60, 55];
+  const REG_WMS = 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows';
+  let REG_W = 4096, REG_LOOP_W = 2048;
   // Detail: zoom 3 for the live frame (4096 x 2048 on the globe), zoom 2 for
   // the past-hour loop (2048 x 1024 per frame) - four times the pixels of the
   // first version. Capped by the GPU's texture size (setMaxTex).
@@ -55,6 +65,30 @@
     im.onerror = () => reject(new Error('tile failed: ' + url));
     im.src = url;
   }));
+
+  /** The regional frame nearest a time (null = latest), or null on failure. */
+  const regBuilt = new Map();
+  async function region(timeMs, w) {
+    const key = (timeMs || 'now') + '|' + w;
+    if (timeMs && regBuilt.has(key)) return regBuilt.get(key);
+    const q = new URLSearchParams({
+      SERVICE: 'WMS', VERSION: '1.1.1', REQUEST: 'GetMap', LAYERS: 'conus_bref_qcd', STYLES: '',
+      SRS: 'EPSG:4326', BBOX: REG_BOX.join(','), WIDTH: w, HEIGHT: w / 2, FORMAT: 'image/png', TRANSPARENT: 'true',
+    });
+    if (timeMs) q.set('TIME', new Date(timeMs).toISOString().replace(/\.\d+Z$/, 'Z'));
+    const img = await new Promise((resolve) => {
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => resolve(im);
+      im.onerror = () => resolve(null);
+      im.src = REG_WMS + '?' + q;
+    });
+    if (img && timeMs) {
+      regBuilt.set(key, img);
+      if (regBuilt.size > 10) regBuilt.delete(regBuilt.keys().next().value);
+    }
+    return img;
+  }
 
   /** One radar frame as an equirectangular canvas (cached). */
   async function build(host, path, z) {
@@ -114,20 +148,24 @@
       const times = frames.map((f) => f.time * 1000);
       frameTime = times[times.length - 1];
       if (!animate) {
-        const img = await build(idx.host, frames[0].path, Z);
+        const [img, reg] = await Promise.all([build(idx.host, frames[0].path, Z), REG ? region(times[0], REG_W) : null]);
         if (!running || mine !== gen) return;
-        lastKey = key; onFrames([img], times);
+        lastKey = key; onFrames([img], times, [reg]);
         return;
       }
       // The past hour, newest first: the latest frame is the live one (most
       // likely built already), shown at once; older frames join the loop as
       // they arrive, so it plays within seconds instead of after a minute.
-      const imgs = new Array(frames.length).fill(null);
+      const imgs = new Array(frames.length).fill(null), regs = new Array(frames.length).fill(null);
       for (let i = frames.length - 1; i >= 0; i--) {
-        imgs[i] = await build(idx.host, frames[i].path, i === frames.length - 1 ? Z : LOOP_Z);
+        const last = i === frames.length - 1;
+        [imgs[i], regs[i]] = await Promise.all([
+          build(idx.host, frames[i].path, last ? Z : LOOP_Z),
+          REG ? region(times[i], last ? REG_W : REG_LOOP_W) : null,
+        ]);
         if (!running || mine !== gen) return;
-        const have = imgs.map((im, k) => [im, times[k]]).filter((x) => x[0]);
-        onFrames(have.map((x) => x[0]), have.map((x) => x[1]));
+        const have = imgs.map((im, k) => k).filter((k) => imgs[k]);
+        onFrames(have.map((k) => imgs[k]), have.map((k) => times[k]), have.map((k) => regs[k]));
       }
       lastKey = key;
     } catch (e) {
@@ -150,10 +188,15 @@
     get animate() { return animate; },
     stop() { running = false; clearInterval(timer); timer = 0; },
     get time() { return frameTime; },
+    /** The regional layer's bounds: [west, south, east, north]. */
+    regionBox: REG_BOX,
+    regional: REG,
     /** Keep the stitched size within the GPU's maximum texture size. */
     setMaxTex(px) {
       while (Z > 1 && TILE * (1 << Z) > px) Z--;
       while (LOOP_Z > 1 && TILE * (1 << LOOP_Z) > px) LOOP_Z--;
+      while (REG_W > 1024 && REG_W > px) REG_W /= 2;
+      while (REG_LOOP_W > 1024 && REG_LOOP_W > px) REG_LOOP_W /= 2;
     },
   };
 })();

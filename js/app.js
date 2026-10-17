@@ -2340,7 +2340,7 @@
   // ── Weather radar (js/radar.js, RainViewer) ─────────────────────────────
   // The weather button cycles live radar -> the past hour, looped like a
   // weather app -> off (remembered on this device; live by default). The
-  // header line ("RainViewer Radar", the credit their terms ask for, and the
+  // header line ("NOAA · RainViewer Radar", the credit RainViewer asks for, and the
   // frame time) shows while it's on. WebGL only.
   const radarBtn = document.getElementById('radarBtn');
   const radarTime = document.getElementById('radarTime'), radarTimeVal = radarTime.querySelector('b');
@@ -2366,9 +2366,9 @@
       if (i !== shownIdx) { shownIdx = i; label(i); }
       loopRaf = requestAnimationFrame(loop);
     }
-    const onFrames = (imgs, times) => {
+    const onFrames = (imgs, times, regs) => {
       if (!glr || mode === 'off') return;
-      glr.setRadarFrames(imgs, RADAR_A);
+      glr.setRadarFrames(imgs, RADAR_A, regs, window.Radar.regionBox);
       frames = { n: imgs.length, times };
       radarTime.hidden = false;
       shownIdx = -1;

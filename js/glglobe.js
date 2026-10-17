@@ -53,6 +53,10 @@ uniform sampler2D uRadar; // weather radar (RGBA, equirectangular; js/radar.js)
 uniform sampler2D uRadarB;// the next radar frame, while animating
 uniform float uRadarMix;  // crossfade toward uRadarB (0..1)
 uniform float uRadarA;    // radar opacity (0 = off)
+uniform sampler2D uReg;   // regional high-res radar (NOAA MRMS over North America)
+uniform sampler2D uRegB;  // its next frame, while animating
+uniform vec4 uRegBox;     // its bounds: west, south, east, north (degrees)
+uniform float uRegOn;     // 1 when the regional frames are loaded
 
 const float PI = 3.14159265;
 
@@ -131,10 +135,22 @@ void main() {
     g *= 1.0 - 0.5 * smoothstep(0.09, -0.3, dot(w, uSun));
 
     // Weather radar, over day and night alike (storms matter at night too).
+    // Textures are premultiplied (no light fringes where rain meets clear).
+    // Inside the regional box its sharper data replaces the global layer,
+    // feathered over the box's outer edge.
     if (uRadarA > 0.0) {
       vec4 rd = texture2D(uRadar, uv);
       if (uRadarMix > 0.0) rd = mix(rd, texture2D(uRadarB, uv), uRadarMix);
-      g = mix(g, rd.rgb, rd.a * uRadarA);
+      if (uRegOn > 0.0) {
+        vec2 ruv = vec2((lonDeg - uRegBox.x) / (uRegBox.z - uRegBox.x), (uRegBox.w - latDeg) / (uRegBox.w - uRegBox.y));
+        vec2 e = min(ruv, 1.0 - ruv);
+        float inR = smoothstep(0.0, 0.04, min(e.x, e.y));
+        vec2 cuv = clamp(ruv, 0.0, 1.0);
+        vec4 rr = texture2D(uReg, cuv);
+        if (uRadarMix > 0.0) rr = mix(rr, texture2D(uRegB, cuv), uRadarMix);
+        rd = mix(rd, rr, inR);
+      }
+      g = g * (1.0 - rd.a * uRadarA) + rd.rgb * uRadarA;
     }
 
     // Limb line, antialiased, 1.2 css px.
@@ -221,7 +237,7 @@ void main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const Q = { aPos: gl.getAttribLocation(quadProg, 'aPos') };
-    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA']) Q[n] = gl.getUniformLocation(quadProg, n);
+    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA', 'uReg', 'uRegB', 'uRegBox', 'uRegOn']) Q[n] = gl.getUniformLocation(quadProg, n);
     const Lu = { aP: gl.getAttribLocation(lineProg, 'aP') };
     for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
     gl.useProgram(quadProg);
@@ -229,6 +245,8 @@ void main() {
     gl.uniform1i(Q.uStars, 1);
     gl.uniform1i(Q.uRadar, 2);
     gl.uniform1i(Q.uRadarB, 3);
+    gl.uniform1i(Q.uReg, 4);
+    gl.uniform1i(Q.uRegB, 5);
 
     function makeTex(unit) {
       const t = gl.createTexture();
@@ -247,6 +265,7 @@ void main() {
     const blankTex = makeTex(2);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
     let radarTexs = [blankTex], radarByImg = new Map();
+    let regTexs = [blankTex], regByImg = new Map(), regOn = false, regBox = [-130, 20, -60, 55];
     let radarA = 0, radarCur = 0, radarNext = 0, radarMix = 0;
 
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -341,15 +360,17 @@ void main() {
 
     /** Weather radar: an equirectangular canvas (or null to clear) and its opacity. */
     function setRadar(img, alpha) { setRadarFrames(img ? [img] : null, alpha); }
-    /** Several radar frames (oldest first) for animation; null clears. */
-    function setRadarFrames(imgs, alpha) {
+    /** One texture per image, reusing those already uploaded. */
+    function syncTexs(imgs, byImg) {
       const next = new Map();
       for (const img of imgs || []) {
         if (!img || next.has(img)) continue;
-        let t = radarByImg.get(img);
+        let t = byImg.get(img);
         if (!t) {
           t = makeTex(2);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
           // Mipmaps (the frames are powers of two): no shimmer zoomed out.
           if (!(img.width & (img.width - 1)) && !(img.height & (img.height - 1))) {
             gl.generateMipmap(gl.TEXTURE_2D);
@@ -358,10 +379,19 @@ void main() {
         }
         next.set(img, t);
       }
-      for (const [img, t] of radarByImg) if (!next.has(img)) gl.deleteTexture(t);
-      radarByImg = next;
-      radarTexs = (imgs || []).map((img) => next.get(img) || blankTex);
-      if (!radarTexs.length) radarTexs = [blankTex];
+      for (const [img, t] of byImg) if (!next.has(img)) gl.deleteTexture(t);
+      const texs = (imgs || []).map((img) => next.get(img) || blankTex);
+      return { texs: texs.length ? texs : [blankTex], byImg: next };
+    }
+    /** Several radar frames (oldest first) for animation; null clears.
+     *  regs (optional): the matching regional frames, inside box [w, s, e, n]. */
+    function setRadarFrames(imgs, alpha, regs, box) {
+      const a = syncTexs(imgs, radarByImg);
+      radarTexs = a.texs; radarByImg = a.byImg;
+      const useReg = !!(imgs && regs && regs.length === imgs.length && regs.every(Boolean));
+      const b = syncTexs(useReg ? regs : null, regByImg);
+      regTexs = b.texs; regByImg = b.byImg; regOn = useReg;
+      if (box) regBox = box;
       radarCur = radarNext = radarTexs.length - 1; radarMix = 0;
       radarA = imgs === null ? 0 : alpha != null ? alpha : radarA;
     }
@@ -391,6 +421,10 @@ void main() {
       gl.uniform1f(Q.uRadarMix, radarMix);
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, radarTexs[radarCur] || radarTexs[0]);
       gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, radarTexs[radarNext] || radarTexs[0]);
+      gl.uniform1f(Q.uRegOn, regOn && radarA > 0 ? 1 : 0);
+      gl.uniform4f(Q.uRegBox, regBox[0], regBox[1], regBox[2], regBox[3]);
+      gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, regTexs[radarCur] || regTexs[0]);
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, regTexs[radarNext] || regTexs[0]);
       gl.uniform3f(Q.uEye, p.eye[0], p.eye[1], p.eye[2]);
       gl.uniform3f(Q.uCtr, p.ctr[0], p.ctr[1], p.ctr[2]);
       gl.uniform1f(Q.uRw, p.Rw);
