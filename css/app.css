@@ -238,6 +238,8 @@ body.signage .zoomctl { display: none; }
   position: absolute; bottom: -1.62em; left: 0; transform: translateX(-50%); white-space: nowrap;
   font-size: .75em; font-weight: 600; color: var(--ink-2);
 }
+/* The time window, top right of the timeline (same as the panel's). */
+.tl-win { position: absolute; top: 0; right: .9em; transform: translateY(-55%); z-index: 2; margin: 0; font-size: .72em; min-height: 22px; padding: .15em .7em; background: #0c1424; }
 .tl-axis {
   position: absolute; left: .9em; right: .9em; bottom: .35em; height: 1.3em;
   color: var(--ink-3); font-size: .75em;
@@ -593,6 +595,18 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .rn-spark .rn-g { stroke: rgba(230, 245, 255, .9); }
 .rn-spark .rn-a { stroke: #fbbf24; }
 .rn-spark .rn-r { stroke: #fb7185; }
+/* Hovering a row's timeline: the check under the pointer. */
+.rn-tip {
+  position: fixed; z-index: 140; pointer-events: none; padding: .4em .6em; border-radius: 9px; font-size: 12px; line-height: 1.35;
+  background: rgba(9, 14, 26, .96); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); white-space: nowrap; color: var(--ink);
+}
+.rn-tip[hidden], .rn-cur[hidden] { display: none; }
+.rn-tip b { font-variant-numeric: tabular-nums; }
+.rn-tip span { font-weight: 700; font-variant-numeric: tabular-nums; }
+.rn-tip .rt-ok { color: var(--ok); } .rn-tip .rt-warn { color: var(--warn); } .rn-tip .rt-bad { color: var(--bad); }
+.rn-tip i { font-style: normal; color: var(--ink-2); }
+.rn-tip small { display: block; color: var(--ink-3); font-size: .9em; }
+.rn-cur { position: fixed; z-index: 139; width: 2px; margin-left: -1px; pointer-events: none; background: rgba(255, 255, 255, .85); box-shadow: 0 0 6px rgba(255, 255, 255, .6); border-radius: 1px; }
 /* In the panel: the timeline takes the space between the name and the time. */
 .svc .rn-spark { width: 100%; height: 20px; border-radius: 3px; }
 
@@ -781,7 +795,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .outages .sec-title::before { background: var(--net); }
 .sec-title small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); font-size: .9em; }
 .svc {
-  display: grid; grid-template-columns: .7em 7.2em minmax(0, 1fr) 3.7em 24px; gap: .5em;
+  display: grid; grid-template-columns: .7em 5.3em minmax(0, 1fr) 3.5em 22px; gap: .45em;
   align-items: center; padding: .28em .3em; border-radius: 8px; cursor: pointer;
 }
 .svc + .svc { border-top: 1px solid rgba(148, 163, 184, .08); }
@@ -802,7 +816,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .svc-edit.custom { color: #fbbf24; opacity: 1; }
 /* Settings mode: a grip on each row for dragging into a new order. */
 .svc-grip { display: none; color: var(--ink-3); cursor: grab; touch-action: none; place-items: center; }
-.services.editing .svc { grid-template-columns: 16px .7em 7.2em minmax(0, 1fr) 3.7em 24px; background: rgba(255, 255, 255, .025); }
+.services.editing .svc { grid-template-columns: 16px .7em 5.3em minmax(0, 1fr) 3.5em 22px; background: rgba(255, 255, 255, .025); }
 .services.editing .svc + .svc { margin-top: 2px; }
 .services.editing .svc-grip { display: grid; height: 28px; }
 .services.editing .svc-edit { opacity: 1; color: var(--ink-2); }

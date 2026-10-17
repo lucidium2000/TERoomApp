@@ -11,7 +11,7 @@
   <link rel="manifest" href="site.webmanifest">
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=165">
+  <link rel="stylesheet" href="css/app.css?v=168">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -128,6 +128,7 @@
     <div class="tl-chart" id="tlChart" title="Drag to scrub through the last 24 hours">
       <svg id="timeline" preserveAspectRatio="none"></svg>
       <div class="tl-marks" id="tlMarks" aria-hidden="true"></div>
+      <button class="win-btn tl-win" id="tlWinBtn" title="Time window: tap to change">Last 24 hours</button>
       <div class="tl-scrub" id="tlScrub" hidden><span id="tlScrubLabel"></span></div>
       <div class="tl-axis"><span id="tlStart">24h ago</span><span class="tl-clock" id="tlClock1"></span><span id="tlMid">12h</span><span class="tl-clock" id="tlClock2"></span><span>now</span></div>
     </div>
@@ -263,7 +264,7 @@
   <script src="js/radar.js?v=7"></script>
   <script src="js/glglobe.js?v=24"></script>
   <script src="js/glass.js?v=84"></script>
-  <script src="js/app.js?v=207"></script>
+  <script src="js/app.js?v=209"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

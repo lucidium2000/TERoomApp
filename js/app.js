@@ -1394,7 +1394,7 @@
     const up = all.filter((x) => avail(x) === 'g').length;
     const tip = `last ${Math.max(1, Math.round((now - t0) / 60000))} min: available ${Math.round((up / all.length) * 100)}% of checks`
       + (vals.length ? `, ${Math.round(Math.min(...vals))}-${Math.round(Math.max(...vals))} ms, average ${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)} ms` : '');
-    return `<svg class="rn-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><title>${tip}</title>${out}</svg>`;
+    return `<svg class="rn-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" data-t0="${t0}" data-t1="${t1}" data-sum="${esc(tip)}">${out}</svg>`;
   }
   /** "Your services": one row per watched service, combining its Internet
    *  Insights status (outages on the globe) with this room's live connection
@@ -1777,6 +1777,36 @@
     ctx.restore();
   }
   document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
+  // Hover a row's timeline: the check under the pointer - its time, response
+  // time and answer - with a hairline marking it (the hour's summary below).
+  const rnTip = document.createElement('div'), rnCur = document.createElement('div');
+  rnTip.className = 'rn-tip'; rnCur.className = 'rn-cur'; rnTip.hidden = rnCur.hidden = true;
+  document.body.append(rnTip, rnCur);
+  const hideRnTip = () => { rnTip.hidden = rnCur.hidden = true; };
+  rnRows.addEventListener('pointermove', (e) => {
+    const svg = e.target.closest('.rn-spark'), row = svg && svg.closest('.svc[data-i]');
+    const p = row && window.RoomNet && window.RoomNet.probes[+row.dataset.i];
+    if (!p || !svg.dataset.t0 || e.pointerType === 'touch') return hideRnTip();
+    const r = svg.getBoundingClientRect(), t0 = +svg.dataset.t0, t1 = +svg.dataset.t1;
+    const t = t0 + ((e.clientX - r.left) / r.width) * (t1 - t0);
+    let best = null;
+    for (const x of p.samples) if (x.t >= t0 && (!best || Math.abs(x.t - t) < Math.abs(best.t - t))) best = x;
+    if (!best) return hideRnTip();
+    const cx = r.left + ((best.t - t0) / (t1 - t0)) * r.width;
+    const when = new Date(best.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    const code = best.code ? `${best.code}${[401, 403, 407].includes(best.code) ? ' reachable' : best.code < 400 ? ' OK' : ''}` : (best.ms != null ? 'reachable' : '');
+    const lvl = best.ms == null || best.code >= 500 ? 'bad' : best.ms >= ((window.RoomNet && window.RoomNet.SLOW_MS) || 200) ? 'bad'
+      : best.ms >= ((window.RoomNet && window.RoomNet.GOOD_MS) || 80) || (best.code >= 400 && ![401, 403, 407].includes(best.code)) ? 'warn' : 'ok';
+    rnTip.innerHTML = `<b>${esc(when)}</b> <span class="rt-${lvl}">${best.ms == null ? 'no reply' : Math.round(best.ms) + ' ms'}</span>`
+      + (code ? ` <i>${esc(code)}</i>` : '') + `<small>${esc(svg.dataset.sum || '')}</small>`;
+    rnTip.hidden = false; rnCur.hidden = false;
+    rnCur.style.cssText = `left:${cx.toFixed(1)}px;top:${r.top.toFixed(1)}px;height:${r.height.toFixed(1)}px`;
+    const tw = rnTip.offsetWidth, th = rnTip.offsetHeight;
+    rnTip.style.left = Math.max(6, Math.min(innerWidth - tw - 6, cx - tw / 2)) + 'px';
+    rnTip.style.top = Math.max(6, r.top - th - 8) + 'px';
+  });
+  rnRows.addEventListener('pointerleave', hideRnTip);
+
   // The gear on a service: settings mode for the section - that row's name
   // and the address this device checks open in a small editor, and every row
   // gets a grip to drag it into a new order. Done leaves settings mode.
@@ -2001,6 +2031,7 @@
     renderTimeline();
   }
   tlChart.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.tl-win')) return;   // the time-window button, not a scrub
     scrubbing = true; userInput();
     S.flight = null; S.spin = null; S.vel.lon = S.vel.lat = 0;
     S.follow = { vlon: 0, vlat: 0, vz: 0, lon: null };
@@ -2303,10 +2334,12 @@
   el.panel.addEventListener('pointerdown', userInput);
 
   // Time window toggle: 24 -> 1 -> 6 -> 12 -> 24 hours (remembered here).
-  const winBtn = document.getElementById('winBtn');
-  const showWindow = () => { winBtn.textContent = windowLabel(S.windowH); winBtn.dataset.h = String(S.windowH); showUpdated(); };
+  // Two buttons, one setting: in the Around the World header and at the
+  // top right of the timeline.
+  const winBtns = [document.getElementById('winBtn'), document.getElementById('tlWinBtn')].filter(Boolean);
+  const showWindow = () => { winBtns.forEach((b) => { b.textContent = windowLabel(S.windowH); b.dataset.h = String(S.windowH); }); showUpdated(); };
   showWindow();
-  winBtn.addEventListener('click', (e) => {
+  winBtns.forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     sfx('tap');
     userInput();
@@ -2315,7 +2348,7 @@
     showWindow();
     if (S.selected && !outageVisible(S.selected)) select(null);
     renderStats(); renderList(); renderTimeline();
-  });
+  }));
 
   // Filters: the Apps and Network totals are the buttons (tap the one that's
   // on again for all), plus a small All on the line between them.
