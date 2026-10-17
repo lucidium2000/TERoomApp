@@ -10,8 +10,9 @@
  * layout the globe's textures use (4096 x 2048). onFrames(canvases, times)
  * gets the result; the globe draws it in its shader (glglobe.js).
  *
- * Animated (the past hour): the last 7 frames, 10 minutes apart, at zoom 2
- * (16 tiles each); built frames are cached, so after the first load only the
+ * Animated (the past hour): the last 7 frames, 10 minutes apart, newest first
+ * (the newest is the live frame; older ones at zoom 2, 16 tiles each), shown
+ * as they arrive; built frames are cached, so after the first load only the
  * newest frame is fetched each update. Requests are paced (token bucket).
  *
  * URL: radar=0 hides it entirely; radarcolor=<0-8> RainViewer colour scheme
@@ -93,15 +94,27 @@
       const all = (idx.radar && idx.radar.past) || [];
       const frames = animate ? all.slice(-LOOP_FRAMES) : all.slice(-1);
       if (!frames.length) return;
-      const z = animate ? LOOP_Z : Z;
-      const key = frames.map((f) => f.path).join(',') + '|' + z;
+      const key = frames.map((f) => f.path).join(',') + '|' + (animate ? LOOP_Z : Z);
       if (key === lastKey && !force) return;
-      // One frame at a time, so a first load never bursts past the rate limit.
-      const imgs = [];
-      for (const f of frames) imgs.push(await build(idx.host, f.path, z));
-      if (!running || mine !== gen) return;
-      lastKey = key; frameTime = frames[frames.length - 1].time * 1000;
-      onFrames(imgs, frames.map((f) => f.time * 1000));
+      const times = frames.map((f) => f.time * 1000);
+      frameTime = times[times.length - 1];
+      if (!animate) {
+        const img = await build(idx.host, frames[0].path, Z);
+        if (!running || mine !== gen) return;
+        lastKey = key; onFrames([img], times);
+        return;
+      }
+      // The past hour, newest first: the latest frame is the live one (most
+      // likely built already), shown at once; older frames join the loop as
+      // they arrive, so it plays within seconds instead of after a minute.
+      const imgs = new Array(frames.length).fill(null);
+      for (let i = frames.length - 1; i >= 0; i--) {
+        imgs[i] = await build(idx.host, frames[i].path, i === frames.length - 1 ? Z : LOOP_Z);
+        if (!running || mine !== gen) return;
+        const have = imgs.map((im, k) => [im, times[k]]).filter((x) => x[0]);
+        onFrames(have.map((x) => x[0]), have.map((x) => x[1]));
+      }
+      lastKey = key;
     } catch (e) {
       console.warn('[radar]', e.message || e);
     }

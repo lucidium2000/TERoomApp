@@ -2374,6 +2374,15 @@
       if (frames.n > 1) { if (!loopRaf) { loopT0 = performance.now(); loopRaf = requestAnimationFrame(loop); } }
       else { if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; } label(0); }
     };
+    // State/province lines for the weather view (Natural Earth, loaded once).
+    let statesLoaded = false;
+    const loadStates = () => {
+      if (statesLoaded) return;
+      statesLoaded = true;
+      fetch('vendor/states-50m.json').then((r) => r.json())
+        .then((d) => glTry('states', () => glr.setStates(d.lines)))
+        .catch((e) => { statesLoaded = false; console.warn('[radar] states', e.message || e); });
+    };
     const applyRadar = () => {
       radarBtn.setAttribute('aria-pressed', String(mode !== 'off'));
       radarBtn.dataset.mode = mode;
@@ -2387,6 +2396,7 @@
       }
       window.Radar.setAnimate(mode === 'loop');
       window.Radar.start(onFrames);
+      loadStates();
     };
     radarBtn.addEventListener('click', () => {
       userInput();

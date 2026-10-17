@@ -242,16 +242,11 @@ void main() {
       return t;
     }
     const landTex = makeTex(0), starTex = makeTex(1);
-    // Radar frames: one texture each (a single one when not animating).
-    const radarTexs = [];
-    const radarTex = (i) => {
-      while (radarTexs.length <= i) {
-        radarTexs.push(makeTex(2));
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-      }
-      return radarTexs[i];
-    };
-    radarTex(0);
+    // Radar frames: one texture per image, kept while that image is shown, so
+    // a loop that grows a frame at a time uploads each frame only once.
+    const blankTex = makeTex(2);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+    let radarTexs = [blankTex], radarByImg = new Map();
     let radarA = 0, radarCur = 0, radarNext = 0, radarMix = 0;
 
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -262,6 +257,7 @@ void main() {
     } catch (_) { /* */ }
 
     let lineBuf = null, coastCount = 0, borderCount = 0, texW = 0;
+    let stateBuf = null, stateCount = 0;   // state/province lines, shown with the radar
 
     /** Land coverage -> mipmapped luminance texture (one byte per texel, so
      *  8192x4096 is ~32 MB). Falls back to a smaller size if the device can't. */
@@ -319,6 +315,18 @@ void main() {
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
     }
 
+    /** State and province lines ([[lon, lat, lon, lat, ...], ...]), drawn
+     *  only while the radar is on, so storms can be placed at a glance. */
+    function setStates(lines) {
+      const RAD = Math.PI / 180, arr = [];
+      const v = (lo, la) => { const l = lo * RAD, p = la * RAD, c = Math.cos(p); arr.push(c * Math.cos(l), c * Math.sin(l), Math.sin(p)); };
+      for (const ln of lines) for (let i = 0; i + 3 < ln.length; i += 2) { v(ln[i], ln[i + 1]); v(ln[i + 2], ln[i + 3]); }
+      stateCount = arr.length / 3;
+      stateBuf = stateBuf || gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, stateBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
+    }
+
     function setWorld(w) {
       texW = buildLandTexture(w.land, w.texWidth || 8192);
       buildLines(w.coast, w.borders);
@@ -335,15 +343,21 @@ void main() {
     function setRadar(img, alpha) { setRadarFrames(img ? [img] : null, alpha); }
     /** Several radar frames (oldest first) for animation; null clears. */
     function setRadarFrames(imgs, alpha) {
-      if (imgs) {
-        imgs.forEach((img, i) => {
-          if (!img) return;
-          gl.activeTexture(gl.TEXTURE2);
-          gl.bindTexture(gl.TEXTURE_2D, radarTex(i));
+      const next = new Map();
+      for (const img of imgs || []) {
+        if (!img || next.has(img)) continue;
+        let t = radarByImg.get(img);
+        if (!t) {
+          t = makeTex(2);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        });
-        radarCur = radarNext = imgs.length - 1; radarMix = 0;
+        }
+        next.set(img, t);
       }
+      for (const [img, t] of radarByImg) if (!next.has(img)) gl.deleteTexture(t);
+      radarByImg = next;
+      radarTexs = (imgs || []).map((img) => next.get(img) || blankTex);
+      if (!radarTexs.length) radarTexs = [blankTex];
+      radarCur = radarNext = radarTexs.length - 1; radarMix = 0;
       radarA = imgs === null ? 0 : alpha != null ? alpha : radarA;
     }
     /** Show frame a, crossfading toward frame b by t (0..1). */
@@ -398,11 +412,21 @@ void main() {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.uniform4f(Lu.uColor, 0.431, 0.549, 0.725, 0.6);    // coastline
       gl.drawArrays(gl.LINES, 0, coastCount);
-      gl.uniform4f(Lu.uColor, 0.282, 0.376, 0.518, 0.85);   // borders #486084
+      // With the radar on, borders brighten and states/provinces appear, so
+      // the weather has something to be read against.
+      const wx = radarA > 0;
+      if (wx) gl.uniform4f(Lu.uColor, 0.62, 0.71, 0.84, 0.9);
+      else gl.uniform4f(Lu.uColor, 0.282, 0.376, 0.518, 0.85);   // borders #486084
       gl.drawArrays(gl.LINES, coastCount, borderCount);
+      if (wx && stateBuf && stateCount) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, stateBuf);
+        gl.vertexAttribPointer(Lu.aP, 3, gl.FLOAT, false, 0, 0);
+        gl.uniform4f(Lu.uColor, 0.58, 0.67, 0.8, 0.65);
+        gl.drawArrays(gl.LINES, 0, stateCount);
+      }
       gl.disable(gl.BLEND);
     }
 
-    return { setWorld, setStars, setRadar, setRadarFrames, setRadarPos, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
+    return { setWorld, setStates, setStars, setRadar, setRadarFrames, setRadarPos, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
   };
 })();
