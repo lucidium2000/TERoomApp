@@ -18,7 +18,7 @@
  * URL: radar=0 hides it entirely; radarcolor=<0-8> RainViewer colour scheme
  * (default 4, The Weather Channel); radarz=<1-4> live tile zoom (default 3);
  * radarloopz=<1-3> past-hour zoom (default 2); radarsoft=<px> smoothing blur
- * (default 2.5, 0 = off).
+ * (default 1.2, 0 = off).
  */
 (function () {
   'use strict';
@@ -31,7 +31,7 @@
   // first version. Capped by the GPU's texture size (setMaxTex).
   let Z = Math.max(1, Math.min(4, parseInt(qs.get('radarz'), 10) || 3));
   let LOOP_Z = Math.max(1, Math.min(3, parseInt(qs.get('radarloopz'), 10) || 2));
-  const SOFT = Math.max(0, parseFloat(qs.get('radarsoft') ?? '2.5') || 0);   // blur, px at 4096 wide
+  const SOFT = Math.max(0, parseFloat(qs.get('radarsoft') ?? '1.2') || 0);   // blur, px at 4096 wide
   const TILE = 512, EVERY = 10 * 60e3, LOOP_FRAMES = 7;
   // RainViewer's free tier allows 100 requests a minute per IP: keep a token
   // bucket of 80 a minute, so a full first load can't trip it.
@@ -85,7 +85,7 @@
     }
     merc.width = 0;   // free the Mercator copy
     // Soften the radar's blocky bins: a light blur, scaled to the frame's
-    // size (about 2.5 px live, 1.25 px for loop frames). Done once per frame
+    // size (about 1.2 px live, 0.6 px for loop frames). Done once per frame
     // here, not per pixel on the GPU.
     let img = out;
     if (SOFT > 0) {

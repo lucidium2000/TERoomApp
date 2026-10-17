@@ -824,7 +824,10 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   box-shadow: 0 0 18px rgba(52, 211, 153, .3);
 }
 .wxbar .radar-time { margin: .2em 0 0; color: var(--ink-3); font-size: .64em; font-weight: 600; font-variant-numeric: tabular-nums; }
-.wxbar .radar-time::before { content: ''; display: inline-block; width: .55em; height: .55em; margin-right: .4em; border-radius: 50%; background: #34d399; vertical-align: .05em; }
+.wxbar .radar-time span, .wxbar .radar-time b { display: block; }
+.wxbar .radar-time b { font-weight: 600; color: var(--ink-2); margin-top: .1em; }
+#localClock { font-size: 1.2em; }
+.wxbar .radar-time span::before { content: ''; display: inline-block; width: .55em; height: .55em; margin-right: .4em; border-radius: 50%; background: #34d399; vertical-align: .05em; }
 /* Past-hour loop: the button's glow pulses. */
 .zoomctl .radar-btn[data-mode="loop"] { animation: radar-loop 1.6s ease-in-out infinite; }
 @keyframes radar-loop { 50% { box-shadow: 0 0 26px rgba(52, 211, 153, .7); } }
