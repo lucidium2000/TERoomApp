@@ -665,6 +665,16 @@
       "Here's the local forecast for {city}.", 'And the outlook outside, in {city}.', "Now, what's happening over {city}.",
       'As for the actual weather in {city}.', 'Not the network kind of storm, the real one. Weather in {city}.',
     ],
+    // The opening's one-line weather headline, and the lead into the details.
+    wxHead: [
+      'As for the weather in {city}: {a} {ap}, {hilo} {t}{then}.', 'Outside in {city}, expect {a} {ap}, {hilo} {t}{then}.',
+      'Weather-wise, {city} has {a} {ap}, {hilo} {t}{then}.', 'And outside, {city} is looking at {a} {ap}, {hilo} {t}{then}.',
+      'Quick weather check for {city}: {a} {ap}, {hilo} {t}{then}.', 'Here in {city}, {a} {ap}, {hilo} {t}{then}.',
+      'Meanwhile in {city}, {a} {ap}, {hilo} {t}{then}.', 'For the weather, {city} has {a} {ap}, {hilo} {t}{then}.',
+    ],
+    wxHeadThen: [', then {b} {bp}', ', turning {b} {bp}', ', and {b} {bp}', ', with {b} {bp}'],
+    wxHeadAlert: ["There's a {event} in effect.", 'A {event} is in effect.', 'Note the {event} for the area.', 'The weather service has a {event} out.'],
+    moreLead: ['Beyond that,', 'Further down the list,', 'Elsewhere,', 'Also on the board,', 'Outside of that,', 'A little lower down,', 'In the background,', 'Rounding out the list,'],
     wxNow: ['{period}: {text}', '{period}, {text_l}', 'For {period_l}: {text}', 'Looking at {period_l}: {text}'],
     wxNext: [
       'Then {period_l}, {short}, {hilo} {temp}.', '{period} looks {short_l}, {hilo} {temp}.', 'After that, {period_l}: {short_l}, {hilo} {temp}.',

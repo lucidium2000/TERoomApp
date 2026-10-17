@@ -1014,9 +1014,9 @@
     // one finding per stop, before carrying on silently.
     if (S.insightQ && S.insightQ.length && window.Tts && window.Tts.enabled && !overviewBusy()) {
       const f = S.insightQ.shift();
-      if (f.weather) {
-        // No outage to show for this one: carry on the tour, and say it.
-        const w = weatherSpeech();
+      if (f.weather || f.more) {
+        // No one outage to show for these: carry on the tour, and say it.
+        const w = f.weather ? weatherSpeech() : moreSpeech();
         const list = tourList();
         if (list.length) { S.tourIdx = (S.tourIdx + 1) % list.length; select(list[S.tourIdx], { fromTour: true }); }
         if (w) speakProtected(w.text || '', w.clips);
@@ -1115,16 +1115,25 @@
     if (!(window.Tts && window.Tts.enabled) || !S.outages.length || !N) return;
     if (overviewBusy()) return;
     S.overviewT = performance.now();
-    const room = overviewRoom();
-    if (cloudMode()) speakProtected('', [speechClip(['overview']), room.clip]);
-    else speakProtected([N.overviewCore(S.outages, dataNow()), room.text].filter(Boolean).join(' '));
-    // Then the analyst's best findings (up to five), one per tour stop, and
-    // the local weather to round it off.
-    S.insightQ = findInsights().slice(0, 5);
+    // Short first: the internet's overall health, the service that stands
+    // out, and the weather in a line. Then more detail, one tour stop at a
+    // time: the rest of the day (and this room), the analyst's findings (up
+    // to five), and the full local forecast to finish.
+    if (cloudMode()) speakProtected('', [speechClip(['overview']), speechClip(['weatherHead'])]);
+    else speakProtected([N.overviewCore(S.outages, dataNow()), S.wxBrief ? N.weatherHead(S.wxBrief, S.room && S.room.city) : ''].filter(Boolean).join(' '));
+    S.insightQ = [{ more: true }, ...findInsights().slice(0, 5)];
     if (weatherSpeech()) S.insightQ.push({ weather: true });
     S.insightN = 0;
   }
 
+  /** The recap's second level: the rest of the day, then this room's line. */
+  function moreSpeech() {
+    if (!N) return null;
+    const room = overviewRoom();
+    if (cloudMode()) { const clips = [speechClip(['overviewMore']), room.clip].filter(Boolean); return clips.length ? { clips } : null; }
+    const text = [N.overviewMore(S.outages, dataNow()), room.text].filter(Boolean).join(' ');
+    return text ? { text } : null;
+  }
   /** The local weather rundown to say: live text, or the clip the GitHub
    *  Action rendered for this room's area (null when there's none). */
   function weatherSpeech() {

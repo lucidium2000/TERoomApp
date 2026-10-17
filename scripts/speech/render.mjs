@@ -67,6 +67,7 @@ const whenBucket = (ms) => { const m = (now - ms) / 60000; return m < 5 ? 'now' 
 const state = outages.map((o) => `${o.id}:${o.active ? 1 : 0}`).sort().join(',');
 
 say(['overview'], 'overview|' + state + '|' + Math.floor(now / 3600e3), () => N.overviewCore(outages, now));
+say(['overviewMore'], 'overviewMore|' + state + '|' + Math.floor(now / 3600e3), () => N.overviewMore(outages, now));
 const findings = N.findings(outages, now, {}).slice(0, 5);
 const insights = findings.map((f, i) => {
   say(['insights', i], `insight|${i}|${f.rule}|${f.outages.map((o) => o.id).join(',')}`, () => N.insight(f, i === 0));
@@ -82,7 +83,10 @@ for (const o of outages.slice().sort((a, b) => (b.active - a.active) || (b.start
 const WP = (process.env.WEATHER_POINT || '').split(',').map(Number);
 if (WP.length === 2 && WP.every(isFinite)) {
   const w = await WxBrief.get(WP[0], WP[1], { fetch, ua: 'TERoomApp speech (github.com/lucidium2000/TERoomApp)' });
-  if (w) say(['weather'], 'weather|' + JSON.stringify(w), () => N.weather(w, process.env.WEATHER_CITY || ''));
+  if (w) {
+    say(['weatherHead'], 'weatherHead|' + JSON.stringify(w), () => N.weatherHead(w, process.env.WEATHER_CITY || ''));
+    say(['weather'], 'weather|' + JSON.stringify(w), () => N.weather(w, process.env.WEATHER_CITY || ''));
+  }
   else console.log('weather: no forecast');
 }
 // Live parts: a fixed set of variants, rendered once and reused forever.
@@ -107,7 +111,7 @@ for (let n = 1; n <= 500; n += n < 100 ? 1 : 10) lines.push({ path: ['num', Stri
 
 // Most important first, in case the time budget runs out: the synopsis and
 // findings, the live clips, numbers, then outages (newest first, as added).
-const rank = (l) => ({ overview: 0, insights: 1, weather: 1, room: 2, path: 3, num: 4, outages: 5 }[l.path[0]] ?? 6);
+const rank = (l) => ({ overview: 0, weatherHead: 0, overviewMore: 1, insights: 1, weather: 1, room: 2, path: 3, num: 4, outages: 5 }[l.path[0]] ?? 6);
 lines.sort((a, b) => rank(a) - rank(b));
 
 // ── Render what's new; reuse what isn't ───────────────────────────────────

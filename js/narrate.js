@@ -66,6 +66,17 @@
     const where = (o) => { const top = o.locations.slice().sort((a, b) => b.n - a.n)[0]; return cityOf(top) || countryOf(top) || ''; };
     const hubFactLine = (hub) => { const facts = (PH.HUB_FACTS || {})[hub]; return facts ? say('hubFact', { hub, fact: pick(facts) }) : ''; };
 
+    /** Services (companies) by how hard the day hit them, worst first. */
+    function topGroups(outages) {
+      const by = new Map();
+      for (const q of outages) {
+        const k = nameOf(q), g = by.get(k) || { name: k, n: 0, active: false, spread: 0, kind: q.kind };
+        g.n++; g.active = g.active || q.active; g.spread += q.locations.length;
+        by.set(k, g);
+      }
+      return [...by.values()].sort((a, b) => (b.active - a.active) || (b.n - a.n) || (b.spread - a.spread)).slice(0, 3);
+    }
+
     /** A sentence or two about the day as a whole (Insights.context): the
      *  strongest feature, and a second, different one when there is one. */
     function dayContext(outages, now) {
@@ -90,33 +101,51 @@
       seed(str) { rnd = seeded(str); },
       unseed() { rnd = rand; },
 
-      /** The tour's synopsis without the room: health, the worst-hit
-       *  services, and one sentence about the day. */
+      /** The tour's opening, kept short: the internet's overall health and
+       *  the one service that stands out. The rest comes later (overviewMore). */
       overviewCore(outages, now) {
         const act = outages.filter((q) => q.active).length;
         const one = act === 1, few = one ? 'one outage' : 'two outages', fewIs = one ? 'one outage is' : 'two outages are';
         const health = act === 0 ? say('healthCalm') : act <= 2 ? say('healthFew', { few, fewIs }) : say('healthBusy', { n: numW(act) });
-        const by = new Map();
-        for (const q of outages) {
-          const k = nameOf(q), g = by.get(k) || { name: k, n: 0, active: false, spread: 0, kind: q.kind };
-          g.n++; g.active = g.active || q.active; g.spread += q.locations.length;
-          by.set(k, g);
-        }
-        const top = [...by.values()].sort((a, b) => (b.active - a.active) || (b.n - a.n) || (b.spread - a.spread)).slice(0, 3);
+        const top = topGroups(outages);
         let worst = '';
         if (top.length) {
           const t = top[0], N = t.name;
           worst = say(t.active ? (t.n > 2 ? 'worstActiveRepeat' : 'worstActiveOne') : (t.n > 2 ? 'worstPastRepeat' : 'worstPastOne'), { N });
+        }
+        return [health, worst].filter(Boolean).join(' ');
+      },
+
+      /** The next level of detail, said at the tour's first stop: the other
+       *  services worth a mention, and a sentence or two about the day. */
+      overviewMore(outages, now) {
+        const top = topGroups(outages);
+        let rest = '';
+        if (top.length > 1) {
           // A second entry from the same company is named by what it is.
-          const said = new Set([N.split(' ')[0]]);
-          const rest = top.slice(1).map((g) => {
+          const said = new Set([top[0].name.split(' ')[0]]);
+          const names = top.slice(1).map((g) => {
             const first = g.name.split(' ')[0], dup = said.has(first);
             said.add(first);
             return dup ? `${first}'s ${g.kind === 'network' ? 'network' : 'other services'}` : g.name;
           });
-          if (rest.length) worst += ` ${rest.join(' and ')} had ${fill('restTail')}.`;
+          rest = `${fill('moreLead')} ${names.join(' and ')} had ${fill('restTail')}.`;
         }
-        return [health, worst, dayContext(outages, now)].filter(Boolean).join(' ');
+        return [cap(rest), dayContext(outages, now)].filter(Boolean).join(' ');
+      },
+
+      /** The weather in one line, for the opening: now, what's next, and an
+       *  alert if there is one. The full forecast comes last (weather). */
+      weatherHead(w, cityFallback) {
+        if (!w || !w.now || !w.now.short) return '';
+        const city = w.city || cityFallback || 'the area';
+        const lowP = (t) => String(t || '').replace(/\b(This|Today|Tonight|Afternoon|Overnight|Night|Morning|Evening|Tomorrow)\b/g, (x) => x.toLowerCase());
+        const then = w.next && w.next.short ? fill('wxHeadThen', { b: w.next.short.toLowerCase(), bp: lowP(w.next.name) }) : '';
+        let line = say('wxHead', { city, a: w.now.short.toLowerCase(), ap: lowP(w.now.name),
+          hilo: w.now.isDay === false ? 'a low around' : 'a high near', t: w.now.temp != null ? `${w.now.temp}` : '', then });
+        if (w.now.temp == null) line = line.replace(/, (a high near|a low around) (?=[,.])/, '');
+        if (w.alerts && w.alerts[0]) line += ' ' + say('wxHeadAlert', { event: w.alerts[0] });
+        return line.replace(/\s+/g, ' ').trim();
       },
 
       /** The local weather rundown (js/wxbrief.js): a lead-in, the forecast

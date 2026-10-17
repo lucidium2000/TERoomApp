@@ -57,7 +57,7 @@
     const city = p.relativeLocation && p.relativeLocation.properties ? p.relativeLocation.properties.city : '';
     return {
       source: 'nws', city,
-      now: { name: a.name, text: speakable(a.detailedForecast || a.shortForecast) },
+      now: { name: a.name, text: speakable(a.detailedForecast || a.shortForecast), short: speakable(a.shortForecast), temp: a.temperature, isDay: a.isDaytime },
       next: b ? { name: b.name, short: speakable(b.shortForecast), temp: b.temperature, isDay: b.isDaytime } : null,
       alerts,
     };
@@ -80,7 +80,7 @@
       + (wind >= 20 ? ` Breezy, with wind around ${wind} ${fahrenheit ? 'miles' : 'kilometers'} per hour.` : '');
     return {
       source: 'open-meteo', city: '',
-      now: { name: 'Today', text },
+      now: { name: 'Today', text, short: WMO[c.weather_code] || 'mixed', temp: Math.round(dy.temperature_2m_max[0]), isDay: true },
       next: dy.weather_code[1] != null ? { name: 'Tomorrow', short: WMO[dy.weather_code[1]] || 'mixed', temp: Math.round(dy.temperature_2m_max[1]), isDay: true } : null,
       alerts: [],
     };
