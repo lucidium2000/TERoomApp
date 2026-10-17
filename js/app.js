@@ -2110,6 +2110,48 @@
     // corners. ?handlag= (sample intervals, default 0.9) trades smoothness for
     // latency.
     const HC_LAG = num('handlag', 0.9), HC_EXTRAP = 0.35;
+    // Predictive tracking (on unless ?predict=0): an alpha-beta filter per hand
+    // keeps a position and velocity, corrected by each camera sample, and the
+    // cursor follows the prediction between samples - so a late frame on a
+    // slow device (the Desk Pro) doesn't stall the hand and then jump. The
+    // prediction tapers off (PRED_H) so a hand that stops doesn't overshoot
+    // far, aims a little ahead (PRED_LEAD x the camera delay), and a soft
+    // spring (PRED_TAU) absorbs each correction.
+    // Measured on irregular, Desk Pro-like samples, prediction halves the lag
+    // but corrections at uneven moments read as jerk - so it's opt-in
+    // (?predict=1); the default is the adaptive jitter buffer below.
+    const PREDICT = qs.get('predict') === '1';
+    const PRED_A = num('predicta', 0.55), PRED_B = num('predictb', 0.18);
+    const PRED_H = num('predicth', 0.12) * 1000, PRED_LEAD = num('predictlead', 0.4), PRED_TAU = num('predicttau', 70);
+    /** Feed one sample (screen px, capture time ms) into a hand's filter. */
+    function predictSample(h, x, y, t) {
+      const f = h.f;
+      if (!f || t - f.t > 600 || t <= f.t) { h.f = { x, y, vx: 0, vy: 0, t }; return; }
+      const dt = (t - f.t) / 1000;
+      const px = f.x + f.vx * dt, py = f.y + f.vy * dt;   // where it should be by now
+      const rx = x - px, ry = y - py;                       // how far off that was
+      // Overshot (the hand slowed or stopped): trust the sample much more, so a
+      // stop is caught at once instead of coasting on.
+      const back = rx * f.vx + ry * f.vy < 0;
+      const A = back ? 0.85 : PRED_A, B = back ? 0.6 : PRED_B;
+      f.x = px + A * rx; f.y = py + A * ry;
+      f.vx += (B / dt) * rx; f.vy += (B / dt) * ry;
+      const sp = Math.hypot(f.vx, f.vy), MAX = 4000;         // px/s: ignore absurd jumps
+      if (sp > MAX) { f.vx *= MAX / sp; f.vy *= MAX / sp; }
+      f.t = t;
+    }
+    /** The predicted position now: carried on along the velocity, tapering. */
+    function predictAt(h, now) {
+      const f = h.f;
+      // A steady view of the camera delay (a jumpy one would yank the target).
+      const lat = hc.predLat || hc.latency;
+      const ahead = now - lat * (1 - PRED_LEAD) - f.t;        // ms since that sample, less part of the delay
+      // Straight-line through the normal gap between samples (so speed stays
+      // even); only once a sample is overdue does the prediction ease off.
+      const lin = lat * PRED_LEAD + hc.every * 1.05;
+      const reach = ahead <= lin ? ahead : lin + PRED_H * (1 - Math.exp(-(ahead - lin) / PRED_H));
+      return { x: f.x + f.vx * reach / 1000, y: f.y + f.vy * reach / 1000 };
+    }
     const HC_SIZE = num('handsize', 140);
     // ?handviz=0: pointer dot only, no hand silhouettes.
     const HC_VIZ = qs.get('handviz') !== '0';
@@ -2125,7 +2167,20 @@
     const SVGNS = 'http://www.w3.org/2000/svg';
     const hcDot = handCursor.querySelector('.hc-dot');
     const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
-    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map(), latency: 150, every: 150, lastT: 0, shapeT: 0 };
+    const hc = { x: 0, y: 0, on: false, raf: 0, t: 0, hands: new Map(), latency: 150, every: 150, lastT: 0, shapeT: 0, gaps: [], lats: [] };
+    /** The jitter buffer's delay (ms): 90th-percentile sample gap plus the
+     *  spread of arrival delays, recomputed as samples come in. */
+    function jitterDelay() {
+      if (hc.delay && performance.now() - hc.delayT < 500) return hc.delay;
+      const p90 = (a) => { const s2 = a.slice().sort((x, y) => x - y); return s2.length ? s2[Math.min(s2.length - 1, Math.floor(s2.length * 0.9))] : 0; };
+      const gap = p90(hc.gaps) || hc.every;
+      const lat = hc.lats.length ? p90(hc.lats) - Math.min(...hc.lats) : 0;
+      const target = Math.max(80, Math.min(600, gap + lat * 0.8));
+      // Ease toward it so the playback point doesn't jump when it changes.
+      hc.delay = hc.delay ? hc.delay + (target - hc.delay) * 0.2 : target;
+      hc.delayT = performance.now();
+      return hc.delay;
+    }
     function hcHand(key) {
       let h = hc.hands.get(key);
       if (h) return h;
@@ -2152,7 +2207,15 @@
     function hcFrame(t) {
       const dt = Math.min(100, t - (hc.t || t)); hc.t = t;
       const k = 1 - Math.exp(-dt / 35);
-      const rt = performance.now() - hc.latency - hc.every * HC_LAG;   // render time, in capture-time terms
+      // Adaptive jitter buffer: play just far enough behind that the next
+      // sample has (almost always) arrived - the 90th-percentile gap between
+      // samples, plus how much their arrival delay wobbles. Regular samples
+      // give a short delay; uneven ones (a busy Desk Pro) a longer one, so the
+      // hand never runs out of path, stalls and jumps.
+      // (Opt-in, ?handbuffer=1, while it's compared on the device.)
+      const buffered = qs.get('handbuffer') === '1' && hc.lats.length;
+      const base = buffered ? Math.min(...hc.lats) : hc.latency;   // the fastest arrival
+      const rt = performance.now() - base - (buffered ? jitterDelay() : hc.every * HC_LAG);
       const reshape = HC_VIZ && t - hc.shapeT >= 1000 / HC_SHAPE_HZ;
       if (reshape) hc.shapeT = t;
       for (const h of hc.hands.values()) {
@@ -2161,9 +2224,10 @@
         for (let i = n - 1; i > 0; i--) if (b[i - 1].t <= rt) { A = b[i - 1]; B = b[i]; break; }
         const span = Math.max(1, B.t - A.t);
         const u = A === B ? 1 : Math.max(0, Math.min(1 + HC_EXTRAP, (rt - A.t) / span));
-        const px = A.x + (B.x - A.x) * u, py = A.y + (B.y - A.y) * u;
+        let px = A.x + (B.x - A.x) * u, py = A.y + (B.y - A.y) * u, kk = k;
+        if (PREDICT && h.f) { const q = predictAt(h, performance.now()); px = q.x; py = q.y; kk = 1 - Math.exp(-dt / PRED_TAU); }
         if (h.fresh2 !== false) { h.x = px; h.y = py; h.fresh2 = false; }
-        h.x += (px - h.x) * k; h.y += (py - h.y) * k;
+        h.x += (px - h.x) * kk; h.y += (py - h.y) * kk;
         if (h.primary) { hc.x = h.x; hc.y = h.y; }
         if (!HC_VIZ) continue;
         h.svg.style.transform = `translate3d(${h.x.toFixed(1)}px, ${h.y.toFixed(1)}px, 0)`;
@@ -2211,12 +2275,18 @@
       // so the render clock stays steady instead of wobbling with each frame.
       const lat = arrive - ct;
       hc.latency += (lat - hc.latency) * (lat > hc.latency ? 0.5 : 0.03);
-      if (hc.lastT && ct > hc.lastT) hc.every += (Math.min(500, ct - hc.lastT) - hc.every) * 0.2;
+      if (hc.lastT && ct > hc.lastT) {
+        hc.every += (Math.min(500, ct - hc.lastT) - hc.every) * 0.2;
+        hc.gaps.push(Math.min(600, ct - hc.lastT)); if (hc.gaps.length > 24) hc.gaps.shift();
+      }
+      hc.lats.push(Math.min(800, arrive - ct)); if (hc.lats.length > 24) hc.lats.shift();
       hc.lastT = ct;
       for (const d of c.hands) {
         const h = hcHand(d.key);
         seen.add(d.key);
         h.buf.push({ t: ct, x: d.x * innerWidth, y: d.y * innerHeight, shape: d.shape });
+        if (PREDICT) predictSample(h, d.x * innerWidth, d.y * innerHeight, ct);
+        if (PREDICT) hc.predLat = hc.predLat ? hc.predLat + (Math.min(600, arrive - ct) - hc.predLat) * 0.04 : arrive - ct;
         if (h.buf.length > 4) h.buf.shift();
         h.primary = !!d.primary;
         if (h.fresh) { h.fresh = false; if (h.primary && !hc.on) { hc.x = d.x * innerWidth; hc.y = d.y * innerHeight; } }
