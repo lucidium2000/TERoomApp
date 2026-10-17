@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=161">
+  <link rel="stylesheet" href="css/app.css?v=162">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -49,13 +49,13 @@
     <!-- This room first: each service's Internet Insights status (left) and
          this room's live connection to it (right). -->
     <section class="services sec" id="services">
-      <h2 class="sec-title">From This Device <span class="edge-pill" id="edgePill" hidden><i class="svc-dot"></i><span class="edge-k">Local edge</span> <b id="edgeMs">&hellip;</b></span><button class="win-btn svc-done" id="svcDone" hidden>Done</button></h2>
+      <h2 class="sec-title"><svg class="sec-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="sec-name">From This Device</span> <span class="edge-pill" id="edgePill" hidden><i class="svc-dot"></i><span class="edge-k">Local edge</span> <b id="edgeMs">&hellip;</b></span><button class="win-btn svc-done" id="svcDone" hidden>Done</button></h2>
       <div id="roomNetRows"></div>
     </section>
 
     <!-- Then every outage in the last 24 hours. -->
     <section class="outages sec">
-      <h2 class="sec-title">Around the World <button class="win-btn" id="winBtn" title="Time window: tap to change">Last 24 hours</button></h2>
+      <h2 class="sec-title"><svg class="sec-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/></svg><span class="sec-name">Around the World</span> <button class="win-btn" id="winBtn" title="Time window: tap to change">Last 24 hours</button></h2>
       <div class="stats">
         <div class="stat"><b id="statActive">–</b><span>Active</span></div>
         <button class="stat app" data-filter="application" title="Show only application outages"><b id="statApp">–</b><span>Apps</span></button>

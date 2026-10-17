@@ -71,9 +71,8 @@ body.free .wxbar { right: var(--gutter); }
 .panel {
   position: fixed; top: var(--gutter); right: var(--gutter); bottom: calc(var(--gutter) + 5.6em);
   width: var(--panel-w);
-  display: flex; flex-direction: column; gap: 1em;
-  background: var(--glass); border: 1px solid var(--line); border-radius: 18px;
-  padding: 1.1em;
+  /* Two self-contained cards stacked here: From This Device, Around the World. */
+  display: flex; flex-direction: column; gap: .75em;
 }
 .stats {
   /* One slim strip inside the Outages section: four figures, hairline dividers. */
@@ -271,9 +270,9 @@ body.signage .chips, body.signage .tour, body.signage .card-close { display: non
   :root { --panel-w: 100vw; --fs: 13px; }
   .brand h1 { font-size: 1.4em; }
   .panel {
-    top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 38vh;
-    border-radius: 18px 18px 0 0; padding: .9em 16px;
+    top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 38vh; padding: 0 10px;
   }
+  .panel .sec { border-radius: 16px 16px 0 0; border-bottom: 0; }
   .stat b { font-size: 1.25em; }
   .watch { display: none; }
   .timeline { display: none; }
@@ -729,7 +728,30 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 /* Panel sections: "From This Device", then "Around the World" - each with a
    divider and a title with a small accent bar. The outage list takes the rest
    of the height and scrolls. */
-.panel .sec { border-top: 1px solid var(--line); padding-top: .85em; }
+.panel .sec {
+  position: relative; overflow: hidden;
+  padding: 0 1em 1em; border-radius: 16px; border: 1px solid rgba(148, 163, 184, .2);
+  background: linear-gradient(180deg, rgba(17, 26, 44, .9), rgba(8, 13, 24, .86));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .05);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+/* A thin glowing accent along each card's top edge: cyan here, orange for the world. */
+.panel .sec::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--app) 20%, var(--app) 80%, transparent); opacity: .85;
+}
+.panel .outages::before { background: linear-gradient(90deg, transparent, var(--net) 20%, var(--net) 80%, transparent); }
+/* Each card's header: a band with its icon and name, set off from the content. */
+.panel .sec > .sec-title {
+  margin: 0 -1em .8em; padding: .75em 1em .7em; min-height: 2.6em; box-sizing: border-box;
+  font-size: .82em; color: var(--ink); letter-spacing: .13em;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .01));
+  border-bottom: 1px solid rgba(148, 163, 184, .14);
+  align-items: center;
+}
+.panel .sec > .sec-title::before { display: none; }
+.sec-ico { flex: none; color: var(--app); filter: drop-shadow(0 0 6px rgba(22, 189, 235, .5)); }
+.outages .sec-ico { color: var(--net); filter: drop-shadow(0 0 6px rgba(241, 94, 34, .5)); }
 .services { flex: none; }
 .outages { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .6em; }
 .sec-title {
@@ -737,7 +759,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   font-size: .8em; color: var(--ink-2); text-transform: uppercase; letter-spacing: .12em; font-weight: 800;
 }
 .sec-title::before { content: ""; width: 3px; height: 1em; border-radius: 2px; background: var(--app); align-self: center; }
-.outages .sec-title { margin-bottom: 0; font-size: 1.02em; color: var(--ink); align-items: center; }
+.outages .sec-title { align-items: center; }
 /* Time window toggle: 1 -> 6 -> 12 -> 24 hours. */
 .win-btn {
   margin-left: auto; padding: .3em .75em; border-radius: 99px; min-height: 30px;
