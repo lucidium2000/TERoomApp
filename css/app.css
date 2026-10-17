@@ -826,6 +826,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .wxbar .radar-time { margin: .2em 0 0; color: var(--ink-3); font-size: .64em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span, .wxbar .radar-time b { display: block; }
 .wxbar .radar-time b { font-weight: 600; color: var(--ink-2); margin-top: .1em; }
+.wxbar .date { margin: 0; color: var(--ink-3); font-size: .9em; font-weight: 600; }
 .wxbar .clock { margin: 0; color: var(--ink-2); font-size: 1.08em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span::before { content: ''; display: inline-block; width: .55em; height: .55em; margin-right: .4em; border-radius: 50%; background: #34d399; vertical-align: .05em; }
 /* Past-hour loop: the button's glow pulses. */

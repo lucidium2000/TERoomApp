@@ -485,11 +485,12 @@
   // ── Local time and weather, under the title ──────────────────────────────
   // The clock is this screen's own time zone; the weather is for the room's
   // location (from its public IP, the same lookup the path trace uses).
-  const localClock = document.getElementById('localClock'), localWx = document.getElementById('localWx');
+  const localClock = document.getElementById('localClock'), localDate = document.getElementById('localDate'), localWx = document.getElementById('localWx');
   const localTemp = document.getElementById('localTemp'), localCity = document.getElementById('localCity');
   function tickClock() {
     const d = new Date();
-    localClock.textContent = `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} \u00B7 ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    localDate.textContent = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    localClock.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
   async function localWeather() {
     try {
