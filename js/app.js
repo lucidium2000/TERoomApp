@@ -1415,7 +1415,7 @@
       pill.hidden = false;
       pill.className = 'edge-pill svc-' + ({ ok: 'ok', warn: 'warn', slow: 'bad', down: 'bad' }[ed.status] || 'wait');
       document.getElementById('edgeMs').textContent = ed.ms != null ? `${Math.round(ed.ms)} ms` : 'no reply';
-      pill.title = `Local network: round trip from this device to the nearest internet edge (Cloudflare${ed.colo ? ' ' + ed.colo : ''}). `
+      pill.title = `Local edge: round trip from this device to the nearest internet edge (Cloudflare${ed.colo ? ' ' + ed.colo : ''}). `
         + 'Covers this room\u2019s network and the first stretch of the provider - if this jumps, the trouble is close to home.';
     }
     rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
