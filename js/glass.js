@@ -1137,7 +1137,10 @@
   const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
     [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]];
   function makeDebugView() {
-    const W = 400, H = 300, TXT = 166;
+    // The picture keeps the camera's own shape (16:9 on a Desk Pro, 4:3 on many
+    // laptops) - a fixed 4:3 box made 16:9 video look squeezed.
+    const vw = (video && video.videoWidth) || 4, vh = (video && video.videoHeight) || 3;
+    const W = 400, H = Math.round((W * vh) / vw), TXT = 166;
     platform = platform || platformInfo();
     const c = document.createElement('canvas');
     c.width = W; c.height = H + TXT;
