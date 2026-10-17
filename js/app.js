@@ -2463,7 +2463,8 @@
 
   // ── Weather radar (js/radar.js, RainViewer) ─────────────────────────────
   // The weather button cycles live radar -> the past hour, looped like a
-  // weather app -> off (remembered on this device; live by default). The
+  // weather app -> off (remembered on this device; past hour by default -
+  // the key was renamed when that became the default, so it applies once). The
   // header line ("NOAA · RainViewer Radar", the credit RainViewer asks for, and the
   // frame time) shows while it's on. WebGL only.
   const radarBtn = document.getElementById('radarBtn');
@@ -2473,8 +2474,8 @@
     const RADAR_A = Math.max(0.1, Math.min(1, num('radaralpha', 0.75)));
     const STEP_MS = 700, FADE = 0.35, HOLD_MS = 1600;   // per frame; crossfade share; pause on the latest
     const MODES = ['live', 'loop', 'off'];
-    let mode = 'live';
-    try { mode = localStorage.getItem('te-radar-mode') || (localStorage.getItem('te-radar') === '0' ? 'off' : 'live'); } catch (_) { /* default */ }
+    let mode = 'loop';
+    try { mode = localStorage.getItem('te-radar-mode2') || 'loop'; } catch (_) { /* default */ }
     if (!MODES.includes(mode)) mode = 'live';
     let frames = { n: 0, times: [] }, loopRaf = 0, loopT0 = 0, shownIdx = -1;
     const label = (i) => {
@@ -2527,7 +2528,7 @@
     radarBtn.addEventListener('click', () => {
       userInput();
       mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
-      try { localStorage.setItem('te-radar-mode', mode); } catch (_) { /* private mode */ }
+      try { localStorage.setItem('te-radar-mode2', mode); } catch (_) { /* private mode */ }
       sfx(mode === 'off' ? 'off' : 'on');
       toast({ live: 'Weather radar: live', loop: 'Weather radar: past hour', off: 'Weather radar off' }[mode], 'info');
       applyRadar();
