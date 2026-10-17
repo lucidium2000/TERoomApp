@@ -1926,6 +1926,17 @@
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = out;
     // Clock times (this screen's timezone) midway between the axis marks.
+    // Midnight and noon (this screen's time) called out across the bars: a
+    // dashed line and a small label, so the time of day reads at a glance.
+    const marks = [], d0 = new Date(now - span);
+    d0.setMinutes(0, 0, 0); d0.setHours(d0.getHours() < 12 ? 0 : 12);
+    for (let t = d0.getTime(); t <= now; t += 12 * 3600e3) {
+      const d = new Date(t);
+      if (t <= now - span || (d.getHours() !== 0 && d.getHours() !== 12)) continue;   // (DST shifts: skip)
+      marks.push({ f: (t - (now - span)) / span, noon: d.getHours() === 12 });
+    }
+    document.getElementById('tlMarks').innerHTML = marks.map((m) => `<span class="tl-mark${m.noon ? ' noon' : ''}" style="left:${(m.f * 100).toFixed(2)}%">`
+      + `<b>${m.noon ? '\u2600 Noon' : '\u263E Midnight'}</b></span>`).join('');
     document.getElementById('tlClock1').textContent = fmtTime(now - span * 0.75);
     document.getElementById('tlClock2').textContent = fmtTime(now - span * 0.25);
     const ago = (h) => (h >= 1 ? `${h}h` : `${Math.round(h * 60)}m`);
