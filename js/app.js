@@ -488,7 +488,8 @@
   const localClock = document.getElementById('localClock'), localWx = document.getElementById('localWx');
   const localTemp = document.getElementById('localTemp'), localCity = document.getElementById('localCity');
   function tickClock() {
-    localClock.textContent = new Date().toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    const d = new Date();
+    localClock.textContent = `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} \u00B7 ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   }
   async function localWeather() {
     try {
@@ -506,7 +507,6 @@
       localWx.hidden = false;
       localTemp.textContent = `${Math.round(c.temperature_2m)}\u00B0`;
       localCity.textContent = room.city || '';
-      document.getElementById('localSep').hidden = false;
     } catch (_) { /* no weather is fine */ }
   }
 
@@ -1709,7 +1709,7 @@
     S.selected = prevSelId ? S.outages.find((o) => o.id === prevSelId) || null : null;
 
     const gen = new Date(json.generatedAt);
-    el.updated.textContent = `updated ${fmtTime(gen.getTime())}`;
+    el.updated.textContent = `last 24 hours \u2014 updated ${fmtTime(gen.getTime())}`;
 
     renderStats(); renderList(); renderTimeline(); renderRoomNet();
 

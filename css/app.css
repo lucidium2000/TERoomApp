@@ -43,10 +43,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   position: fixed; top: var(--gutter); left: var(--gutter);
   display: flex; gap: 0.9em; align-items: center; pointer-events: none;
 }
-.brand { flex-direction: column; align-items: flex-start; gap: .55em; }
+.brand { flex-direction: column; align-items: flex-start; gap: .25em; }
 .brand-logo { pointer-events: auto; -webkit-touch-callout: none; height: 2.8em; width: auto; display: block; filter: drop-shadow(0 0 14px rgba(241, 94, 34, .35)); }
 .brand h1 {
-  margin: 0; font-size: 1.9em; font-weight: 700; letter-spacing: -0.01em;
+  margin: 0; font-size: 1.6em; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1;
   display: flex; align-items: center; gap: 0.5em;
 }
 .brand .updated { margin: .2em 0 0; font-size: .72em; font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
@@ -57,7 +57,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 body.free .wxbar { right: var(--gutter); }
 .live {
-  font-size: 0.42em; font-weight: 800; letter-spacing: .14em;
+  font-size: 0.5em; font-weight: 800; letter-spacing: .14em; line-height: 1;
   color: var(--bad); border: 1px solid rgba(244, 63, 94, .5); border-radius: 99px;
   padding: .3em .7em .3em .6em; display: inline-flex; align-items: center; gap: .5em;
 }
@@ -805,8 +805,8 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .vp-group button.na { opacity: .45; text-decoration: line-through; }
 
 /* Local time and weather under the title. */
-.wxbar .local { margin: .25em 0 0; color: var(--ink-2); font-size: .82em; font-weight: 600; display: flex; align-items: center; gap: .1em; font-variant-numeric: tabular-nums; }
-.wxbar .local canvas { width: 28px; height: 28px; margin: 0 .3em 0 .2em; }
+.wxbar .local { margin: .15em 0 0; color: var(--ink-2); font-size: .9em; font-weight: 600; display: flex; align-items: center; gap: .1em; font-variant-numeric: tabular-nums; }
+.wxbar .local canvas { width: 31px; height: 31px; margin: 0 .3em 0 .2em; }
 .wxbar .local #localTemp { font-size: 1.35em; font-weight: 700; color: var(--ink); }
 .wxbar .local #localCity { color: var(--ink-3); font-weight: 500; margin-left: .2em; }
 
@@ -826,7 +826,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .wxbar .radar-time { margin: .2em 0 0; color: var(--ink-3); font-size: .64em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span, .wxbar .radar-time b { display: block; }
 .wxbar .radar-time b { font-weight: 600; color: var(--ink-2); margin-top: .1em; }
-#localClock { font-size: 1.2em; }
+.wxbar .clock { margin: 0; color: var(--ink-2); font-size: 1.08em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span::before { content: ''; display: inline-block; width: .55em; height: .55em; margin-right: .4em; border-radius: 50%; background: #34d399; vertical-align: .05em; }
 /* Past-hour loop: the button's glow pulses. */
 .zoomctl .radar-btn[data-mode="loop"] { animation: radar-loop 1.6s ease-in-out infinite; }
