@@ -1942,6 +1942,10 @@
     }
     document.getElementById('tlMarks').innerHTML = marks.map((m) => `<span class="tl-mark${m.noon ? ' noon' : ''}" style="left:${(m.f * 100).toFixed(2)}%">`
       + `<b>${m.noon ? '\u2600 Noon' : '\u263E Midnight'}</b></span>`).join('');
+    // An axis time that would sit under a midnight/noon label steps aside.
+    document.querySelectorAll('.tl-axis span').forEach((el, i) => {
+      el.style.visibility = marks.some((m) => Math.abs(m.f - i / 4) < 0.08) ? 'hidden' : '';
+    });
     document.getElementById('tlClock1').textContent = fmtTime(now - span * 0.75);
     document.getElementById('tlClock2').textContent = fmtTime(now - span * 0.25);
     const ago = (h) => (h >= 1 ? `${h}h` : `${Math.round(h * 60)}m`);
