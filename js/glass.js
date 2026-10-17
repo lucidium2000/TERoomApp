@@ -80,7 +80,9 @@
   let liteDet = null, liteTimer = 0, liteN = 0, liteT0 = 0;
   let handLm = null, lastSwipeAny = -Infinity, lastPalms = [], lastHandSeen = -Infinity;
   let debug = null, debugWanted = qs.get('camdebug') === '1', frameN = 0, resN = 0, resT0 = 0;
-  const SWIPE_ON = qs.get('swipe') !== '0';
+  const SWIPE_ON = qs.get('swipe') !== '0';   // hand tracking on (the name is historical)
+  // Swipe gestures (spin the globe) are retired; ?swipe=1 brings the detectors back.
+  const SWIPE_GESTURE = qs.get('swipe') === '1';
   // With hands on, faces are only looked for on every FACE_EVERY-th frame:
   // head position is heavily smoothed, and the hand model gets the rest.
   const FACE_EVERY = Math.max(1, parseInt(qs.get('faceevery'), 10) || 4);
@@ -195,8 +197,8 @@
     calib = null; nDetect = 0; stats.ms = 0; recent = []; lastSize = 0; faceBox = null; neutral = null; lastMeasureT = 0;
     // Two swipe detectors: hand landmarks (precise, but only as fast as the
     // model runs) and a cheap motion sweep at ~16 Hz that covers for a slow model.
-    handSwipe = SWIPE_ON && stats.hands ? makeHandSwipeDetector() : null;
-    swipe = SWIPE_ON ? makeSwipeDetector() : null;
+    handSwipe = SWIPE_GESTURE && stats.hands ? makeHandSwipeDetector() : null;
+    swipe = SWIPE_GESTURE ? makeSwipeDetector() : null;
     stats.swipe = handSwipe ? 'hands+motion' : swipe ? 'motion' : 'off';
     lastSwipeAny = -Infinity;
     if (liteDet) liteLoop();
@@ -274,8 +276,8 @@
       if (!(await startMainDetectors(delegate)) || !G.on) return;
       stats.switched = `worker was ${hz}/s`;
       stats.where += '*';   // * = auto-switched from a slow worker (see stats.switched)
-      handSwipe = stats.hands ? makeHandSwipeDetector() : null;
-      stats.swipe = handSwipe ? 'hands+motion' : 'motion';
+      handSwipe = SWIPE_GESTURE && stats.hands ? makeHandSwipeDetector() : null;
+      stats.swipe = handSwipe ? 'hands+motion' : swipe ? 'motion' : 'off';
       resN = 0; resT0 = performance.now(); stats.handHz = 0;
       if (liteDet) liteLoop();
     }, 6000);

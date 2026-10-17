@@ -2241,11 +2241,6 @@
       clickAt(x, y);
     });
     guide.dataset.v = window.Glass.version;
-    window.Glass.onSwipe((dir) => {
-      showSwipe(dir);
-      sfx('whoosh');
-      spinTurns(dir === 'left' ? 3 : -3);   // swipe left = surface moves left = east comes round
-    });
     // Tap: camera on/off. Press and hold (~0.6 s): camera debug view on/off
     // (turning the camera on too if needed) - for tuning on the device itself.
     let holdTimer = 0, held = false;
