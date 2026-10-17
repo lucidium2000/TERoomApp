@@ -70,16 +70,21 @@
     return s.length ? s[Math.floor(s.length / 2)] : null;
   }
 
+  // Status from the HTTP answer and the average response time of the last
+  // few checks: green when it's a 2xx (or 3xx) under GOOD_MS on average,
+  // amber up to SLOW_MS (or a 4xx), red beyond that, on a 5xx, or no reply.
+  const num = (k, d) => { const v = parseFloat(qs.get(k)); return isFinite(v) && v > 0 ? v : d; };
+  const GOOD_MS = num('rngood', 80), SLOW_MS = num('rnslow', 200), AVG_N = 4;
   function judge(p) {
     const recent = p.samples.slice(-2);
     if (recent.length === 2 && recent.every((s) => s.ms == null)) return 'down';
     const last = p.samples[p.samples.length - 1];
     if (!last || last.ms == null) return p.status === 'pending' ? 'pending' : p.status;
-    if (p.code >= 500) return 'slow';   // reachable but the service itself is erroring
-    if (p.baseline == null) return 'ok';
-    const r = last.ms / p.baseline, extra = last.ms - p.baseline;
-    if (r > 1.8 && extra > 150) return 'slow';
-    if (r > 1.35 && extra > 70) return 'warn';
+    const good = p.samples.filter((s) => s.ms != null).slice(-AVG_N).map((s) => s.ms);
+    p.avg = good.reduce((a, b) => a + b, 0) / good.length;
+    if (p.code >= 500) return 'slow';   // reachable, but the service itself is erroring
+    if (p.avg >= SLOW_MS) return 'slow';
+    if (p.code >= 400 || p.avg >= GOOD_MS) return 'warn';
     return 'ok';
   }
 
@@ -93,7 +98,7 @@
     // Baseline from the good samples BEFORE this one, so a spike can't hide itself.
     const good = p.samples.filter((s) => s.ms != null).slice(-BASE_N).map((s) => s.ms);
     p.baseline = good.length >= 3 ? median(good) : (good.length ? Math.min(...good) : null);
-    p.samples.push({ t: Date.now(), ms });
+    p.samples.push({ t: Date.now(), ms, code: ms == null ? null : p.code });
     if (p.samples.length > KEEP) p.samples.shift();
     p.last = ms;
     p.status = judge(p);
@@ -109,6 +114,7 @@
 
   window.RoomNet = {
     probes,
+    GOOD_MS, SLOW_MS,
     /** Check a different address for probe i (null: back to the default).
      *  Saved on this device; history restarts and it's checked at once. */
     setUrl(i, url) {

@@ -561,15 +561,18 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .rn-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rn-row b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .rn-spark { width: 56px; height: 14px; display: block; }
-.rn-spark .rn-line { fill: none; stroke: var(--app); stroke-width: 1.4; vector-effect: non-scaling-stroke; opacity: .85; }
-.rn-spark .rn-area { fill: rgba(22, 189, 235, .12); stroke: none; }
-.rn-spark .rn-bg { fill: rgba(255, 255, 255, .025); }
-.rn-spark .rn-fail { fill: var(--bad); }
-.rn-spark .rn-now { stroke: rgba(255, 255, 255, .18); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 2 2; }
+/* Availability shading behind, latency trend line through the middle. */
+.rn-spark .rn-av { stroke: none; }
+.rn-spark .rn-av-g { fill: rgba(52, 211, 153, .26); }
+.rn-spark .rn-av-a { fill: rgba(251, 191, 36, .4); }
+.rn-spark .rn-av-r { fill: rgba(244, 63, 94, .55); }
+.rn-spark .rn-line { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.rn-spark .rn-g { stroke: rgba(230, 245, 255, .9); }
+.rn-spark .rn-a { stroke: #fbbf24; }
+.rn-spark .rn-r { stroke: #fb7185; }
 /* In the panel: the timeline takes the space between the name and the time. */
 .svc .rn-spark { width: 100%; height: 20px; border-radius: 3px; }
-.svc-warn .rn-spark .rn-line { stroke: var(--warn); }
-.svc-bad .rn-spark .rn-line { stroke: var(--bad); }
+
 .rn-o { font-style: normal; font-size: .72em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; text-align: right; }
 .rn-o-active { color: var(--bad); } .rn-o-recent { color: var(--warn); }
 .rn-ok i { background: var(--ok); box-shadow: 0 0 6px var(--ok); }

@@ -1307,40 +1307,55 @@
     const { hits } = watchMatches(term);
     return hits.some((o) => o.active) ? 'active' : hits.length ? 'recent' : null;
   }
-  // The response-time timeline in each row: an hour wide, on a real time
-  // axis. It starts when the app opens and fills left to right; once an hour
-  // has passed it slides, always showing the last hour. Failed checks are red
-  // ticks along the bottom.
-  const RN_T0 = Date.now(), RN_SPAN = 3600e3;
+  // The timeline in each row. It starts when the app opens and always uses
+  // the full width - the first checks spread across it, getting finer as the
+  // hour fills up; after an hour it slides, showing the last hour.
+  //  - Shading: availability at the application layer - green where the page
+  //    answered (2xx/3xx), amber on a 4xx, red on a 5xx or no answer.
+  //  - Line, through the middle: the latency trend (a short moving average),
+  //    light when fast, amber past 80 ms, red past 200 ms.
+  const RN_SPAN = 3600e3;
   function rnSpark(p) {
     const W = 200, H = 18, now = Date.now();
-    const t1 = Math.max(now, RN_T0 + RN_SPAN), t0 = t1 - RN_SPAN;
-    const pts = p.samples.filter((x) => x.t >= t0);
-    const vals = pts.filter((x) => x.ms != null).map((x) => x.ms);
-    const X = (t) => ((t - t0) / RN_SPAN) * W;
+    const G = (window.RoomNet && window.RoomNet.GOOD_MS) || 80, SL = (window.RoomNet && window.RoomNet.SLOW_MS) || 200;
+    const all = p.samples.filter((x) => x.t >= now - RN_SPAN);
+    if (!all.length) return '<svg class="rn-spark" viewBox="0 0 200 18" preserveAspectRatio="none"></svg>';
+    const t0 = all[0].t, t1 = Math.max(now, t0 + 1000);   // first check to now, whatever the span
+    const X = (t) => ((t - t0) / (t1 - t0)) * W;
     let out = '';
-    if (vals.length >= 2) {
-      const max = Math.max(...vals) * 1.12, min = Math.min(...vals) * 0.85;
-      const Y = (v) => H - 1.5 - ((v - min) / (max - min || 1)) * (H - 3);
-      let d = '', area = '', run = [];
-      const flush = () => {
-        if (run.length > 1) area += `M${run[0][0]} ${H}` + run.map(([x, y]) => `L${x} ${y}`).join('') + `L${run[run.length - 1][0]} ${H}Z`;
-        run = [];
-      };
-      let pen = false;
-      for (const s2 of pts) {
-        if (s2.ms == null) { pen = false; flush(); continue; }
-        const x = X(s2.t).toFixed(1), y = Y(s2.ms).toFixed(1);
-        d += (pen ? 'L' : 'M') + x + ' ' + y; pen = true; run.push([x, y]);
+    // Availability: each check holds until the next one (the last until now).
+    const avail = (x) => (x.ms == null || (x.code && x.code >= 500) ? 'r' : x.code && x.code >= 400 ? 'a' : 'g');
+    all.forEach((x, i) => {
+      const a = X(x.t), b = i + 1 < all.length ? X(all[i + 1].t) : W;
+      out += `<rect class="rn-av rn-av-${avail(x)}" x="${a.toFixed(1)}" y="0" width="${Math.max(0.6, b - a + 0.4).toFixed(1)}" height="${H}"/>`;
+    });
+    // Latency trend: a 3-check moving average, on a steady scale (0 to a
+    // little above the worst, at least above the green line, so a healthy
+    // service runs low through the middle band and spikes stand out).
+    const ok = all.filter((x) => x.ms != null);
+    const vals = ok.map((x) => x.ms);
+    if (ok.length) {
+      const sm = ok.map((x, i) => { const w = ok.slice(Math.max(0, i - 2), i + 1); return { t: x.t, ms: w.reduce((a, b) => a + b.ms, 0) / w.length }; });
+      const max = Math.max(G * 1.6, Math.max(...sm.map((x) => x.ms)) * 1.15);
+      const Y = (v) => (H - 3 - (v / max) * (H - 6)).toFixed(1);
+      const cls = (v) => (v < G ? 'g' : v < SL ? 'a' : 'r');
+      const segs = { g: '', a: '', r: '' };
+      if (sm.length === 1) segs[cls(sm[0].ms)] = `M0 ${Y(sm[0].ms)}L${W} ${Y(sm[0].ms)}`;
+      for (let i = 1; i < sm.length; i++) {
+        // A gap (failed checks) between two answers breaks the line.
+        const gap = all.some((x) => x.ms == null && x.t > sm[i - 1].t && x.t < sm[i].t);
+        if (gap) continue;
+        segs[cls((sm[i - 1].ms + sm[i].ms) / 2)] += `M${X(sm[i - 1].t).toFixed(1)} ${Y(sm[i - 1].ms)}L${X(sm[i].t).toFixed(1)} ${Y(sm[i].ms)}`;
       }
-      flush();
-      out += `<path class="rn-area" d="${area}"/><path class="rn-line" d="${d}"/>`;
+      // Hold the latest value out to the right edge (now), unless the latest check failed.
+      const last = sm[sm.length - 1];
+      if (sm.length > 1 && all[all.length - 1].ms != null) segs[cls(last.ms)] += `M${X(last.t).toFixed(1)} ${Y(last.ms)}L${W} ${Y(last.ms)}`;
+      for (const k of ['g', 'a', 'r']) if (segs[k]) out += `<path class="rn-line rn-${k}" d="${segs[k]}"/>`;
     }
-    for (const s2 of pts) if (s2.ms == null) out += `<rect class="rn-fail" x="${(X(s2.t) - 1).toFixed(1)}" y="${H - 5}" width="2" height="5"/>`;
-    // Where "now" is while the hour is still filling up.
-    if (now < RN_T0 + RN_SPAN) out += `<line class="rn-now" x1="${X(now).toFixed(1)}" x2="${X(now).toFixed(1)}" y1="0" y2="${H}"/>`;
-    const tip = vals.length ? `last ${Math.round((now - Math.max(t0, RN_T0)) / 60000)} min: ${Math.round(Math.min(...vals))}-${Math.round(Math.max(...vals))} ms` : '';
-    return `<svg class="rn-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><title>${tip}</title><rect class="rn-bg" x="0" y="0" width="${W}" height="${H}"/>${out}</svg>`;
+    const up = all.filter((x) => avail(x) === 'g').length;
+    const tip = `last ${Math.max(1, Math.round((now - t0) / 60000))} min: available ${Math.round((up / all.length) * 100)}% of checks`
+      + (vals.length ? `, ${Math.round(Math.min(...vals))}-${Math.round(Math.max(...vals))} ms, average ${Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)} ms` : '');
+    return `<svg class="rn-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><title>${tip}</title>${out}</svg>`;
   }
   /** "Your services": one row per watched service, combining its Internet
    *  Insights status (outages on the globe) with this room's live connection
@@ -1367,8 +1382,8 @@
       const lvl = !p || st === 'pending' ? 'wait' : ({ down: 'bad', slow: 'bad', warn: 'warn' }[st] || 'ok');
       let desc = !p ? 'no check' : st === 'pending' ? 'checking\u2026' : st === 'down' ? 'no reply'
         : p.code ? `${p.code} ${p.reason || ''}`.trim() : 'reachable';
-      if (st === 'slow' && p.last != null) desc += ' \u00B7 slower than usual';
-      else if (st === 'warn') desc += ' \u00B7 a bit slow';
+      // Past green: say how slow, on average.
+      if ((st === 'slow' || st === 'warn') && p.avg != null && !(p.code >= 400)) desc += ` \u00B7 avg ${Math.round(p.avg)} ms`;
       const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '') + ' - tap for path' : 'no local probe';
       return { term, label: svcLabel(term, preset), p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
     });
