@@ -1311,7 +1311,8 @@
   // the full width - the first checks spread across it, getting finer as the
   // hour fills up; after an hour it slides, showing the last hour.
   //  - Shading: availability at the application layer - green where the page
-  //    answered (2xx/3xx), amber on a 4xx, red on a 5xx or no answer.
+  //    answered (2xx, 3xx, 401/403/407), amber on other 4xx, red on a 5xx or
+  //    no answer.
   //  - Line, through the middle: the latency trend (a short moving average),
   //    light when fast, amber past 80 ms, red past 200 ms.
   const RN_SPAN = 3600e3;
@@ -1324,7 +1325,7 @@
     const X = (t) => ((t - t0) / (t1 - t0)) * W;
     let out = '';
     // Availability: each check holds until the next one (the last until now).
-    const avail = (x) => (x.ms == null || (x.code && x.code >= 500) ? 'r' : x.code && x.code >= 400 ? 'a' : 'g');
+    const avail = (x) => (x.ms == null || (x.code && x.code >= 500) ? 'r' : x.code && x.code >= 400 && ![401, 403, 407].includes(x.code) ? 'a' : 'g');
     all.forEach((x, i) => {
       const a = X(x.t), b = i + 1 < all.length ? X(all[i + 1].t) : W;
       out += `<rect class="rn-av rn-av-${avail(x)}" x="${a.toFixed(1)}" y="0" width="${Math.max(0.6, b - a + 0.4).toFixed(1)}" height="${H}"/>`;
@@ -1388,8 +1389,10 @@
       let desc = !p ? 'no check' : st === 'pending' ? 'checking\u2026' : st === 'down' ? 'no reply'
         : p.code ? `${p.code} ${p.reason || ''}`.trim() : 'reachable';
       // Past green: say how slow, on average.
-      if ((st === 'slow' || st === 'warn') && p.avg != null && !(p.code >= 400)) desc += ` \u00B7 avg ${Math.round(p.avg)} ms`;
-      const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '') + ' - tap for path' : 'no local probe';
+      // Slow (not an error answer): say how slow, on average.
+      if ((st === 'slow' || st === 'warn') && p.avg != null && p.avg >= ((window.RoomNet && window.RoomNet.GOOD_MS) || 80)) desc += ` \u00B7 avg ${Math.round(p.avg)} ms`;
+      const via = p && p.codeFrom === 'probe' && p.remote ? ` - status from a nearby test point (${p.remote.probe.network}, ${p.remote.probe.city}), since this address hides it from the browser` : '';
+      const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.avg ? ` - average ${Math.round(p.avg)} ms` : '') + via + ' - tap for path' : 'no local probe';
       return { term, label: svcLabel(term, preset), p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
     });
     rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" data-term="${esc(r.term)}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`

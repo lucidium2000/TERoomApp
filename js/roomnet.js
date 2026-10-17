@@ -71,10 +71,13 @@
   }
 
   // Status from the HTTP answer and the average response time of the last
-  // few checks: green when it's a 2xx (or 3xx) under GOOD_MS on average,
-  // amber up to SLOW_MS (or a 4xx), red beyond that, on a 5xx, or no reply.
+  // few checks. The answer: 2xx, 3xx (redirects) and sign-in / access
+  // answers (401, 403, 407 - the server is up and talking) count as good;
+  // other 4xx are amber; 5xx, or no answer, are red. Then speed: green under
+  // GOOD_MS on average, amber up to SLOW_MS, red beyond.
   const num = (k, d) => { const v = parseFloat(qs.get(k)); return isFinite(v) && v > 0 ? v : d; };
   const GOOD_MS = num('rngood', 80), SLOW_MS = num('rnslow', 200), AVG_N = 4;
+  const codeLevel = (c) => (!c ? 'ok' : c >= 500 ? 'bad' : c >= 400 && ![401, 403, 407].includes(c) ? 'warn' : 'ok');
   function judge(p) {
     const recent = p.samples.slice(-2);
     if (recent.length === 2 && recent.every((s) => s.ms == null)) return 'down';
@@ -82,10 +85,31 @@
     if (!last || last.ms == null) return p.status === 'pending' ? 'pending' : p.status;
     const good = p.samples.filter((s) => s.ms != null).slice(-AVG_N).map((s) => s.ms);
     p.avg = good.reduce((a, b) => a + b, 0) / good.length;
-    if (p.code >= 500) return 'slow';   // reachable, but the service itself is erroring
-    if (p.avg >= SLOW_MS) return 'slow';
-    if (p.code >= 400 || p.avg >= GOOD_MS) return 'warn';
+    const cl = codeLevel(p.code);
+    if (cl === 'bad' || p.avg >= SLOW_MS) return 'slow';
+    if (cl === 'warn' || p.avg >= GOOD_MS) return 'warn';
     return 'ok';
+  }
+
+  // Addresses that hide their answer from the browser (no CORS): the code
+  // comes from a Globalping probe on this room's ISP instead (PathTrace.
+  // httpCheck), every REMOTE_MS - the free tier allows 250 checks an hour.
+  const REMOTE_MS = 5 * 60e3, REMOTE_FRESH = 15 * 60e3;
+  function remoteCheck(p) {
+    if (!window.PathTrace || !window.PathTrace.httpCheck || p.remoteBusy) return;
+    if (p.remote && Date.now() - p.remote.t < REMOTE_MS) return;
+    p.remoteBusy = true;
+    const url = p.url;
+    window.PathTrace.httpCheck(url).then((r) => {
+      if (p.url !== url) return;   // edited meanwhile
+      p.remote = { ...r, t: Date.now() };
+      p.code = r.code; p.reason = r.reason; p.codeFrom = 'probe';
+      const last = p.samples[p.samples.length - 1];
+      if (last && last.ms != null) last.code = r.code;
+      p.status = judge(p);
+      if (opts.onUpdate) opts.onUpdate(probes);
+    }).catch(() => { p.remote = { t: Date.now(), failed: true }; })
+      .finally(() => { p.remoteBusy = false; });
   }
 
   async function probe(p) {
@@ -93,7 +117,12 @@
     try {
       await timeOnce(p.url, p).catch(() => {});   // warm-up: DNS, TCP, TLS
       const t = await timeOnce(p.url, p);
-      ms = t.ms; p.code = t.code; p.reason = t.reason;
+      ms = t.ms; p.code = t.code; p.reason = t.reason; p.codeFrom = t.code ? 'browser' : null;
+      // Hidden answer: use the nearby probe's code (if recent), and refresh it.
+      if (p.opaque) {
+        if (p.remote && p.remote.code && Date.now() - p.remote.t < REMOTE_FRESH) { p.code = p.remote.code; p.reason = p.remote.reason; p.codeFrom = 'probe'; }
+        remoteCheck(p);
+      }
     } catch (_) { ms = null; p.code = null; p.reason = ''; }
     // Baseline from the good samples BEFORE this one, so a spike can't hide itself.
     const good = p.samples.filter((s) => s.ms != null).slice(-BASE_N).map((s) => s.ms);
@@ -122,7 +151,7 @@
       if (!p) return;
       p.url = url || p.defaultUrl; p.custom = !!url && url !== p.defaultUrl;
       p.what = p.custom ? 'Custom address' : (TARGETS[i] && TARGETS[i].what) || p.what;
-      p.samples = []; p.baseline = null; p.status = 'pending'; p.last = null; p.code = null; p.reason = ''; p.opaque = false;
+      p.samples = []; p.baseline = null; p.status = 'pending'; p.last = null; p.code = null; p.reason = ''; p.opaque = false; p.remote = null; p.codeFrom = null;
       if (p.custom) custom[p.term] = p.url; else delete custom[p.term];
       try { localStorage.setItem(KEY, JSON.stringify(custom)); } catch (_) { /* private mode */ }
       if (opts.onUpdate) opts.onUpdate(probes);

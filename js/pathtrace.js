@@ -125,5 +125,41 @@
     }
   }
 
-  window.PathTrace = { run, settle, roomInfo };
+  /** One HTTP request to url from a Globalping probe on this room's ISP (then
+   *  city, country): the status code a page won't let the browser read, plus
+   *  the timing breakdown. Redirects aren't followed - a 3xx is the answer.
+   *  -> { code, reason, timings: {total, dns, tcp, tls, firstByte, download}, probe: {city, network} } */
+  async function httpCheck(url) {
+    const u = new URL(url), room = await roomInfo().catch(() => ({}));
+    const tries = [];
+    if (room.asn) tries.push([{ asn: room.asn }]);
+    if (room.city) tries.push([{ magic: room.city }]);
+    if (room.country) tries.push([{ country: room.country }]);
+    tries.push([{ magic: 'world' }]);
+    const body = (locations) => JSON.stringify({
+      type: 'http', target: u.hostname, locations, limit: 1,
+      measurementOptions: {
+        protocol: u.protocol === 'http:' ? 'HTTP' : 'HTTPS', port: u.port ? +u.port : undefined,
+        request: { method: 'GET', path: u.pathname || '/', query: u.search ? u.search.slice(1) : undefined },
+      },
+    });
+    let created = null;
+    for (const loc of tries) {
+      try { created = await json(GP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body(loc) }); break; }
+      catch (e) { if (e.status !== 422) throw e; }
+    }
+    if (!created) throw new Error('no probe available');
+    let m;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      m = await json(`${GP}/${created.id}`);
+      if (m.status !== 'in-progress') break;
+    }
+    const r = m && m.results && m.results[0], res = r && r.result;
+    if (!res || !res.statusCode) throw new Error((res && res.rawOutput) || 'no answer');
+    const title = (t) => String(t || '').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bOk\b/, 'OK');
+    return { code: res.statusCode, reason: title(res.statusCodeName), timings: res.timings || null, probe: { city: r.probe.city, network: r.probe.network } };
+  }
+
+  window.PathTrace = { run, settle, roomInfo, httpCheck };
 })();
