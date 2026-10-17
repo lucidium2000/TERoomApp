@@ -501,8 +501,8 @@
       S.room = room;   // the globe marks it (drawRoom)
       const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + room.lat.toFixed(3) + '&longitude=' + room.lon.toFixed(3)
         + '&current=temperature_2m,weather_code,is_day' + (WX_C ? '' : '&temperature_unit=fahrenheit'));
-      const c = (await r.json()).current;
-      if (!c) return;
+      const c = r.ok ? (await r.json()).current : null;
+      if (!c) throw new Error('weather ' + r.status);
       const g = localWx.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
       localWx.width = localWx.height = Math.round(28 * dpr);
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -511,8 +511,15 @@
       localWx.hidden = false;
       localTemp.textContent = `${Math.round(c.temperature_2m)}\u00B0`;
       S.roomWx = { code: c.weather_code, day: c.is_day === 1, t: c.temperature_2m };
+      localWeather.retry = 0;
       localCity.textContent = room.city || '';
-    } catch (_) { /* no weather is fine */ }
+    } catch (_) {
+      // No weather is fine, but don't leave it blank for the full 15 minutes:
+      // try again in a minute (then 2, 4 ... up to 15).
+      clearTimeout(localWeather.t);
+      localWeather.retry = Math.min(15, (localWeather.retry || 0.5) * 2);
+      localWeather.t = setTimeout(localWeather, localWeather.retry * 60e3);
+    }
   }
 
   // ── Weather on city labels (Open-Meteo: free, no key, CORS) ────────────
@@ -599,31 +606,38 @@
     return !!(m && performance.now() - m.t < 4000 && Math.hypot(m.x - p[0], m.y - p[1]) < 22);
   }
   /** Where this device connects from (its public IP's location, the same one
-   *  the local weather and path traces use): a still, green map pin - a shape
+   *  the local weather and path traces use): a still, green reticle - a shape
    *  and colour no outage uses, and no pulse, so it never reads as one. */
   function drawRoom(now, k) {
     const room = S.room;
     if (!room || !isFinite(room.lat) || (room.lat === 0 && room.lon === 0)) return;
     const p = proj.point(room.lon, room.lat);
     if (!p) return;
-    const [x, y] = p, r = 6.5 * k, h = 18 * k;   // head radius; tip-to-head-centre height
-    S.roomPt = { x, y: y - h * 0.6 };   // for hover and tap
+    // A fine location reticle in the globe's HUD style: hairline ring, four
+    // ticks and a small core, each over a faint dark keyline so it reads on
+    // land, sea and radar alike. Still - no glow or pulse like an outage.
+    const [x, y] = p, R = 6 * k, G = '52,211,153';
+    S.roomPt = { x, y };   // for hover and tap
+    const focus = roomFocus();
+    const ink = focus ? '#7ff5c8' : `rgba(${G},0.95)`, line = 1.1 * k, key = 'rgba(4,8,16,0.55)';
     ctx.save();
-    // Pin: a round head tapering to a point on the location.
-    const cy = y - h, a = Math.acos(r / h);   // tangent points from the tip
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.arc(x, cy, r, Math.PI / 2 + a, Math.PI / 2 - a + 2 * Math.PI);
-    ctx.closePath();
-    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6 * k; ctx.shadowOffsetY = 1.5 * k;
-    ctx.fillStyle = '#34d399';
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-    ctx.lineWidth = 1.5 * k; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke();
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(x, cy, r * 0.4, 0, 2 * Math.PI); ctx.fill();
+    ctx.lineCap = 'round';
+    const stroke = (path) => {
+      ctx.lineWidth = line + 1.6 * k; ctx.strokeStyle = key; path(); ctx.stroke();
+      ctx.lineWidth = line; ctx.strokeStyle = ink; ctx.stroke();
+    };
+    stroke(() => { ctx.beginPath(); ctx.arc(x, y, R, 0, 2 * Math.PI); });
+    stroke(() => {
+      ctx.beginPath();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        ctx.moveTo(x + dx * (R + 2 * k), y + dy * (R + 2 * k));
+        ctx.lineTo(x + dx * (R + 5.5 * k), y + dy * (R + 5.5 * k));
+      }
+    });
+    ctx.fillStyle = key; ctx.beginPath(); ctx.arc(x, y, 2.6 * k, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(x, y, 1.8 * k, 0, 2 * Math.PI); ctx.fill();
     ctx.restore();
-    if (roomFocus()) roomTag(x + r + 8 * k, cy, k);
+    if (focus) roomTag(x + R + 9 * k, y, k);
   }
   /** Hovered (mouse or hand cursor) or tapped in the last few seconds. */
   function roomFocus() {
@@ -1963,7 +1977,28 @@
   }, { passive: false });
 
   // Reset view (zoom is by pinch, double-tap, wheel, or leaning in with Glass mode).
-  document.getElementById('zoomReset').addEventListener('click', () => { userInput(); select(null); zoomTo(DEFAULT_ZOOM, [view.lon, 18]); sfx('reset'); });
+  // Full screen toggle (where the browser allows it; hidden where it can't).
+  const fsBtn = document.getElementById('fsBtn');
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const fsOk = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+  if (!fsOk) fsBtn.hidden = true;
+  const fsSync = () => {
+    const on = !!fsEl();
+    fsBtn.setAttribute('aria-pressed', String(on));
+    fsBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+    fsBtn.title = on ? 'Exit full screen' : 'Full screen';
+  };
+  document.addEventListener('fullscreenchange', fsSync);
+  document.addEventListener('webkitfullscreenchange', fsSync);
+  fsBtn.addEventListener('click', () => {
+    userInput();
+    const root = document.documentElement;
+    try {
+      if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+      sfx('on');
+    } catch (_) { toast('Full screen isn\u2019t available here', 'info'); }
+  });
   // Stop the browser itself from zooming the page on a pinch (Safari/WebKit gesture events).
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 

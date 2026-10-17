@@ -136,7 +136,8 @@ body.free .wxbar { right: var(--gutter); }
 
 /* ── Zoom controls (left edge, mid-height: clear of the card and timeline) ── */
 .zoomctl {
-  position: fixed; left: var(--gutter); top: 50%; transform: translateY(-50%);
+  /* Just under the title, so it stays clear of the outage card below. */
+  position: fixed; left: var(--gutter); top: calc(var(--gutter) + 125px);
   display: flex; flex-direction: column; gap: .5em;
   z-index: 99;   /* above the debug panels, so the camera button can always switch them off */
 }
@@ -147,6 +148,9 @@ body.free .wxbar { right: var(--gutter); }
 }
 .zoomctl button:active { background: rgba(255, 255, 255, .14); }
 body.signage .zoomctl { display: none; }
+.zoomctl button[hidden] { display: none; }
+.zoomctl .fs-btn .fs-out, .zoomctl .fs-btn[aria-pressed="true"] .fs-in { display: none; }
+.zoomctl .fs-btn[aria-pressed="true"] .fs-out { display: block; }
 
 /* ── Focus card ────────────────────────────────────── */
 .card {
@@ -501,6 +505,14 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
   .wxbar { right: 12px; top: 12px; font-size: .85em; }
   .gesture { top: calc(12px + 8.6em); }
   .toast { top: calc(12px + 16.5em); max-width: calc(100vw - 24px); text-align: center; }
+}
+
+/* Narrow and short (a phone on its side, a small window): no room down the
+   left above the card, so the buttons go back to a column at the top right. */
+@media (max-width: 900px) and (orientation: landscape) {
+  .zoomctl { left: auto; right: 12px; top: 12px; }
+  .cam-chip { left: auto; right: calc(100% + 8px); }
+  .wxbar { right: 68px; }
 }
 
 /* Device Lab (camera debug companion) */
