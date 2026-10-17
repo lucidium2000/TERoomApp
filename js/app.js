@@ -2339,8 +2339,9 @@
   // ── Weather radar (js/radar.js, RainViewer) ─────────────────────────────
   // The weather button cycles live radar -> the past hour, looped like a
   // weather app -> off (remembered on this device; live by default). The
-  // credit RainViewer's terms require shows while it's on. WebGL only.
-  const radarBtn = document.getElementById('radarBtn'), radarCredit = document.getElementById('radarCredit');
+  // header line ("RainViewer Radar", the credit their terms ask for, and the
+  // frame time) shows while it's on. WebGL only.
+  const radarBtn = document.getElementById('radarBtn');
   const radarTime = document.getElementById('radarTime');
   if (window.Radar && window.Radar.enabled && glr) {
     window.Radar.setMaxTex(glr.info.maxTex || 4096);
@@ -2353,7 +2354,7 @@
     let frames = { n: 0, times: [] }, loopRaf = 0, loopT0 = 0, shownIdx = -1;
     const label = (i) => {
       const t = frames.times[i];
-      radarTime.textContent = !t ? '' : frames.n > 1 ? `Radar \u00B7 past hour \u00B7 ${fmtTime(t)}${i === frames.n - 1 ? ' (latest)' : ''}` : `Radar \u00B7 ${fmtTime(t)}`;
+      radarTime.textContent = !t ? '' : frames.n > 1 ? `RainViewer Radar \u00B7 past hour \u00B7 ${fmtTime(t)}${i === frames.n - 1 ? ' (latest)' : ''}` : `RainViewer Radar \u00B7 ${fmtTime(t)}`;
     };
     function loop(t) {
       if (!glr || frames.n < 2) { loopRaf = 0; return; }
@@ -2368,7 +2369,7 @@
       if (!glr || mode === 'off') return;
       glr.setRadarFrames(imgs, RADAR_A);
       frames = { n: imgs.length, times };
-      radarCredit.hidden = false; radarTime.hidden = false;
+      radarTime.hidden = false;
       shownIdx = -1;
       if (frames.n > 1) { if (!loopRaf) { loopT0 = performance.now(); loopRaf = requestAnimationFrame(loop); } }
       else { if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; } label(0); }
@@ -2380,7 +2381,7 @@
         window.Radar.stop();
         if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; }
         frames = { n: 0, times: [] };
-        radarCredit.hidden = true; radarTime.hidden = true;
+        radarTime.hidden = true;
         if (glr) glr.setRadar(null);
         return;
       }
