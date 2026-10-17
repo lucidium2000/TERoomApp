@@ -818,7 +818,15 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 }
 .radar-credit {
   position: fixed; left: var(--gutter); bottom: calc(var(--gutter) + 5.2em); z-index: 15; zoom: var(--ui-zoom);
-  font-size: .72em; color: var(--ink-3); text-decoration: none; background: rgba(5, 9, 18, .55);
-  padding: .2em .6em; border-radius: 6px;
+  font-size: .78em; color: var(--ink-3); background: rgba(5, 9, 18, .6);
+  padding: .25em .4em .25em .3em; border-radius: 999px;
 }
-.radar-credit b { color: var(--ink-2); font-weight: 600; }
+.radar-credit b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.radar-credit a { color: inherit; text-decoration: none; }
+.radar-credit { display: flex; align-items: center; gap: .45em; }
+.radar-play {
+  font: inherit; font-weight: 700; color: var(--ink-2); padding: .25em .7em; min-height: 30px; border-radius: 999px;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--line); cursor: pointer;
+}
+.radar-play[aria-pressed="true"] { color: #d1fae5; background: rgba(52, 211, 153, .18); border-color: rgba(52, 211, 153, .55); }
+.radar-play .rp-ico { font-size: .85em; }

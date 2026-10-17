@@ -50,7 +50,9 @@ uniform float uPx;        // device px per CSS px (line widths)
 uniform sampler2D uLand;  // land coverage (luminance)
 uniform sampler2D uStars;
 uniform sampler2D uRadar; // weather radar (RGBA, equirectangular; js/radar.js)
-uniform float uRadarA;    // its opacity (0 = off)
+uniform sampler2D uRadarB;// the next radar frame, while animating
+uniform float uRadarMix;  // crossfade toward uRadarB (0..1)
+uniform float uRadarA;    // radar opacity (0 = off)
 
 const float PI = 3.14159265;
 
@@ -131,6 +133,7 @@ void main() {
     // Weather radar, over day and night alike (storms matter at night too).
     if (uRadarA > 0.0) {
       vec4 rd = texture2D(uRadar, uv);
+      if (uRadarMix > 0.0) rd = mix(rd, texture2D(uRadarB, uv), uRadarMix);
       g = mix(g, rd.rgb, rd.a * uRadarA);
     }
 
@@ -218,13 +221,14 @@ void main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const Q = { aPos: gl.getAttribLocation(quadProg, 'aPos') };
-    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarA']) Q[n] = gl.getUniformLocation(quadProg, n);
+    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA']) Q[n] = gl.getUniformLocation(quadProg, n);
     const Lu = { aP: gl.getAttribLocation(lineProg, 'aP') };
     for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
     gl.useProgram(quadProg);
     gl.uniform1i(Q.uLand, 0);
     gl.uniform1i(Q.uStars, 1);
     gl.uniform1i(Q.uRadar, 2);
+    gl.uniform1i(Q.uRadarB, 3);
 
     function makeTex(unit) {
       const t = gl.createTexture();
@@ -237,9 +241,18 @@ void main() {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
       return t;
     }
-    const landTex = makeTex(0), starTex = makeTex(1), radarTex = makeTex(2);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-    let radarA = 0;
+    const landTex = makeTex(0), starTex = makeTex(1);
+    // Radar frames: one texture each (a single one when not animating).
+    const radarTexs = [];
+    const radarTex = (i) => {
+      while (radarTexs.length <= i) {
+        radarTexs.push(makeTex(2));
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+      }
+      return radarTexs[i];
+    };
+    radarTex(0);
+    let radarA = 0, radarCur = 0, radarNext = 0, radarMix = 0;
 
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     let renderer = '';
@@ -319,14 +332,22 @@ void main() {
     }
 
     /** Weather radar: an equirectangular canvas (or null to clear) and its opacity. */
-    function setRadar(img, alpha) {
-      if (img) {
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, radarTex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    function setRadar(img, alpha) { setRadarFrames(img ? [img] : null, alpha); }
+    /** Several radar frames (oldest first) for animation; null clears. */
+    function setRadarFrames(imgs, alpha) {
+      if (imgs) {
+        imgs.forEach((img, i) => {
+          if (!img) return;
+          gl.activeTexture(gl.TEXTURE2);
+          gl.bindTexture(gl.TEXTURE_2D, radarTex(i));
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        });
+        radarCur = radarNext = imgs.length - 1; radarMix = 0;
       }
-      radarA = img === null ? 0 : alpha != null ? alpha : radarA;
+      radarA = imgs === null ? 0 : alpha != null ? alpha : radarA;
     }
+    /** Show frame a, crossfading toward frame b by t (0..1). */
+    function setRadarPos(a, b, t) { radarCur = a; radarNext = b; radarMix = t; }
 
     function resize(w, h) {
       canvas.width = w; canvas.height = h;
@@ -348,6 +369,9 @@ void main() {
       gl.vertexAttribPointer(Q.aPos, 2, gl.FLOAT, false, 0, 0);
       gl.uniform2f(Q.uRes, canvas.width, canvas.height);
       gl.uniform1f(Q.uRadarA, radarA);
+      gl.uniform1f(Q.uRadarMix, radarMix);
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, radarTexs[radarCur] || radarTexs[0]);
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, radarTexs[radarNext] || radarTexs[0]);
       gl.uniform3f(Q.uEye, p.eye[0], p.eye[1], p.eye[2]);
       gl.uniform3f(Q.uCtr, p.ctr[0], p.ctr[1], p.ctr[2]);
       gl.uniform1f(Q.uRw, p.Rw);
@@ -379,6 +403,6 @@ void main() {
       gl.disable(gl.BLEND);
     }
 
-    return { setWorld, setStars, setRadar, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
+    return { setWorld, setStars, setRadar, setRadarFrames, setRadarPos, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
   };
 })();

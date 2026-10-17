@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=118">
+  <link rel="stylesheet" href="css/app.css?v=119">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -210,7 +210,10 @@
     <div class="pc-body" id="pathBody"></div>
   </section>
   <div class="voice-pick" id="voicePick" hidden role="dialog" aria-label="Choose a voice"></div>
-  <a class="radar-credit" id="radarCredit" href="https://www.rainviewer.com" target="_blank" rel="noopener" hidden>Weather data by RainViewer &middot; radar <b></b></a>
+  <div class="radar-credit" id="radarCredit" hidden>
+    <button class="radar-play" id="radarPlay" aria-pressed="false" title="Loop the past hour of radar"><span class="rp-ico">&#9654;</span> Past hour</button>
+    <a href="https://www.rainviewer.com" target="_blank" rel="noopener">Weather data by RainViewer</a> &middot; <b></b>
+  </div>
   <div class="toast" id="toast" hidden></div>
   <div class="error" id="error" hidden></div>
 
@@ -224,10 +227,10 @@
   <script src="js/tts.js?v=10"></script>
   <script src="js/roomnet.js?v=84"></script>
   <script src="js/pathtrace.js?v=79"></script>
-  <script src="js/radar.js?v=1"></script>
-  <script src="js/glglobe.js?v=18"></script>
+  <script src="js/radar.js?v=2"></script>
+  <script src="js/glglobe.js?v=19"></script>
   <script src="js/glass.js?v=84"></script>
-  <script src="js/app.js?v=148"></script>
+  <script src="js/app.js?v=149"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

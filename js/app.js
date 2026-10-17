@@ -2267,31 +2267,62 @@
   }
 
   // ── Weather radar (js/radar.js, RainViewer) ─────────────────────────────
-  // A toggle (remembered on this device, on by default) and the credit line
-  // RainViewer's terms require while it's showing. WebGL only.
+  // A toggle (remembered on this device, on by default), the credit line
+  // RainViewer's terms require while it's showing, and a Past hour button that
+  // loops the last hour of radar like a weather app. WebGL only.
   const radarBtn = document.getElementById('radarBtn'), radarCredit = document.getElementById('radarCredit');
+  const radarPlay = document.getElementById('radarPlay'), radarTime = radarCredit.querySelector('b');
   if (window.Radar && window.Radar.enabled && glr) {
     const RADAR_A = Math.max(0.1, Math.min(1, num('radaralpha', 0.75)));
-    let radarOn = true;
-    try { radarOn = localStorage.getItem('te-radar') !== '0'; } catch (_) { /* default on */ }
+    const STEP_MS = 700, FADE = 0.35, HOLD_MS = 1600;   // per frame; crossfade share; pause on the latest
+    const pref = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === '1'; } catch (_) { return d; } };
+    const save = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch (_) { /* private mode */ } };
+    let radarOn = pref('te-radar', true), animOn = pref('te-radar-anim', false);
+    let frames = { n: 0, times: [] }, loopRaf = 0, loopT0 = 0, shownIdx = -1;
+    const label = (i) => { radarTime.textContent = frames.times[i] ? fmtTime(frames.times[i]) + (frames.n > 1 ? (i === frames.n - 1 ? ' (latest)' : '') : '') : ''; };
+    function loop(t) {
+      if (!glr || frames.n < 2) { loopRaf = 0; return; }
+      const n = frames.n, cycle = n * STEP_MS + HOLD_MS, x = (t - loopT0) % cycle;
+      const i = Math.min(n - 1, Math.floor(x / STEP_MS)), f = (x - i * STEP_MS) / STEP_MS;
+      const mix = i < n - 1 && f > 1 - FADE ? (f - (1 - FADE)) / FADE : 0;
+      glr.setRadarPos(i, Math.min(n - 1, i + 1), mix);
+      if (i !== shownIdx) { shownIdx = i; label(i); }
+      loopRaf = requestAnimationFrame(loop);
+    }
+    const onFrames = (imgs, times) => {
+      if (!glr) return;
+      glr.setRadarFrames(imgs, RADAR_A);
+      frames = { n: imgs.length, times };
+      radarCredit.hidden = !radarOn;
+      shownIdx = -1;
+      if (frames.n > 1) { if (!loopRaf) { loopT0 = performance.now(); loopRaf = requestAnimationFrame(loop); } }
+      else { if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; } label(0); }
+    };
     const applyRadar = () => {
       radarBtn.setAttribute('aria-pressed', String(radarOn));
-      radarCredit.hidden = !radarOn || !window.Radar.time;
-      if (radarOn) {
-        window.Radar.start((img, t) => {
-          if (!glr) return;
-          glr.setRadar(img, RADAR_A);
-          radarCredit.querySelector('b').textContent = fmtTime(t);
-          radarCredit.hidden = !radarOn;
-        });
-      } else { window.Radar.stop(); if (glr) glr.setRadar(null); }
+      radarPlay.setAttribute('aria-pressed', String(animOn));
+      radarCredit.hidden = !radarOn || !frames.n;
+      window.Radar.setAnimate(animOn);
+      if (radarOn) window.Radar.start(onFrames);
+      else {
+        window.Radar.stop();
+        if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; }
+        frames = { n: 0, times: [] };
+        if (glr) glr.setRadar(null);
+      }
     };
     radarBtn.addEventListener('click', () => {
       userInput();
-      radarOn = !radarOn;
-      try { localStorage.setItem('te-radar', radarOn ? '1' : '0'); } catch (_) { /* private mode */ }
+      radarOn = !radarOn; save('te-radar', radarOn);
       sfx(radarOn ? 'on' : 'off');
       toast(radarOn ? 'Weather radar on' : 'Weather radar off', 'info');
+      applyRadar();
+    });
+    radarPlay.addEventListener('click', () => {
+      userInput();
+      animOn = !animOn; save('te-radar-anim', animOn);
+      sfx('toggle');
+      toast(animOn ? 'Radar: looping the past hour' : 'Radar: latest frame', 'info');
       applyRadar();
     });
     applyRadar();
