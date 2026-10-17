@@ -2343,7 +2343,7 @@
   // header line ("NOAA · RainViewer Radar", the credit RainViewer asks for, and the
   // frame time) shows while it's on. WebGL only.
   const radarBtn = document.getElementById('radarBtn');
-  const radarTime = document.getElementById('radarTime'), radarTimeVal = radarTime.querySelector('b');
+  const radarTime = document.getElementById('radarTime'), radarWhen = radarTime.querySelector('b i'), radarClock = radarTime.querySelector('b em');
   if (window.Radar && window.Radar.enabled && glr) {
     window.Radar.setMaxTex(glr.info.maxTex || 4096);
     const RADAR_A = Math.max(0.1, Math.min(1, num('radaralpha', 0.75)));
@@ -2355,7 +2355,8 @@
     let frames = { n: 0, times: [] }, loopRaf = 0, loopT0 = 0, shownIdx = -1;
     const label = (i) => {
       const t = frames.times[i];
-      radarTimeVal.textContent = !t ? '' : frames.n > 1 ? `${i === frames.n - 1 ? 'latest' : 'past hour'} \u00B7 ${fmtTime(t)}` : fmtTime(t);
+      radarWhen.textContent = t && frames.n > 1 ? 'past hour \u00B7 ' : '';
+      radarClock.textContent = t ? fmtTime(t) : '';
     };
     function loop(t) {
       if (!glr || frames.n < 2) { loopRaf = 0; return; }
