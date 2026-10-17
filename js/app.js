@@ -752,7 +752,7 @@
       const isSel = o === sel;
       // Scrubbing the timeline: only outages that started near that time stay lit.
       const dim = S.timeFocus != null
-        ? (Math.abs(o.start - S.timeFocus) <= SCRUB_WINDOW_MS ? 1 : 0.15)
+        ? (Math.abs(o.start - S.timeFocus) <= scrubWin() ? 1 : 0.15)
         : (sel && !isSel ? 0.35 : 1);
       const a = (o.active ? 1 : Math.max(0.35, 1 - o.ageMin / (24 * 60))) * dim;
       const sprite = getGlow(o.kind);
@@ -1895,7 +1895,10 @@
     const svg = el.timeline;
     // The window ends when the data was published, not "now": if refreshes
     // ever stall, the last 24 hours of data still fill the timeline.
-    const W = 1000, H = 100, BINS = 48, now = dataNow(), span = 24 * 3600e3;
+    // It spans the panel's time window (1, 6, 12 or 24 hours), with bins
+    // sized to suit: 2, 10, 15 or 30 minutes.
+    const W = 1000, H = 100, now = dataNow(), span = S.windowH * 3600e3;
+    const BINS = { 1: 30, 6: 36, 12: 48, 24: 48 }[S.windowH] || 48;
     const bins = Array.from({ length: BINS }, () => ({ network: 0, application: 0 }));
     for (const o of S.outages) {
       const i = Math.floor((o.start - (now - span)) / (span / BINS));
@@ -1904,9 +1907,8 @@
     const max = Math.max(1, ...bins.map((b) => b.network + b.application));
     const bw = W / BINS;
     // While scrubbing, bars near the scrub time stay bright and the rest fade.
-    const near = (i) => (S.timeFocus == null
-      ? (now - span) + (i + 1) * (span / BINS) > now - S.windowH * 3600e3   // inside the panel's time window
-      : Math.abs((now - span) + (i + 0.5) * (span / BINS) - S.timeFocus) <= SCRUB_WINDOW_MS + span / BINS / 2);
+    const near = (i) => S.timeFocus == null
+      || Math.abs((now - span) + (i + 0.5) * (span / BINS) - S.timeFocus) <= scrubWin() + span / BINS / 2;
     let out = '';
     bins.forEach((b, i) => {
       const hn = (b.network / max) * (H - 6), ha = (b.application / max) * (H - 6);
@@ -1924,21 +1926,27 @@
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = out;
     // Clock times (this screen's timezone) midway between the axis marks.
-    document.getElementById('tlClock1').textContent = fmtTime(now - 18 * 3600e3);
-    document.getElementById('tlClock2').textContent = fmtTime(now - 6 * 3600e3);
+    document.getElementById('tlClock1').textContent = fmtTime(now - span * 0.75);
+    document.getElementById('tlClock2').textContent = fmtTime(now - span * 0.25);
+    const ago = (h) => (h >= 1 ? `${h}h` : `${Math.round(h * 60)}m`);
+    document.getElementById('tlStart').textContent = `${ago(S.windowH)} ago`;
+    document.getElementById('tlMid').textContent = ago(S.windowH / 2);
   }
 
   // ── Timeline scrubbing ───────────────────────────────────────────────────
   // Drag (or tap) along the timeline: a line + time label follow the finger,
   // the globe and bars dim everything that didn't start near that time, and
   // releasing selects the outage nearest to it.
-  const SCRUB_WINDOW_MS = 30 * 60e3;
+  // "Near" a scrubbed time: 30 minutes on the 24-hour view, scaled down with
+  // the time window (about 2 minutes on the 1-hour view).
+  const scrubWin = () => Math.max(2 * 60e3, 30 * 60e3 * S.windowH / 24);
   const tlChart = document.getElementById('tlChart'), tlScrub = document.getElementById('tlScrub'), tlLabel = document.getElementById('tlScrubLabel');
   let scrubbing = false;
   function scrubTimeAt(clientX) {
     const r = el.timeline.getBoundingClientRect();
     const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    return { t: dataNow() - 24 * 3600e3 + f * 24 * 3600e3, x: clientX - tlChart.getBoundingClientRect().left };
+    const span = S.windowH * 3600e3;
+    return { t: dataNow() - span + f * span, x: clientX - tlChart.getBoundingClientRect().left };
   }
   function nearestOutage(t) {
     let best = null, bd = Infinity;
@@ -1959,13 +1967,13 @@
       S.follow = S.follow || { vlon: 0, vlat: 0, vz: 0 };
       S.follow.lon = fr.lon; S.follow.lat = fr.lat; S.follow.zoom = fr.zoom;
     }
-    const count = S.outages.filter((o) => outageVisible(o) && Math.abs(o.start - t) <= SCRUB_WINDOW_MS).length;
+    const count = S.outages.filter((o) => outageVisible(o) && Math.abs(o.start - t) <= scrubWin()).length;
     const n = nearestOutage(t);
     tlScrub.hidden = false;
     const xl = x / UIZ;   // inside the zoomed timeline
     tlScrub.style.left = xl + 'px';
     tlLabel.textContent = `${new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${fmtTime(t)} \u00B7 ${count} outage${count === 1 ? '' : 's'}`
-      + (n && Math.abs(n.start - t) <= SCRUB_WINDOW_MS ? ` \u00B7 ${n.name}${n.locations[0] ? ', ' + n.locations[0].label : ''}` : '');
+      + (n && Math.abs(n.start - t) <= scrubWin() ? ` \u00B7 ${n.name}${n.locations[0] ? ', ' + n.locations[0].label : ''}` : '');
     // Keep the label on screen near the ends; the line itself stays exact.
     const cw = tlChart.clientWidth, lw = tlLabel.offsetWidth;
     const shift = Math.max(lw / 2 - xl, Math.min(0, cw - xl - lw / 2));
