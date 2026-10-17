@@ -1321,6 +1321,7 @@
     const alias = { aws: 'amazon', teams: 'microsoft' }[t] || t;
     return probes.find((p) => p.term === alias) || null;
   }
+  const PENCIL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>';
   function renderRoomNet(probes) {
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
     const ms = (p) => (!p ? '\u2014' : p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
@@ -1339,7 +1340,9 @@
     });
     rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
       + `<i class="svc-dot"${r.hits ? ` data-term="${esc(r.term)}" title="tap to go to the latest ${esc(r.label)} outage"` : ''}></i>`
-      + `<div class="svc-main"><span class="svc-name">${esc(r.label)}</span>`
+      + `<div class="svc-main"><span class="svc-top"><span class="svc-name">${esc(r.label)}</span>`
+      + (r.idx >= 0 ? `<button class="svc-edit${r.p.custom ? ' custom' : ''}" data-edit="${r.idx}" aria-label="Edit the address checked for ${esc(r.label)}" title="Edit the address checked">${PENCIL}</button>` : '')
+      + '</span>'
       + `<button class="svc-ii ii-${r.ii}" data-term="${esc(r.term)}"${r.hits ? ' title="tap to view the outage"' : ''}>${esc(r.iiText)}</button></div>`
       + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b>${code(r.p)}</div>`).join('');
     rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"${r.hits ? ` data-term="${esc(r.term)}"` : ''}></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
@@ -1663,7 +1666,52 @@
     ctx.restore();
   }
   document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
+  // The pencil by a service: edit the address this device checks for it.
+  const probeEdit = document.getElementById('probeEdit');
+  const peTitle = document.getElementById('peTitle'), peUrl = document.getElementById('peUrl'), peNote = document.getElementById('peNote');
+  let peIdx = -1;
+  function openProbeEdit(i, anchor) {
+    const p = window.RoomNet && window.RoomNet.probes[i];
+    if (!p) return;
+    userInput(); sfx('tap');
+    peIdx = i;
+    peTitle.textContent = `${p.name}: address to check`;
+    peUrl.value = p.url;
+    peNote.textContent = p.custom ? `Default: ${p.defaultUrl}` : 'Checked from this device every 30 seconds. Use an https:// address.';
+    probeEdit.hidden = false;
+    // Beside the row, to the left of the panel (all in the zoomed UI's units).
+    const r = anchor.closest('.svc').getBoundingClientRect(), w = probeEdit.offsetWidth * UIZ, h = probeEdit.offsetHeight * UIZ;
+    const left = Math.max(8, r.left - w - 10), top = Math.max(8, Math.min(innerHeight - h - 8, r.top - 6));
+    probeEdit.style.left = (left / UIZ) + 'px'; probeEdit.style.top = (top / UIZ) + 'px';
+    peUrl.focus(); peUrl.select();
+  }
+  const closeProbeEdit = () => { probeEdit.hidden = true; peIdx = -1; };
+  function saveProbeEdit(reset) {
+    const p = window.RoomNet && window.RoomNet.probes[peIdx];
+    if (!p) return closeProbeEdit();
+    let url = reset ? null : peUrl.value.trim();
+    if (url && !/^[a-z]+:\/\//i.test(url)) url = 'https://' + url;
+    if (url) {
+      let u = null;
+      try { u = new URL(url); } catch (_) { /* invalid */ }
+      if (!u || u.protocol !== 'https:') { toast('Use a full https:// address', 'info'); peUrl.focus(); return; }
+      url = u.href;
+    }
+    window.RoomNet.setUrl(peIdx, url);
+    sfx('on');
+    toast(url && url !== p.defaultUrl ? `${p.name}: now checking ${new URL(url).host}` : `${p.name}: back to the default check`, 'info');
+    closeProbeEdit();
+  }
+  document.getElementById('peSave').addEventListener('click', () => saveProbeEdit(false));
+  document.getElementById('peReset').addEventListener('click', () => saveProbeEdit(true));
+  document.getElementById('peCancel').addEventListener('click', () => { sfx('close'); closeProbeEdit(); });
+  peUrl.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveProbeEdit(false); else if (e.key === 'Escape') closeProbeEdit(); });
+  probeEdit.addEventListener('pointerdown', (e) => e.stopPropagation());
+  document.addEventListener('pointerdown', (e) => { if (!probeEdit.hidden && !e.target.closest('.svc-edit')) closeProbeEdit(); });
+
   [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
+    const ed = e.target.closest('.svc-edit');
+    if (ed) { e.stopPropagation(); openProbeEdit(+ed.dataset.edit, ed); return; }
     // The Internet Insights status - or the red / amber status dot - jumps to
     // that provider's most recent outage in the list (an active one first);
     // the rest of the row opens the path trace.

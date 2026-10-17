@@ -32,14 +32,33 @@
     400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Not Allowed', 429: 'Too Many Requests',
     500: 'Server Error', 502: 'Bad Gateway', 503: 'Unavailable', 504: 'Gateway Timeout' };
 
-  const probes = TARGETS.map((t) => ({ ...t, samples: [], baseline: null, status: 'pending', last: null, code: null, reason: '' }));
+  // Addresses edited on this device (the pencil in the panel), by term.
+  const KEY = 'te-probe-urls';
+  let custom = {};
+  try { custom = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (_) { custom = {}; }
+  const probes = TARGETS.map((t) => ({
+    ...t, defaultUrl: t.url, url: custom[t.term] || t.url, custom: !!custom[t.term], what: custom[t.term] ? 'Custom address' : t.what,
+    samples: [], baseline: null, status: 'pending', last: null, code: null, reason: '',
+  }));
   let opts = {}, timer = 0;
 
-  async function timeOnce(url) {
+  async function timeOnce(url, p) {
     // No cache-busting query string: some APIs reject unknown parameters
     // (EC2's /ping answers 400). cache: 'no-store' already bypasses the cache.
     const t0 = performance.now();
-    const r = await fetch(url, { mode: 'cors', cache: 'no-store', credentials: 'omit' });
+    let r;
+    try {
+      if (p && p.opaque) throw new Error('opaque');
+      r = await fetch(url, { mode: 'cors', cache: 'no-store', credentials: 'omit' });
+    } catch (e) {
+      // An address that doesn't allow cross-origin reads (common for sites
+      // typed in by hand): still time it, without the status code. If it's
+      // simply unreachable, this throws too and the check reads as down.
+      const t1 = performance.now();
+      await fetch(url, { mode: 'no-cors', cache: 'no-store', credentials: 'omit' });
+      if (p) p.opaque = true;
+      return { ms: performance.now() - t1, code: null, reason: '' };
+    }
     const ms = performance.now() - t0;
     r.body && r.body.cancel && r.body.cancel().catch(() => {});
     return { ms, code: r.status, reason: r.statusText || REASON[r.status] || '' };
@@ -66,8 +85,8 @@
   async function probe(p) {
     let ms = null;
     try {
-      await timeOnce(p.url).catch(() => {});   // warm-up: DNS, TCP, TLS
-      const t = await timeOnce(p.url);
+      await timeOnce(p.url, p).catch(() => {});   // warm-up: DNS, TCP, TLS
+      const t = await timeOnce(p.url, p);
       ms = t.ms; p.code = t.code; p.reason = t.reason;
     } catch (_) { ms = null; p.code = null; p.reason = ''; }
     // Baseline from the good samples BEFORE this one, so a spike can't hide itself.
@@ -89,6 +108,19 @@
 
   window.RoomNet = {
     probes,
+    /** Check a different address for probe i (null: back to the default).
+     *  Saved on this device; history restarts and it's checked at once. */
+    setUrl(i, url) {
+      const p = probes[i];
+      if (!p) return;
+      p.url = url || p.defaultUrl; p.custom = !!url && url !== p.defaultUrl;
+      p.what = p.custom ? 'Custom address' : (TARGETS[i] && TARGETS[i].what) || p.what;
+      p.samples = []; p.baseline = null; p.status = 'pending'; p.last = null; p.code = null; p.reason = ''; p.opaque = false;
+      if (p.custom) custom[p.term] = p.url; else delete custom[p.term];
+      try { localStorage.setItem(KEY, JSON.stringify(custom)); } catch (_) { /* private mode */ }
+      if (opts.onUpdate) opts.onUpdate(probes);
+      probe(p).then(() => { if (opts.onUpdate) opts.onUpdate(probes); });
+    },
     start(o) {
       if (qs.get('roomnet') === '0' || timer) return;
       opts = o || {};
