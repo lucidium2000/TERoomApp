@@ -1053,6 +1053,11 @@
   const fmtDur = (s) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m`
     : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`);
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  /** How long ago an outage ended: "40m ago", "3h ago". */
+  const clearedAgo = (o) => {
+    const m = Math.max(0, (Date.now() - (o.start + (o.durationS || 0) * 1000)) / 60000);   // same clock as the list
+    return m < 1 ? 'just now' : m < 60 ? `${Math.round(m)}m ago` : `${Math.round(m / 60)}h ago`;
+  };
 
   // ── Spoken summaries (js/tts.js; words from js/narrate.js) ───────────────
   // The narrator is shared with the GitHub Action, which renders the same
@@ -1218,7 +1223,7 @@
     el.card.className = 'card ' + o.kind;
     el.cardIcon.innerHTML = iconHtml(o);
     el.cardKind.innerHTML = (o.kind === 'network' ? 'Network outage' : 'Application outage')
-      + (o.active ? '<span class="pill">● ACTIVE</span>' : '<span class="pill cleared">✓ CLEARED</span>');
+      + (o.active ? '<span class="pill">● ACTIVE</span>' : `<span class="pill cleared">✓ CLEARED ${clearedAgo(o)}</span>`);
     el.cardName.textContent = o.name;
     const metrics = [
       [fmtTime(o.start), 'Started'],
@@ -2675,7 +2680,7 @@
     floatEl.className = 'float ' + o.kind;
     document.getElementById('floatIcon').innerHTML = iconHtml(o);
     document.getElementById('floatKind').innerHTML = (o.kind === 'network' ? 'Network outage' : 'Application outage')
-      + (o.active ? '<span class="pill">● ACTIVE</span>' : '<span class="pill cleared">✓ CLEARED</span>');
+      + (o.active ? '<span class="pill">● ACTIVE</span>' : `<span class="pill cleared">✓ CLEARED ${clearedAgo(o)}</span>`);
     document.getElementById('floatName').textContent = o.name;
     document.getElementById('floatMetrics').innerHTML = metrics.slice(0, 3)
       .map(([b, t]) => `<div><b>${esc(b)}</b><span>${esc(t)}</span></div>`).join('');
