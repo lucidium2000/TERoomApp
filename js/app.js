@@ -2055,6 +2055,29 @@
   }
   window.addEventListener('resize', resizeAndDraw);
 
+  // The button column: centred vertically in the free space down the left,
+  // between the title and the timeline, and never down into the outage card.
+  // Wide screens only (narrow ones have their own spots in the CSS).
+  const ctlEl = document.querySelector('.zoomctl');
+  function placeCtl() {
+    // Phones keep the CSS spot under the title: their card changes height with
+    // every outage, which would keep nudging a centred column.
+    if (matchMedia('(max-width: 900px)').matches) { ctlEl.style.top = ''; return; }
+    const c = ctlEl.getBoundingClientRect();   // its height doesn't depend on top
+    const brand = document.querySelector('.brand').getBoundingClientRect();
+    const tl = document.querySelector('.timeline'), tlr = tl && tl.offsetParent ? tl.getBoundingClientRect() : null;
+    const top0 = brand.bottom + 16, bottom0 = tlr ? tlr.top - 16 : innerHeight - 16;
+    let top = top0 + Math.max(0, (bottom0 - top0 - c.height) / 2);
+    const card = el.card.hidden ? null : el.card.getBoundingClientRect();
+    if (card && card.height && top + c.height > card.top - 16) top = Math.max(top0, card.top - 16 - c.height);
+    ctlEl.style.top = (top / UIZ).toFixed(1) + 'px';   // the column is zoomed with the UI
+  }
+  window.addEventListener('resize', placeCtl);
+  if (window.ResizeObserver) new ResizeObserver(placeCtl).observe(el.card);
+  new MutationObserver(placeCtl).observe(el.card, { attributes: true, attributeFilter: ['hidden'] });
+  new MutationObserver(placeCtl).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  setTimeout(placeCtl, 0);
+
   // ── Glass mode controls ──────────────────────────────────────────────────
   const glassBtn = document.getElementById('glassBtn');
   const sheen = document.getElementById('sheen');

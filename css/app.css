@@ -136,8 +136,10 @@ body.free .wxbar { right: var(--gutter); }
 
 /* ── Zoom controls (left edge, mid-height: clear of the card and timeline) ── */
 .zoomctl {
-  /* Just under the title, so it stays clear of the outage card below. */
+  /* Centred between the title and the timeline, clear of the outage card
+     (placeCtl in app.js sets top; this is the fallback). */
   position: fixed; left: var(--gutter); top: calc(var(--gutter) + 125px);
+  transition: top .3s ease;
   display: flex; flex-direction: column; gap: .5em;
   z-index: 99;   /* above the debug panels, so the camera button can always switch them off */
 }
