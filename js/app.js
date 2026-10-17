@@ -1391,12 +1391,14 @@
       const lvl = !p || st === 'pending' ? 'wait' : ({ down: 'bad', slow: 'bad', warn: 'warn' }[st] || (auth ? 'info' : 'ok'));
       let desc = !p ? 'no check' : st === 'pending' ? 'checking\u2026' : st === 'down' ? 'no reply'
         : p.code ? `${p.code} ${p.reason || ''}`.trim() : 'reachable';
-      // Past green: say how slow, on average.
-      // Slow (not an error answer): say how slow, on average.
-      // (Just the code then, so the reason fits: "302 · avg 142 ms".)
-      if ((st === 'slow' || st === 'warn') && p.avg != null && p.avg >= ((window.RoomNet && window.RoomNet.GOOD_MS) || 80)) desc = `${p.code || desc} \u00B7 avg ${Math.round(p.avg)} ms`;
+      // Sign-in / not-allowed answers just read "reachable" (the code is in
+      // the tooltip): the server is up, and "Forbidden" sounds worse than it is.
+      if (auth && st !== 'down') desc = 'reachable';
+      // Slow (not an error answer): say how slow, on average - with just the
+      // code, so it fits: "302 · avg 142 ms".
+      if ((st === 'slow' || st === 'warn') && p.avg != null && p.avg >= ((window.RoomNet && window.RoomNet.GOOD_MS) || 80)) desc = `${auth ? 'reachable' : p.code || desc} \u00B7 avg ${Math.round(p.avg)} ms`;
       const via = p && p.codeFrom === 'probe' && p.remote ? ` - status from a nearby test point (${p.remote.probe.network}, ${p.remote.probe.city}), since this address hides it from the browser` : '';
-      const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.avg ? ` - average ${Math.round(p.avg)} ms` : '') + via + ' - tap for path' : 'no local probe';
+      const title = p ? `${p.what} - ${new URL(p.url).host}` + (auth ? ` - answered ${p.code} ${p.reason || ''}`.trimEnd() : '') + (p.avg ? ` - average ${Math.round(p.avg)} ms` : '') + via + ' - tap for path' : 'no local probe';
       return { term, label: svcLabel(term, preset), p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
     });
     rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" data-term="${esc(r.term)}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
