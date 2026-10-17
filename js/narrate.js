@@ -125,11 +125,13 @@
         if (!w || !w.now || !w.now.text) return '';
         const city = w.city || cityFallback || 'the area';
         const low = (t) => (t ? t.charAt(0).toLowerCase() + t.slice(1) : t);
-        const parts = [say('wxLead', { city }), say('wxNow', { period: w.now.name, period_l: low(w.now.name), text: w.now.text, text_l: low(w.now.text) })];
+        // Period names mid-sentence: "this afternoon", "Sunday night" (days keep their capital).
+        const lowP = (t) => String(t || '').replace(/\b(This|Today|Tonight|Afternoon|Overnight|Night|Morning|Evening|Tomorrow)\b/g, (w) => w.toLowerCase());
+        const parts = [say('wxLead', { city }), say('wxNow', { period: w.now.name, period_l: lowP(w.now.name), text: w.now.text, text_l: low(w.now.text) })];
         if (w.next && w.next.short && w.next.temp != null) {
           // The NWS writes short forecasts in title case ("Mostly Clear").
           const short = w.next.short.toLowerCase();
-          parts.push(say('wxNext', { period: w.next.name, period_l: low(w.next.name), short, short_l: short,
+          parts.push(say('wxNext', { period: w.next.name, period_l: lowP(w.next.name), short, short_l: short,
             hilo: w.next.isDay ? 'a high near' : 'a low around', temp: `${w.next.temp} degrees` }));
         }
         for (const event of (w.alerts || []).slice(0, 1)) parts.push(say('wxAlert', { event }));
