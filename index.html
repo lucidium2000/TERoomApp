@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=123">
+  <link rel="stylesheet" href="css/app.css?v=124">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -16,11 +16,16 @@
   <header class="brand">
     <img class="brand-logo" src="assets/te-logo.png" alt="ThousandEyes">
     <div class="brand-text">
-      <h1>Internet Insights <span class="live"><i></i>LIVE</span> <span class="updated" id="updated"></span></h1>
-      <p class="local"><span id="localClock"></span><span id="localSep" hidden> &middot; </span><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span></p>
-      <p class="radar-time" id="radarTime" hidden></p>
+      <h1>Internet Insights <span class="live"><i></i>LIVE</span></h1>
+      <p class="updated" id="updated"></p>
     </div>
   </header>
+
+  <!-- Local time and weather, and the radar's credit and time: top right. -->
+  <div class="wxbar">
+    <p class="local"><span id="localClock"></span><span id="localSep" hidden> &middot; </span><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span></p>
+    <p class="radar-time" id="radarTime" hidden></p>
+  </div>
 
   <aside class="panel" id="panel">
     <div class="stats">
