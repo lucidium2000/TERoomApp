@@ -563,7 +563,7 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .rn-spark { width: 56px; height: 14px; display: block; }
 /* Availability shading behind, latency trend line through the middle. */
 .rn-spark .rn-av { stroke: none; }
-.rn-spark .rn-av-g { fill: rgba(52, 211, 153, .26); }
+.rn-spark .rn-av-g { fill: rgba(74, 236, 168, .5); }
 .rn-spark .rn-av-a { fill: rgba(251, 191, 36, .4); }
 .rn-spark .rn-av-r { fill: rgba(244, 63, 94, .55); }
 .rn-spark .rn-line { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; }
