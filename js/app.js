@@ -1255,10 +1255,34 @@
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // A ThousandEyes logo drawn in white only (X's, for one) vanishes on the
+  // white logo tile: those go on a dark tile instead.
+  const whiteLogo = new Map();
+  function isWhiteOnly(src) {
+    if (whiteLogo.has(src)) return whiteLogo.get(src);
+    let white = false;
+    try {
+      const m = /^data:image\/svg\+xml;base64,(.+)$/.exec(src);
+      if (m) {
+        const svg = atob(m[1]);
+        const fills = [...svg.matchAll(/(?:fill|stroke)\s*[:=]\s*["']?\s*(#[0-9a-f]{3,8}|[a-z]+)/gi)].map((x) => x[1].toLowerCase()).filter((c) => c !== 'none');
+        white = fills.length > 0 && fills.every((c) => ['white', '#fff', '#ffffff', '#ffffffff'].includes(c));
+      }
+    } catch (_) { /* not readable: leave it */ }
+    whiteLogo.set(src, white);
+    return white;
+  }
+  /** The outage's logo: ThousandEyes' own (applications), else one from the
+   *  bundled set (js/logos.js - brand marks on a dark tile, site icons on
+   *  white), else its initials. */
   function iconHtml(o) {
-    const logo = o.kind === 'application' && S.data.appLogos && S.data.appLogos[o.appId];
-    if (logo) return `<img src="${esc(logo)}" alt="">`;
-    const words = o.name.replace(/[,.]|\b(Inc|LLC|Corporation|Corp|Ltd)\b/g, '').trim().split(/\s+/);
+    const te = o.kind === 'application' && S.data.appLogos && S.data.appLogos[o.appId];
+    if (te && !isWhiteOnly(te)) return `<img src="${esc(te)}" alt="">`;
+    const ours = window.Logos && window.Logos.find(o.name);
+    if (ours) return `<img${ours.mark ? ' class="mark"' : ''} src="${esc(ours.src)}" alt="">`;
+    if (te) return `<img class="mark" src="${esc(te)}" alt="">`;
+    const words = o.name.replace(/\(.*?\)|[^\p{L}\p{N}\s&]|\b(Inc|LLC|Corporation|Corp|Ltd)\b/gu, ' ').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return '?';
     return esc((words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase());
   }
 
