@@ -561,7 +561,15 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .rn-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rn-row b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .rn-spark { width: 56px; height: 14px; display: block; }
-.rn-spark path { fill: none; stroke: var(--app); stroke-width: 1.4; vector-effect: non-scaling-stroke; opacity: .8; }
+.rn-spark .rn-line { fill: none; stroke: var(--app); stroke-width: 1.4; vector-effect: non-scaling-stroke; opacity: .85; }
+.rn-spark .rn-area { fill: rgba(22, 189, 235, .12); stroke: none; }
+.rn-spark .rn-bg { fill: rgba(255, 255, 255, .025); }
+.rn-spark .rn-fail { fill: var(--bad); }
+.rn-spark .rn-now { stroke: rgba(255, 255, 255, .18); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 2 2; }
+/* In the panel: the timeline takes the space between the name and the time. */
+.svc .rn-spark { width: 100%; height: 20px; border-radius: 3px; }
+.svc-warn .rn-spark .rn-line { stroke: var(--warn); }
+.svc-bad .rn-spark .rn-line { stroke: var(--bad); }
 .rn-o { font-style: normal; font-size: .72em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; text-align: right; }
 .rn-o-active { color: var(--bad); } .rn-o-recent { color: var(--warn); }
 .rn-ok i { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
@@ -723,7 +731,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .outages .sec-title::before { background: var(--net); }
 .sec-title small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); font-size: .9em; }
 .svc {
-  display: grid; grid-template-columns: .7em minmax(0, 1fr) 56px 4.2em; gap: .6em;
+  display: grid; grid-template-columns: .7em 7.2em minmax(0, 1fr) 3.7em 24px; gap: .5em;
   align-items: center; padding: .28em .3em; border-radius: 8px; cursor: pointer;
 }
 .svc + .svc { border-top: 1px solid rgba(148, 163, 184, .08); }
@@ -734,14 +742,24 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .svc-bad .svc-dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); animation: blink 1.4s infinite; }
 .svc-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .svc-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.svc-top { display: flex; align-items: center; gap: .3em; min-width: 0; }
-/* The pencil: quiet until hovered; tinted when the address was changed here. */
+.svc-name { display: block; }
+/* The gear, far right: quiet until hovered; tinted when this row was changed here. */
 .svc-edit {
-  flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: -4px 0; border-radius: 6px;
-  color: var(--ink-3); opacity: .7; cursor: pointer;
+  display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px;
+  color: var(--ink-3); opacity: .65; cursor: pointer; justify-self: end;
 }
 .svc-edit:hover { opacity: 1; color: var(--ink); background: rgba(255, 255, 255, .08); }
 .svc-edit.custom { color: #fbbf24; opacity: 1; }
+/* Settings mode: a grip on each row for dragging into a new order. */
+.svc-grip { display: none; color: var(--ink-3); cursor: grab; touch-action: none; place-items: center; }
+.services.editing .svc { grid-template-columns: 16px .7em 7.2em minmax(0, 1fr) 3.7em 24px; background: rgba(255, 255, 255, .025); }
+.services.editing .svc + .svc { margin-top: 2px; }
+.services.editing .svc-grip { display: grid; height: 28px; }
+.services.editing .svc-edit { opacity: 1; color: var(--ink-2); }
+.svc.dragging { position: relative; z-index: 2; background: rgba(22, 189, 235, .14) !important; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); cursor: grabbing; }
+.svc-done { color: #04121a !important; background: var(--app) !important; border-color: transparent !important; }
+.pe-lbl { display: block; margin: .2em 0 .3em; font-size: .7em; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.probe-edit input + .pe-lbl { margin-top: .7em; }
 .probe-edit {
   position: fixed; z-index: 130; width: 21em; padding: .9em 1em; zoom: var(--ui-zoom);
   background: rgba(9, 14, 26, .97); border: 1px solid var(--line); border-radius: 14px;
@@ -772,11 +790,12 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .rn-chip .svc-dot { width: .6em; height: .6em; }
 /* A dot that leads to an outage gets a finger-sized tap area around it. */
 @media (max-width: 900px) { .services { display: none; } }
-/* Narrow panels: drop the sparkline before the names/status get squeezed. */
+/* Very narrow panels: drop the timeline before the names/status get squeezed. */
 .services { container-type: inline-size; }
-@container (max-width: 360px) {
-  .svc { grid-template-columns: .7em minmax(0, 1fr) 3.6em; gap: .45em; }
-  .svc .rn-spark, .svc > span { display: none; }
+@container (max-width: 230px) {
+  .svc { grid-template-columns: .7em minmax(0, 1fr) 3.6em 24px; gap: .45em; }
+  .services.editing .svc { grid-template-columns: 16px .7em minmax(0, 1fr) 3.6em 24px; }
+  .svc .rn-spark { display: none; }
 }
 
 /* Timeline scrubbing */

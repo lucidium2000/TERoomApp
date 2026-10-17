@@ -15,7 +15,8 @@
   'use strict';
 
   const qs = new URLSearchParams(location.search);
-  const CYCLE_MS = 30000, KEEP = 24, BASE_N = 10;
+  // KEEP: an hour of samples, for the panel's timeline (one every CYCLE_MS).
+  const CYCLE_MS = 30000, KEEP = 125, BASE_N = 10;
   // Lightweight SERVICE endpoints, not marketing sites (www.webex.com sits
   // behind bot protection and answers 403 after extra steps; office.com
   // redirects to a 60 KB sign-in page; zoom.us / aws.amazon.com aren't cached).

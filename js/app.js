@@ -51,6 +51,14 @@
       .split(',').map((s) => s.trim()).filter(Boolean),
   };
   if (qs.get('kiosk') === '1' || CFG.signage) document.body.classList.add('kiosk');
+  // "From This Device": the order and names set on this device (the gear).
+  const SVC_ORDER = 'te-svc-order', SVC_NAMES = 'te-svc-names';
+  let svcNames = {};
+  try {
+    svcNames = JSON.parse(localStorage.getItem(SVC_NAMES) || '{}') || {};
+    const ord = JSON.parse(localStorage.getItem(SVC_ORDER) || 'null');
+    if (Array.isArray(ord) && !qs.get('watch')) CFG.watch = ord.filter((t) => CFG.watch.includes(t)).concat(CFG.watch.filter((t) => !ord.includes(t)));
+  } catch (_) { svcNames = {}; }
   if (CFG.signage) document.body.classList.add('signage');
 
   const COLORS = { network: '#f15e22', application: '#16bdeb' };
@@ -1299,18 +1307,40 @@
     const { hits } = watchMatches(term);
     return hits.some((o) => o.active) ? 'active' : hits.length ? 'recent' : null;
   }
+  // The response-time timeline in each row: an hour wide, on a real time
+  // axis. It starts when the app opens and fills left to right; once an hour
+  // has passed it slides, always showing the last hour. Failed checks are red
+  // ticks along the bottom.
+  const RN_T0 = Date.now(), RN_SPAN = 3600e3;
   function rnSpark(p) {
-    const pts = p.samples.map((x) => x.ms);
-    const vals = pts.filter((v) => v != null);
-    if (vals.length < 2) return '<svg class="rn-spark" viewBox="0 0 56 14"></svg>';
-    const max = Math.max(...vals) * 1.1, min = Math.min(...vals) * 0.9, n = Math.max(pts.length - 1, 1);
-    let d = '', pen = false;
-    pts.forEach((v, i) => {
-      if (v == null) { pen = false; return; }
-      const x = (i / n) * 56, y = 13 - ((v - min) / (max - min || 1)) * 12;
-      d += (pen ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1); pen = true;
-    });
-    return `<svg class="rn-spark" viewBox="0 0 56 14" preserveAspectRatio="none"><path d="${d}"/></svg>`;
+    const W = 200, H = 18, now = Date.now();
+    const t1 = Math.max(now, RN_T0 + RN_SPAN), t0 = t1 - RN_SPAN;
+    const pts = p.samples.filter((x) => x.t >= t0);
+    const vals = pts.filter((x) => x.ms != null).map((x) => x.ms);
+    const X = (t) => ((t - t0) / RN_SPAN) * W;
+    let out = '';
+    if (vals.length >= 2) {
+      const max = Math.max(...vals) * 1.12, min = Math.min(...vals) * 0.85;
+      const Y = (v) => H - 1.5 - ((v - min) / (max - min || 1)) * (H - 3);
+      let d = '', area = '', run = [];
+      const flush = () => {
+        if (run.length > 1) area += `M${run[0][0]} ${H}` + run.map(([x, y]) => `L${x} ${y}`).join('') + `L${run[run.length - 1][0]} ${H}Z`;
+        run = [];
+      };
+      let pen = false;
+      for (const s2 of pts) {
+        if (s2.ms == null) { pen = false; flush(); continue; }
+        const x = X(s2.t).toFixed(1), y = Y(s2.ms).toFixed(1);
+        d += (pen ? 'L' : 'M') + x + ' ' + y; pen = true; run.push([x, y]);
+      }
+      flush();
+      out += `<path class="rn-area" d="${area}"/><path class="rn-line" d="${d}"/>`;
+    }
+    for (const s2 of pts) if (s2.ms == null) out += `<rect class="rn-fail" x="${(X(s2.t) - 1).toFixed(1)}" y="${H - 5}" width="2" height="5"/>`;
+    // Where "now" is while the hour is still filling up.
+    if (now < RN_T0 + RN_SPAN) out += `<line class="rn-now" x1="${X(now).toFixed(1)}" x2="${X(now).toFixed(1)}" y1="0" y2="${H}"/>`;
+    const tip = vals.length ? `last ${Math.round((now - Math.max(t0, RN_T0)) / 60000)} min: ${Math.round(Math.min(...vals))}-${Math.round(Math.max(...vals))} ms` : '';
+    return `<svg class="rn-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><title>${tip}</title><rect class="rn-bg" x="0" y="0" width="${W}" height="${H}"/>${out}</svg>`;
   }
   /** "Your services": one row per watched service, combining its Internet
    *  Insights status (outages on the globe) with this room's live connection
@@ -1320,8 +1350,11 @@
     const alias = { aws: 'amazon', teams: 'microsoft' }[t] || t;
     return probes.find((p) => p.term === alias) || null;
   }
-  const PENCIL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>';
+  const GEAR = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
+  const GRIP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+  const svcLabel = (term, preset) => svcNames[term] || preset.label;
   function renderRoomNet(probes) {
+    if (rnDrag) return;   // don't redraw the rows out from under a drag
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
     const ms = (p) => (!p ? '\u2014' : p.last == null ? (p.status === 'pending' ? '\u2026' : 'no reply') : Math.round(p.last) + ' ms');
     const code = (p) => (p && p.code ? `<span class="rn-code rn-c${String(p.code)[0]}">${p.code} ${esc(p.reason || '')}</span>` : '<span class="rn-code">\u2014</span>');
@@ -1337,14 +1370,15 @@
       if (st === 'slow' && p.last != null) desc += ' \u00B7 slower than usual';
       else if (st === 'warn') desc += ' \u00B7 a bit slow';
       const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.baseline ? ` - usually ~${Math.round(p.baseline)} ms` : '') + ' - tap for path' : 'no local probe';
-      return { label: preset.label, p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
+      return { term, label: svcLabel(term, preset), p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
     });
-    rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
+    rnRows.innerHTML = rows.map((r) => `<div class="svc svc-${r.lvl}" data-term="${esc(r.term)}" ${r.idx >= 0 ? `data-i="${r.idx}"` : ''} title="${esc(r.title)}">`
+      + `<span class="svc-grip" aria-label="Drag to reorder">${GRIP}</span>`
       + '<i class="svc-dot"></i>'
-      + `<div class="svc-main"><span class="svc-top"><span class="svc-name">${esc(r.label)}</span>`
-      + (r.idx >= 0 ? `<button class="svc-edit${r.p.custom ? ' custom' : ''}" data-edit="${r.idx}" aria-label="Edit the address checked for ${esc(r.label)}" title="Edit the address checked">${PENCIL}</button>` : '')
-      + `</span><span class="svc-desc${r.codeCls}">${esc(r.desc)}</span></div>`
-      + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b></div>`).join('');
+      + `<div class="svc-main"><span class="svc-name">${esc(r.label)}</span>`
+      + `<span class="svc-desc${r.codeCls}">${esc(r.desc)}</span></div>`
+      + `${r.p ? rnSpark(r.p) : '<span></span>'}<b class="svc-ms">${ms(r.p)}</b>`
+      + `<button class="svc-edit${(r.p && r.p.custom) || svcNames[r.term] ? ' custom' : ''}" data-edit="${esc(r.term)}" aria-label="Settings for ${esc(r.label)}" title="Settings: name, address, order">${GEAR}</button></div>`).join('');
     rnStrip.innerHTML = rows.filter((r) => r.p).map((r) => `<span class="rn-chip svc-${r.lvl}" data-i="${r.idx}"><i class="svc-dot"></i>${esc(r.label)} <b>${ms(r.p)}</b></span>`).join('');
   }
 
@@ -1666,52 +1700,113 @@
     ctx.restore();
   }
   document.getElementById('pathClose').addEventListener('click', () => { userInput(); closePath(); });
-  // The pencil by a service: edit the address this device checks for it.
+  // The gear on a service: settings mode for the section - that row's name
+  // and the address this device checks open in a small editor, and every row
+  // gets a grip to drag it into a new order. Done leaves settings mode.
+  const servicesEl = document.getElementById('services'), svcDone = document.getElementById('svcDone');
   const probeEdit = document.getElementById('probeEdit');
-  const peTitle = document.getElementById('peTitle'), peUrl = document.getElementById('peUrl'), peNote = document.getElementById('peNote');
-  let peIdx = -1;
-  function openProbeEdit(i, anchor) {
-    const p = window.RoomNet && window.RoomNet.probes[i];
-    if (!p) return;
+  const peTitle = document.getElementById('peTitle'), peName = document.getElementById('peName'), peUrl = document.getElementById('peUrl'), peNote = document.getElementById('peNote');
+  let peTerm = null, rnDrag = null;
+  const setSvcEditing = (on) => {
+    servicesEl.classList.toggle('editing', on);
+    svcDone.hidden = !on;
+    if (!on) closeProbeEdit();
+  };
+  function openProbeEdit(term, anchor) {
+    const probes = (window.RoomNet && window.RoomNet.probes) || [];
+    const p = probeFor(term, probes), { preset } = watchMatches(term);
     userInput(); sfx('tap');
-    peIdx = i;
-    peTitle.textContent = `${p.name}: address to check`;
-    peUrl.value = p.url;
-    peNote.textContent = p.custom ? `Default: ${p.defaultUrl}` : 'Checked from this device every 30 seconds. Use an https:// address.';
+    setSvcEditing(true);
+    peTerm = term;
+    peTitle.textContent = `${svcLabel(term, preset)} settings`;
+    peName.value = svcLabel(term, preset); peName.placeholder = preset.label;
+    peUrl.value = p ? p.url : ''; peUrl.disabled = !p;
+    peNote.textContent = p && p.custom ? `Default address: ${p.defaultUrl}` : 'Checked from this device every 30 seconds. Use an https:// address. Drag the grips to reorder.';
     probeEdit.hidden = false;
     // Beside the row, to the left of the panel (all in the zoomed UI's units).
     const r = anchor.closest('.svc').getBoundingClientRect(), w = probeEdit.offsetWidth * UIZ, h = probeEdit.offsetHeight * UIZ;
     const left = Math.max(8, r.left - w - 10), top = Math.max(8, Math.min(innerHeight - h - 8, r.top - 6));
     probeEdit.style.left = (left / UIZ) + 'px'; probeEdit.style.top = (top / UIZ) + 'px';
-    peUrl.focus(); peUrl.select();
+    peName.focus(); peName.select();
   }
-  const closeProbeEdit = () => { probeEdit.hidden = true; peIdx = -1; };
+  function closeProbeEdit() { probeEdit.hidden = true; peTerm = null; }
   function saveProbeEdit(reset) {
-    const p = window.RoomNet && window.RoomNet.probes[peIdx];
-    if (!p) return closeProbeEdit();
-    let url = reset ? null : peUrl.value.trim();
-    if (url && !/^[a-z]+:\/\//i.test(url)) url = 'https://' + url;
-    if (url) {
-      let u = null;
-      try { u = new URL(url); } catch (_) { /* invalid */ }
-      if (!u || u.protocol !== 'https:') { toast('Use a full https:// address', 'info'); peUrl.focus(); return; }
-      url = u.href;
+    const term = peTerm;
+    if (!term) return closeProbeEdit();
+    const probes = (window.RoomNet && window.RoomNet.probes) || [];
+    const p = probeFor(term, probes), { preset } = watchMatches(term);
+    // Name: blank (or the default) means the default.
+    const name = reset ? '' : peName.value.trim();
+    if (name && name !== preset.label) svcNames[term] = name.slice(0, 32); else delete svcNames[term];
+    try { localStorage.setItem(SVC_NAMES, JSON.stringify(svcNames)); } catch (_) { /* private mode */ }
+    if (p) {
+      let url = reset ? null : peUrl.value.trim();
+      if (url && !/^[a-z]+:\/\//i.test(url)) url = 'https://' + url;
+      if (url) {
+        let u = null;
+        try { u = new URL(url); } catch (_) { /* invalid */ }
+        if (!u || u.protocol !== 'https:') { toast('Use a full https:// address', 'info'); peUrl.focus(); return; }
+        url = u.href;
+      }
+      if ((url || p.defaultUrl) !== p.url) window.RoomNet.setUrl(probes.indexOf(p), url === p.defaultUrl ? null : url);
     }
-    window.RoomNet.setUrl(peIdx, url);
     sfx('on');
-    toast(url && url !== p.defaultUrl ? `${p.name}: now checking ${new URL(url).host}` : `${p.name}: back to the default check`, 'info');
+    toast(reset ? `${preset.label}: back to the defaults` : `${svcLabel(term, preset)}: saved`, 'info');
     closeProbeEdit();
+    renderRoomNet();
   }
   document.getElementById('peSave').addEventListener('click', () => saveProbeEdit(false));
   document.getElementById('peReset').addEventListener('click', () => saveProbeEdit(true));
   document.getElementById('peCancel').addEventListener('click', () => { sfx('close'); closeProbeEdit(); });
-  peUrl.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveProbeEdit(false); else if (e.key === 'Escape') closeProbeEdit(); });
+  [peName, peUrl].forEach((x) => x.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveProbeEdit(false); else if (e.key === 'Escape') closeProbeEdit(); }));
   probeEdit.addEventListener('pointerdown', (e) => e.stopPropagation());
-  document.addEventListener('pointerdown', (e) => { if (!probeEdit.hidden && !e.target.closest('.svc-edit')) closeProbeEdit(); });
+  document.addEventListener('pointerdown', (e) => { if (!probeEdit.hidden && !e.target.closest('.svc-edit, .svc')) closeProbeEdit(); });
+  svcDone.addEventListener('click', (e) => { e.stopPropagation(); userInput(); sfx('close'); setSvcEditing(false); });
+
+  // Drag to reorder (settings mode): the row follows the finger and swaps
+  // places as it passes a neighbour's middle; the order is saved on release.
+  rnRows.addEventListener('pointerdown', (e) => {
+    const grip = e.target.closest('.svc-grip');
+    if (!grip || !servicesEl.classList.contains('editing')) return;
+    e.preventDefault(); e.stopPropagation();
+    const row = grip.closest('.svc');
+    rnDrag = { row, y0: e.clientY, id: e.pointerId };
+    row.classList.add('dragging');
+    try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic events */ }
+    userInput();
+  });
+  rnRows.addEventListener('pointermove', (e) => {
+    if (!rnDrag) return;
+    const { row } = rnDrag;
+    let dy = e.clientY - rnDrag.y0;
+    const prev = row.previousElementSibling, next = row.nextElementSibling;
+    const h = row.getBoundingClientRect().height;
+    if (next && dy > h / 2) { rnRows.insertBefore(next, row); rnDrag.y0 += next.getBoundingClientRect().height; dy = e.clientY - rnDrag.y0; }
+    else if (prev && dy < -h / 2) { rnRows.insertBefore(row, prev); rnDrag.y0 -= prev.getBoundingClientRect().height; dy = e.clientY - rnDrag.y0; }
+    row.style.transform = `translateY(${(dy / UIZ).toFixed(1)}px)`;
+  });
+  const endDrag = () => {
+    if (!rnDrag) return;
+    rnDrag.row.classList.remove('dragging'); rnDrag.row.style.transform = '';
+    rnDrag = null;
+    const order = [...rnRows.querySelectorAll('.svc')].map((x) => x.dataset.term);
+    if (order.join() !== CFG.watch.join()) {
+      CFG.watch = order;
+      try { localStorage.setItem(SVC_ORDER, JSON.stringify(order)); } catch (_) { /* private mode */ }
+      sfx('tap');
+    }
+    renderRoomNet();
+  };
+  rnRows.addEventListener('pointerup', endDrag);
+  rnRows.addEventListener('pointercancel', endDrag);
 
   [rnRows, rnStrip].forEach((elx) => elx.addEventListener('click', (e) => {
     const ed = e.target.closest('.svc-edit');
-    if (ed) { e.stopPropagation(); openProbeEdit(+ed.dataset.edit, ed); return; }
+    if (ed) { e.stopPropagation(); openProbeEdit(ed.dataset.edit, ed); return; }
+    if (e.target.closest('.svc-grip')) return;
+    // In settings mode a tap on a row edits it, instead of tracing the path.
+    const sv = e.target.closest('.svc[data-term]');
+    if (sv && servicesEl.classList.contains('editing')) { e.stopPropagation(); openProbeEdit(sv.dataset.term, sv); return; }
     // A row opens the path trace to that service.
     const t = e.target.closest('[data-i]');
     const probes = window.RoomNet && window.RoomNet.probes;
