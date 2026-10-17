@@ -751,7 +751,8 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 }
 .panel .sec > .sec-title::before { display: none; }
 .sec-ico { flex: none; color: var(--app); filter: drop-shadow(0 0 6px rgba(22, 189, 235, .5)); }
-.outages .sec-ico { color: var(--net); filter: drop-shadow(0 0 6px rgba(241, 94, 34, .5)); }
+/* Around the World is ThousandEyes data: its icon is the ThousandEyes eye. */
+.sec-ico.te-eye { width: auto; height: 1.15em; display: block; filter: drop-shadow(0 0 6px rgba(241, 94, 34, .45)); }
 .services { flex: none; }
 .outages { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .6em; }
 .sec-title {
