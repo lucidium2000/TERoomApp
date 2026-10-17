@@ -565,6 +565,7 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .rn-spark .rn-av { stroke: none; }
 .rn-spark .rn-av-g { fill: rgba(74, 236, 168, .5); }
 .rn-spark .rn-av-a { fill: rgba(251, 191, 36, .4); }
+.rn-spark .rn-av-b { fill: rgba(96, 165, 250, .45); }
 .rn-spark .rn-av-r { fill: rgba(244, 63, 94, .55); }
 .rn-spark .rn-line { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; }
 .rn-spark .rn-g { stroke: rgba(230, 245, 255, .9); }
@@ -787,6 +788,9 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .svc-warn .svc-desc { color: var(--warn); }
 .svc-bad .svc-desc { color: var(--bad); }
 .svc-wait .svc-desc { color: var(--ink-3); }
+/* Up, but answering "sign in" / "not allowed" (401/403/407). */
+.svc-info .svc-dot { background: #60a5fa; box-shadow: 0 0 6px #60a5fa; }
+.svc-info .svc-desc { color: #93c5fd; }
 .svc-ms { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .svc .rn-code { text-align: right; }
 .svc-down .svc-ms { color: var(--bad); }

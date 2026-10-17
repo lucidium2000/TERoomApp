@@ -55,8 +55,11 @@
       // An address that doesn't allow cross-origin reads (common for sites
       // typed in by hand): still time it, without the status code. If it's
       // simply unreachable, this throws too and the check reads as down.
+      // HEAD: the server's answer without downloading the page, so it times
+      // the response rather than the page size (redirects are still followed,
+      // as a visit would). The status code comes from a nearby probe instead.
       const t1 = performance.now();
-      await fetch(url, { mode: 'no-cors', cache: 'no-store', credentials: 'omit' });
+      await fetch(url, { mode: 'no-cors', method: 'HEAD', cache: 'no-store', credentials: 'omit' });
       if (p) p.opaque = true;
       return { ms: performance.now() - t1, code: null, reason: '' };
     }

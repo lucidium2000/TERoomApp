@@ -1311,8 +1311,8 @@
   // the full width - the first checks spread across it, getting finer as the
   // hour fills up; after an hour it slides, showing the last hour.
   //  - Shading: availability at the application layer - green where the page
-  //    answered (2xx, 3xx, 401/403/407), amber on other 4xx, red on a 5xx or
-  //    no answer.
+  //    answered (2xx, 3xx), blue on a sign-in / not-allowed answer (401, 403,
+  //    407), amber on other 4xx, red on a 5xx or no answer.
   //  - Line, through the middle: the latency trend (a short moving average),
   //    light when fast, amber past 80 ms, red past 200 ms.
   const RN_SPAN = 3600e3;
@@ -1325,7 +1325,7 @@
     const X = (t) => ((t - t0) / (t1 - t0)) * W;
     let out = '';
     // Availability: each check holds until the next one (the last until now).
-    const avail = (x) => (x.ms == null || (x.code && x.code >= 500) ? 'r' : x.code && x.code >= 400 && ![401, 403, 407].includes(x.code) ? 'a' : 'g');
+    const avail = (x) => (x.ms == null || (x.code && x.code >= 500) ? 'r' : [401, 403, 407].includes(x.code) ? 'b' : x.code && x.code >= 400 ? 'a' : 'g');
     all.forEach((x, i) => {
       const a = X(x.t), b = i + 1 < all.length ? X(all[i + 1].t) : W;
       out += `<rect class="rn-av rn-av-${avail(x)}" x="${a.toFixed(1)}" y="0" width="${Math.max(0.6, b - a + 0.4).toFixed(1)}" height="${H}"/>`;
@@ -1385,12 +1385,16 @@
       const { preset } = watchMatches(term);
       const p = probeFor(term, probes);
       const st = p ? p.status : 'pending';
-      const lvl = !p || st === 'pending' ? 'wait' : ({ down: 'bad', slow: 'bad', warn: 'warn' }[st] || 'ok');
+      // Blue: healthy, but the server answered "sign in" / "not allowed" (401,
+      // 403, 407) - up and talking, just not serving this page to anyone.
+      const auth = p && [401, 403, 407].includes(p.code);
+      const lvl = !p || st === 'pending' ? 'wait' : ({ down: 'bad', slow: 'bad', warn: 'warn' }[st] || (auth ? 'info' : 'ok'));
       let desc = !p ? 'no check' : st === 'pending' ? 'checking\u2026' : st === 'down' ? 'no reply'
         : p.code ? `${p.code} ${p.reason || ''}`.trim() : 'reachable';
       // Past green: say how slow, on average.
       // Slow (not an error answer): say how slow, on average.
-      if ((st === 'slow' || st === 'warn') && p.avg != null && p.avg >= ((window.RoomNet && window.RoomNet.GOOD_MS) || 80)) desc += ` \u00B7 avg ${Math.round(p.avg)} ms`;
+      // (Just the code then, so the reason fits: "302 · avg 142 ms".)
+      if ((st === 'slow' || st === 'warn') && p.avg != null && p.avg >= ((window.RoomNet && window.RoomNet.GOOD_MS) || 80)) desc = `${p.code || desc} \u00B7 avg ${Math.round(p.avg)} ms`;
       const via = p && p.codeFrom === 'probe' && p.remote ? ` - status from a nearby test point (${p.remote.probe.network}, ${p.remote.probe.city}), since this address hides it from the browser` : '';
       const title = p ? `${p.what} - ${new URL(p.url).host}` + (p.avg ? ` - average ${Math.round(p.avg)} ms` : '') + via + ' - tap for path' : 'no local probe';
       return { term, label: svcLabel(term, preset), p, lvl, desc, title, idx: p ? probes.indexOf(p) : -1, codeCls: p && p.code ? ` rn-c${String(p.code)[0]}` : '' };
