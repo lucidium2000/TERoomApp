@@ -1218,7 +1218,7 @@
     el.card.className = 'card ' + o.kind;
     el.cardIcon.innerHTML = iconHtml(o);
     el.cardKind.innerHTML = (o.kind === 'network' ? 'Network outage' : 'Application outage')
-      + (o.active ? '<span class="pill">● ACTIVE</span>' : '');
+      + (o.active ? '<span class="pill">● ACTIVE</span>' : '<span class="pill cleared">✓ CLEARED</span>');
     el.cardName.textContent = o.name;
     const metrics = [
       [fmtTime(o.start), 'Started'],
@@ -2675,7 +2675,7 @@
     floatEl.className = 'float ' + o.kind;
     document.getElementById('floatIcon').innerHTML = iconHtml(o);
     document.getElementById('floatKind').innerHTML = (o.kind === 'network' ? 'Network outage' : 'Application outage')
-      + (o.active ? '<span class="pill">● ACTIVE</span>' : '');
+      + (o.active ? '<span class="pill">● ACTIVE</span>' : '<span class="pill cleared">✓ CLEARED</span>');
     document.getElementById('floatName').textContent = o.name;
     document.getElementById('floatMetrics').innerHTML = metrics.slice(0, 3)
       .map(([b, t]) => `<div><b>${esc(b)}</b><span>${esc(t)}</span></div>`).join('');

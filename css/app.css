@@ -175,6 +175,7 @@ body.signage .zoomctl { display: none; }
 .card-title { flex: 1; min-width: 0; }
 .card-kind { font-size: .78em; color: var(--ink-2); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
 .card-kind .pill { color: var(--bad); margin-left: .6em; }
+.card-kind .pill.cleared, .float .pill.cleared { color: var(--ok); }
 .card h3 { margin: .1em 0 0; font-size: 1.65em; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-close { font-size: 1.8em; line-height: 1; color: var(--ink-3); width: 44px; height: 44px; flex: none; }
 .card-metrics { display: flex; gap: 1.6em; margin: .9em 0 .6em; flex-wrap: wrap; }
