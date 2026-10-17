@@ -1103,7 +1103,7 @@
     return null;
   }
   const roomStatus = (p) => (!p ? null : p.status === 'down' ? 'down' : p.status === 'slow' || p.status === 'warn' ? 'slow' : 'fine');
-  const roomProbes = () => ((window.RoomNet && window.RoomNet.probes) || []).map((p) => ({ name: p.name, status: p.status }));
+  const roomProbes = () => ((window.RoomNet && window.RoomNet.probes) || []).map((p) => ({ name: probeLabel(p), status: p.status }));
   /** The overview's room line: live text, or the matching pre-rendered clip. */
   function overviewRoom() {
     if (!cloudMode()) return { text: N.overviewRoom(roomProbes()) };
@@ -1175,7 +1175,7 @@
       return;
     }
     let text = N.insight(f, first);
-    if (p) text += ' ' + N.insightRoom(p.name, roomStatus(p) === 'down');
+    if (p) text += ' ' + N.insightRoom(probeLabel(p), roomStatus(p) === 'down');
     speakProtected(text);
   }
   /** Tapped: a little more about this one, still short (plus this room). */
@@ -1368,6 +1368,11 @@
   const GEAR = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
   const GRIP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
   const svcLabel = (term, preset) => svcNames[term] || preset.label;
+  /** A check's name as shown here: the one set with the gear, else the default. */
+  const probeLabel = (p) => {
+    const term = CFG.watch.find((t) => probeFor(t, [p])) || p.term;
+    return svcLabel(term, watchMatches(term).preset);
+  };
   function renderRoomNet(probes) {
     if (rnDrag) return;   // don't redraw the rows out from under a drag
     probes = probes || (window.RoomNet && window.RoomNet.probes) || [];
@@ -1410,10 +1415,10 @@
     S.pathOpen = true; S.path = null;
     sfx('select');
     const host = new URL(p.url).host;
-    pathTitle.textContent = `Path to ${p.name}`;
+    pathTitle.textContent = `Path to ${probeLabel(p)}`;
     pathMeta.textContent = host;
     pathBody.innerHTML = pcStatus('Starting\u2026');
-    tts(N && N.pathStart(p.name), [speechClip(['path', 'start', p.name])]);
+    tts(N && N.pathStart(probeLabel(p)), [speechClip(['path', 'start', p.name])]);
     pathBody.scrollTop = 0; pcFade();
     pathCard.hidden = false;
     window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = pcStatus(msg); })
@@ -1628,7 +1633,7 @@
     }
     const end = pts[pts.length - 1];
     end.kind = 'end';
-    end.label = (end.label ? end.label + ' · ' : '') + p.name;
+    end.label = (end.label ? end.label + ' · ' : '') + probeLabel(p);
     if (last && last.ms != null) end.avg = last.ms;
     S.path = { pts };
     requestAnimationFrame(pcFade);
@@ -1642,10 +1647,10 @@
     const ms = last && last.ms != null ? Math.round(last.ms) : null;
     // Cloud mode builds it from clips: "Zoom is about" + "twelve" + "milliseconds away." + how the path looks.
     if (ms != null) {
-      tts(N && N.pathResult(p.name, ms, slowLink ? at(slowLink.h) : null, lossy.length ? at(lossy[0]) : null),
+      tts(N && N.pathResult(probeLabel(p), ms, slowLink ? at(slowLink.h) : null, lossy.length ? at(lossy[0]) : null),
         [speechClip(['path', 'lead', p.name]), speechClip(['num', String(numBucket(ms))]), speechClip(['path', 'ms']),
           speechClip(['path', slowLink ? 'slow' : lossy.length ? 'loss' : 'clean'])]);
-    } else tts(N && N.pathNoAnswer(p.name), [speechClip(['path', 'noAnswer', p.name])]);
+    } else tts(N && N.pathNoAnswer(probeLabel(p)), [speechClip(['path', 'noAnswer', p.name])]);
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 2700);   // a third slower than a normal flight
   }
   function drawPath(now, R) {
