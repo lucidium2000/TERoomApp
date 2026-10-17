@@ -599,7 +599,21 @@
     c2.restore();
   }
 
-  function outageVisible(o) { return S.filter === 'all' || o.kind === S.filter; }
+  // The panel's time window (the Internet Insights toggle): 1, 6, 12 or 24
+  // hours. An outage counts if it was still going at any point in it.
+  const WINDOWS = [1, 6, 12, 24];
+  S.windowH = 24;
+  try { const w = +localStorage.getItem('te-window'); if (WINDOWS.includes(w)) S.windowH = w; } catch (_) { /* default */ }
+  function inWindow(o) {
+    return S.windowH >= 24 || o.active || o.start + (o.durationS || 0) * 1000 >= dataNow() - S.windowH * 3600e3;
+  }
+  const windowLabel = (h) => (h === 1 ? 'Last hour' : `Last ${h} hours`);
+  /** The line under the title: the time window and when the data was published. */
+  function showUpdated() {
+    if (!S.updatedT) return;
+    el.updated.textContent = `${windowLabel(S.windowH).toLowerCase()} \u2014 updated ${fmtTime(S.updatedT)}`;
+  }
+  function outageVisible(o) { return (S.filter === 'all' || o.kind === S.filter) && inWindow(o); }
 
   /** Is this location the one being looked at? (Card hover/tap, or the
    *  mouse within ~20 px of it on the globe.) */
@@ -1230,7 +1244,7 @@
 
   function renderList() {
     const list = S.outages.filter(outageVisible).slice().sort((a, b) => (b.active - a.active) || (b.start - a.start));
-    if (!list.length) { el.list.innerHTML = '<li class="empty">No outages in the last 24 hours.</li>'; return; }
+    if (!list.length) { el.list.innerHTML = `<li class="empty">No outages in the ${S.windowH === 1 ? 'last hour' : `last ${S.windowH} hours`}.</li>`; return; }
     el.list.innerHTML = list.map((o) => {
       const where = o.locations.length === 1 ? o.locations[0].name : `${o.locations.length} locations`;
       return `<li class="row ${o.kind}${o.active ? ' active' : ''}${o === S.selected ? ' sel' : ''}" data-id="${esc(o.id)}">`
@@ -1243,10 +1257,11 @@
   }
 
   function renderStats() {
-    const net = S.outages.filter((o) => o.kind === 'network');
-    const app = S.outages.filter((o) => o.kind === 'application');
-    const locs = new Set(S.outages.flatMap((o) => o.locations.map((l) => l.name)));
-    el.statActive.textContent = S.outages.filter((o) => o.active).length;
+    const all = S.outages.filter(inWindow);
+    const net = all.filter((o) => o.kind === 'network');
+    const app = all.filter((o) => o.kind === 'application');
+    const locs = new Set(all.flatMap((o) => o.locations.map((l) => l.name)));
+    el.statActive.textContent = all.filter((o) => o.active).length;
     el.statNet.textContent = net.length;
     el.statApp.textContent = app.length;
     el.statLoc.textContent = locs.size;
@@ -1670,8 +1685,9 @@
     const max = Math.max(1, ...bins.map((b) => b.network + b.application));
     const bw = W / BINS;
     // While scrubbing, bars near the scrub time stay bright and the rest fade.
-    const near = (i) => S.timeFocus == null
-      || Math.abs((now - span) + (i + 0.5) * (span / BINS) - S.timeFocus) <= SCRUB_WINDOW_MS + span / BINS / 2;
+    const near = (i) => (S.timeFocus == null
+      ? (now - span) + (i + 1) * (span / BINS) > now - S.windowH * 3600e3   // inside the panel's time window
+      : Math.abs((now - span) + (i + 0.5) * (span / BINS) - S.timeFocus) <= SCRUB_WINDOW_MS + span / BINS / 2);
     let out = '';
     bins.forEach((b, i) => {
       const hn = (b.network / max) * (H - 6), ha = (b.application / max) * (H - 6);
@@ -1824,7 +1840,7 @@
     S.selected = prevSelId ? S.outages.find((o) => o.id === prevSelId) || null : null;
 
     const gen = new Date(json.generatedAt);
-    el.updated.textContent = `last 24 hours \u2014 updated ${fmtTime(gen.getTime())}`;
+    S.updatedT = gen.getTime(); showUpdated();
 
     renderStats(); renderList(); renderTimeline(); renderRoomNet();
 
@@ -2031,6 +2047,21 @@
     select(S.outages.find((o) => o.id === row.dataset.id) || null);
   });
   el.panel.addEventListener('pointerdown', userInput);
+
+  // Time window toggle: 24 -> 1 -> 6 -> 12 -> 24 hours (remembered here).
+  const winBtn = document.getElementById('winBtn');
+  const showWindow = () => { winBtn.textContent = windowLabel(S.windowH); winBtn.dataset.h = String(S.windowH); showUpdated(); };
+  showWindow();
+  winBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sfx('tap');
+    userInput();
+    S.windowH = WINDOWS[(WINDOWS.indexOf(S.windowH) + 1) % WINDOWS.length];
+    try { localStorage.setItem('te-window', String(S.windowH)); } catch (_) { /* private mode */ }
+    showWindow();
+    if (S.selected && !outageVisible(S.selected)) select(null);
+    renderStats(); renderList(); renderTimeline();
+  });
 
   document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
     sfx('tap');

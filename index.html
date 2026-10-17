@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=140">
+  <link rel="stylesheet" href="css/app.css?v=141">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -33,13 +33,13 @@
     <!-- This room first: each service's Internet Insights status (left) and
          this room's live connection to it (right). -->
     <section class="services sec" id="services">
-      <h2 class="sec-title">Your services <small>Internet Insights &middot; from this room</small></h2>
+      <h2 class="sec-title">From This Device</h2>
       <div id="roomNetRows"></div>
     </section>
 
     <!-- Then every outage in the last 24 hours. -->
     <section class="outages sec">
-      <h2 class="sec-title">Outages <small>Internet Insights &middot; last 24 hours</small></h2>
+      <h2 class="sec-title">Internet Insights <button class="win-btn" id="winBtn" title="Time window: tap to change">Last 24 hours</button></h2>
       <div class="stats">
         <div class="stat"><b id="statActive">–</b><span>Active</span></div>
         <div class="stat"><b id="statLoc">–</b><span>Locations</span></div>
@@ -236,7 +236,7 @@
   <script src="js/radar.js?v=7"></script>
   <script src="js/glglobe.js?v=24"></script>
   <script src="js/glass.js?v=84"></script>
-  <script src="js/app.js?v=174"></script>
+  <script src="js/app.js?v=175"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

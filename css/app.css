@@ -692,7 +692,7 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 
 /* "Your services": Internet Insights (left) + this room's connection (right).
    It sits under the outage list, divided from it. */
-/* Panel sections: metrics, then "Your services", then "Outages" - each with a
+/* Panel sections: "From This Device", then "Internet Insights" - each with a
    divider and a title with a small accent bar. The outage list takes the rest
    of the height and scrolls. */
 .panel .sec { border-top: 1px solid var(--line); padding-top: .85em; }
@@ -703,7 +703,15 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   font-size: .8em; color: var(--ink-2); text-transform: uppercase; letter-spacing: .12em; font-weight: 800;
 }
 .sec-title::before { content: ""; width: 3px; height: 1em; border-radius: 2px; background: var(--app); align-self: center; }
-.outages .sec-title { margin-bottom: 0; }
+.outages .sec-title { margin-bottom: 0; font-size: 1.02em; color: var(--ink); align-items: center; }
+/* Time window toggle: 1 -> 6 -> 12 -> 24 hours. */
+.win-btn {
+  margin-left: auto; padding: .3em .75em; border-radius: 99px; min-height: 30px;
+  font-size: .68em; font-weight: 700; letter-spacing: .04em; text-transform: none; color: var(--ink-2);
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--line); cursor: pointer; white-space: nowrap;
+}
+.win-btn:hover { color: var(--ink); border-color: rgba(255, 255, 255, .25); }
+.win-btn[data-h="1"], .win-btn[data-h="6"], .win-btn[data-h="12"] { color: #fde68a; border-color: rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .08); }
 .outages .sec-title::before { background: var(--net); }
 .sec-title small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); font-size: .9em; }
 .svc {
