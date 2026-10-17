@@ -444,6 +444,7 @@
       ctx.clearRect(0, 0, S.w, S.h);
       perfMark('gl');
       drawOutages(now, R);
+      drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
       perfMark('markers');
       return;
     }
@@ -479,6 +480,7 @@
     ctx.beginPath(); ctx.arc(L.cx, L.cy, R, 0, 2 * Math.PI); ctx.stroke();
 
     drawOutages(now, R);
+    drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
     perfMark('markers');
   }
 
@@ -596,29 +598,28 @@
     return !!(m && performance.now() - m.t < 4000 && Math.hypot(m.x - p[0], m.y - p[1]) < 22);
   }
   /** Where this device connects from (its public IP's location, the same one
-   *  the local weather and path traces use): a Webex-blue beacon with a slow
-   *  sonar ring - a deeper blue than the cyan of application outages. */
+   *  the local weather and path traces use): a still, green map pin - a shape
+   *  and colour no outage uses, and no pulse, so it never reads as one. */
   function drawRoom(now, k) {
     const room = S.room;
     if (!room || !isFinite(room.lat) || (room.lat === 0 && room.lon === 0)) return;
     const p = proj.point(room.lon, room.lat);
     if (!p) return;
-    const [x, y] = p, G = '17,112,207', L = '64,158,255';   // Webex blue (Momentum #1170CF), lighter for glow
+    const [x, y] = p, r = 9 * k, h = 25 * k;   // head radius; tip-to-head-centre height
     ctx.save();
-    // Sonar ring.
-    const t = (now % 3000) / 3000;
-    ctx.lineWidth = 1.6 * k;
-    ctx.strokeStyle = `rgba(${L},${((1 - t) * 0.7).toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(x, y, (7 + t * 30) * k, 0, 2 * Math.PI); ctx.stroke();
-    // Glow, ring and core.
-    const glow = ctx.createRadialGradient(x, y, 0, x, y, 16 * k);
-    glow.addColorStop(0, `rgba(${L},0.5)`); glow.addColorStop(1, `rgba(${L},0)`);
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(x, y, 16 * k, 0, 2 * Math.PI); ctx.fill();
-    ctx.lineWidth = 2 * k; ctx.strokeStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(x, y, 6.5 * k, 0, 2 * Math.PI); ctx.stroke();
-    ctx.fillStyle = `rgb(${G})`;
-    ctx.beginPath(); ctx.arc(x, y, 4 * k, 0, 2 * Math.PI); ctx.fill();
+    // Pin: a round head tapering to a point on the location.
+    const cy = y - h, a = Math.acos(r / h);   // tangent points from the tip
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.arc(x, cy, r, Math.PI / 2 + a, Math.PI / 2 - a + 2 * Math.PI);
+    ctx.closePath();
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6 * k; ctx.shadowOffsetY = 1.5 * k;
+    ctx.fillStyle = '#34d399';
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.lineWidth = 1.5 * k; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(x, cy, r * 0.4, 0, 2 * Math.PI); ctx.fill();
     ctx.restore();
   }
 
@@ -679,8 +680,6 @@
         S.hits.push({ x: p[0], y: p[1], r: Math.max(22, r * 2), o });
       }
     }
-
-    drawRoom(now, k);
 
     // City labels for the selected outage.
     const labelled = new Set();
