@@ -34,11 +34,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      OUT: ${{ runner.temp }}/out
-      PREV: ${{ runner.temp }}/prev
       PUSH_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
     steps:
       - uses: actions/checkout@v4
+
+      # runner.temp isn't available at job level, so set the paths here.
+      - name: Paths
+        run: |
+          echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
+          echo "PREV=$RUNNER_TEMP/prev" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
