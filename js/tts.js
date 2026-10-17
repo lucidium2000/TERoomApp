@@ -3,8 +3,7 @@
  * through Web Audio, gap-free, as each sentence arrives.
  *
  * Off until the speaker button is pressed (so nothing big downloads on a
- * normal visit); turning it off unloads the model again. It never runs at
- * the same time as camera gestures (app.js switches one off for the other).
+ * normal visit); turning it off unloads the model again.
  *   tts=0          hide the speaker button
  *   ttsvoice=      a Kokoro voice (default af_heart; or pick one by holding the speaker button)
  *   ttsspeed=      0.5..2 (default 1; or pick one by holding the speaker button)

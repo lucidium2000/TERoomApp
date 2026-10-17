@@ -1967,8 +1967,6 @@
       const on = state === 'starting' || state === 'face' || state === 'motion';
       glassBtn.setAttribute('aria-pressed', String(on));
       glassBtn.classList.toggle('busy', state === 'starting');
-      // Gestures and speech never run together (both lean on the same CPU).
-      if (state === 'starting' && window.Tts && window.Tts.enabled) { window.Tts.setEnabled(false); toast('Speech off while gestures are on', 'info'); }
       sheen.classList.toggle('on', state === 'face' || state === 'motion');
       camChip.hidden = !(state === 'face' || state === 'motion');
       setHud(state === 'face' || state === 'motion' ? 'dormant' : 'off');
@@ -2417,7 +2415,6 @@
       if (ttsHeld) { ttsHeld = false; return; }
       if (!voicePick.hidden) { closeVoices(); return; }
       const on = !T.enabled;
-      if (on && window.Glass && window.Glass.on) { window.Glass.stop(); toast('Gestures off while speech is on', 'info'); }
       T.setEnabled(on);
       sfx(on ? 'on' : 'off');
       if (on && T.state === 'loading') toast('Speech on - loading the voice model\u2026', 'info', true);
@@ -2648,7 +2645,7 @@
     setTimeout(localWeather, 2500); setInterval(localWeather, 15 * 60e3);
     let resumeTts = false;
     try { resumeTts = sessionStorage.getItem('te-resume-tts') === '1'; sessionStorage.removeItem('te-resume-tts'); } catch (_) { /* */ }
-    if (resumeTts && !resumeGlass && window.Tts) { window.Tts.setEnabled(true); document.getElementById('ttsBtn').setAttribute('aria-pressed', 'true'); }
+    if (resumeTts && window.Tts) { window.Tts.setEnabled(true); document.getElementById('ttsBtn').setAttribute('aria-pressed', 'true'); }
     startAutoUpdate();
     if (window.RoomNet) window.RoomNet.start({ onUpdate: renderRoomNet });
   })();
