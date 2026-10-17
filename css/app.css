@@ -43,7 +43,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   position: fixed; top: var(--gutter); left: var(--gutter);
   display: flex; gap: 0.9em; align-items: center; pointer-events: none;
 }
-.brand { flex-direction: column; align-items: flex-start; gap: .25em; }
+.brand { flex-direction: column; align-items: flex-start; gap: .25em; font-size: 115%; }   /* logo, title, LIVE: 15% larger */
 .brand-logo { pointer-events: auto; -webkit-touch-callout: none; height: 2.8em; width: auto; display: block; filter: drop-shadow(0 0 14px rgba(241, 94, 34, .35)); }
 .brand h1 {
   margin: 0; font-size: 1.6em; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1;
