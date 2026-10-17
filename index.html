@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=122">
+  <link rel="stylesheet" href="css/app.css?v=123">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -16,8 +16,7 @@
   <header class="brand">
     <img class="brand-logo" src="assets/te-logo.png" alt="ThousandEyes">
     <div class="brand-text">
-      <h1>Internet Outages <span class="live"><i></i>LIVE</span></h1>
-      <p class="sub">Internet Insights &middot; last 24 hours &middot; <span id="updated">loading&hellip;</span></p>
+      <h1>Internet Insights <span class="live"><i></i>LIVE</span> <span class="updated" id="updated"></span></h1>
       <p class="local"><span id="localClock"></span><span id="localSep" hidden> &middot; </span><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span></p>
       <p class="radar-time" id="radarTime" hidden></p>
     </div>
@@ -224,8 +223,8 @@
   <script src="js/tts.js?v=10"></script>
   <script src="js/roomnet.js?v=84"></script>
   <script src="js/pathtrace.js?v=79"></script>
-  <script src="js/radar.js?v=4"></script>
-  <script src="js/glglobe.js?v=22"></script>
+  <script src="js/radar.js?v=5"></script>
+  <script src="js/glglobe.js?v=23"></script>
   <script src="js/glass.js?v=84"></script>
   <script src="js/app.js?v=154"></script>
   <script src="js/devlab.js?v=78"></script>

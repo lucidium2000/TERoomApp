@@ -49,7 +49,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   margin: 0; font-size: 1.9em; font-weight: 700; letter-spacing: -0.01em;
   display: flex; align-items: center; gap: 0.5em;
 }
-.brand .sub { margin: 0.15em 0 0; color: var(--ink-2); font-size: 0.8em; }
+.brand .updated { font-size: .36em; font-weight: 500; letter-spacing: 0; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .live {
   font-size: 0.42em; font-weight: 800; letter-spacing: .14em;
   color: var(--bad); border: 1px solid rgba(244, 63, 94, .5); border-radius: 99px;

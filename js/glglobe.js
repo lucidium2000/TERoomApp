@@ -350,6 +350,11 @@ void main() {
         if (!t) {
           t = makeTex(2);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+          // Mipmaps (the frames are powers of two): no shimmer zoomed out.
+          if (!(img.width & (img.width - 1)) && !(img.height & (img.height - 1))) {
+            gl.generateMipmap(gl.TEXTURE_2D);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          }
         }
         next.set(img, t);
       }
