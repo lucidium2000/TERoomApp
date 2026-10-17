@@ -761,6 +761,17 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .services.editing .svc-grip { display: grid; height: 28px; }
 .services.editing .svc-edit { opacity: 1; color: var(--ink-2); }
 .svc.dragging { position: relative; z-index: 2; background: rgba(22, 189, 235, .14) !important; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); cursor: grabbing; }
+/* Local network (nearest edge) round trip, beside the section title. */
+.edge-pill {
+  margin-left: auto; display: inline-flex; align-items: center; gap: .4em; padding: .2em .6em; border-radius: 99px;
+  font-size: .9em; font-weight: 700; letter-spacing: .02em; text-transform: none; color: var(--ink-2);
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line); cursor: default; white-space: nowrap;
+}
+.edge-pill[hidden] { display: none; }
+.edge-pill .svc-dot { width: .6em; height: .6em; }
+.edge-pill .edge-k { color: var(--ink-3); font-weight: 600; }
+.edge-pill b { font-variant-numeric: tabular-nums; color: var(--ink); }
+.edge-pill + .svc-done { margin-left: .4em; }
 .svc-done { color: #04121a !important; background: var(--app) !important; border-color: transparent !important; }
 .pe-lbl { display: block; margin: .2em 0 .3em; font-size: .7em; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
 .probe-edit input + .pe-lbl { margin-top: .7em; }

@@ -136,8 +136,42 @@
     p.status = judge(p);
   }
 
+  // The nearest edge: round trip to the closest Cloudflare site (it allows
+  // cross-origin reads, and says which site answered). That
+  // covers this room's network plus the first stretch of the ISP - a jump
+  // here means the trouble is close to home, not at the services. Best of
+  // three on an open connection: the time to the first byte is about one
+  // round trip.
+  // cdn-cgi/trace is answered by the edge itself (no processing behind it)
+  // and names the site ("colo=RDU"); the whole request on a warm connection
+  // is about one round trip.
+  const EDGE_URL = 'https://speed.cloudflare.com/cdn-cgi/trace';
+  const edge = { ms: null, colo: '', status: 'pending', samples: [] };
+  async function edgeOnce() {
+    const t0 = performance.now();
+    const r = await fetch(EDGE_URL, { mode: 'cors', cache: 'no-store', credentials: 'omit' });
+    const txt = await r.text();
+    return { ms: performance.now() - t0, colo: (txt.match(/^colo=(\w+)/m) || [])[1] || '' };
+  }
+  async function probeEdge() {
+    let best = null, colo = '';
+    try {
+      await edgeOnce().catch(() => {});   // warm-up: DNS, TCP, TLS
+      for (let i = 0; i < 3; i++) { const r = await edgeOnce(); colo = r.colo || colo; best = best == null ? r.ms : Math.min(best, r.ms); }
+    } catch (_) { /* no answer */ }
+    edge.samples.push({ t: Date.now(), ms: best });
+    if (edge.samples.length > KEEP) edge.samples.shift();
+    edge.ms = best; if (colo) edge.colo = colo;
+    const two = edge.samples.slice(-2);
+    edge.status = best != null ? (best < EDGE_GOOD ? 'ok' : best < EDGE_SLOW ? 'warn' : 'slow')
+      : two.length === 2 && two.every((x) => x.ms == null) ? 'down' : edge.status;
+  }
+  const EDGE_GOOD = 30, EDGE_SLOW = 80;
+
   async function cycle() {
     if (document.hidden) return;
+    await probeEdge();
+    if (opts.onUpdate) opts.onUpdate(probes);
     for (const p of probes) {
       await probe(p);
       if (opts.onUpdate) opts.onUpdate(probes);
@@ -146,6 +180,7 @@
 
   window.RoomNet = {
     probes,
+    edge,
     GOOD_MS, SLOW_MS,
     /** Check a different address for probe i (null: back to the default).
      *  Saved on this device; history restarts and it's checked at once. */
