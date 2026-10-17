@@ -596,40 +596,29 @@
     return !!(m && performance.now() - m.t < 4000 && Math.hypot(m.x - p[0], m.y - p[1]) < 22);
   }
   /** Where this device connects from (its public IP's location, the same one
-   *  the local weather and path traces use): a green beacon, a slow sonar
-   *  ring and a "This room" tag - distinct from the outage glows. */
+   *  the local weather and path traces use): a Webex-blue beacon with a slow
+   *  sonar ring - a deeper blue than the cyan of application outages. */
   function drawRoom(now, k) {
     const room = S.room;
     if (!room || !isFinite(room.lat) || (room.lat === 0 && room.lon === 0)) return;
     const p = proj.point(room.lon, room.lat);
     if (!p) return;
-    const [x, y] = p, G = '52,211,153';
+    const [x, y] = p, G = '17,112,207', L = '64,158,255';   // Webex blue (Momentum #1170CF), lighter for glow
     ctx.save();
     // Sonar ring.
     const t = (now % 3000) / 3000;
     ctx.lineWidth = 1.6 * k;
-    ctx.strokeStyle = `rgba(${G},${((1 - t) * 0.6).toFixed(3)})`;
+    ctx.strokeStyle = `rgba(${L},${((1 - t) * 0.7).toFixed(3)})`;
     ctx.beginPath(); ctx.arc(x, y, (7 + t * 30) * k, 0, 2 * Math.PI); ctx.stroke();
     // Glow, ring and core.
     const glow = ctx.createRadialGradient(x, y, 0, x, y, 16 * k);
-    glow.addColorStop(0, `rgba(${G},0.45)`); glow.addColorStop(1, `rgba(${G},0)`);
+    glow.addColorStop(0, `rgba(${L},0.5)`); glow.addColorStop(1, `rgba(${L},0)`);
     ctx.fillStyle = glow;
     ctx.beginPath(); ctx.arc(x, y, 16 * k, 0, 2 * Math.PI); ctx.fill();
     ctx.lineWidth = 2 * k; ctx.strokeStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(x, y, 6.5 * k, 0, 2 * Math.PI); ctx.stroke();
     ctx.fillStyle = `rgb(${G})`;
     ctx.beginPath(); ctx.arc(x, y, 4 * k, 0, 2 * Math.PI); ctx.fill();
-    // Tag, below the point (outage labels sit to the right).
-    ctx.font = `700 ${Math.round(10.5 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-    const label = 'THIS ROOM', w = ctx.measureText(label).width + 12 * k, ty = y + 19 * k;
-    ctx.fillStyle = 'rgba(5,7,13,0.8)';
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x - w / 2, ty - 8.5 * k, w, 17 * k, 8.5 * k); else ctx.rect(x - w / 2, ty - 8.5 * k, w, 17 * k);
-    ctx.fill();
-    ctx.lineWidth = 1 * k; ctx.strokeStyle = `rgba(${G},0.6)`; ctx.stroke();
-    ctx.fillStyle = `rgb(${G})`;
-    ctx.fillText(label, x, ty + 0.5);
     ctx.restore();
   }
 
