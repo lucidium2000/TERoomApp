@@ -76,7 +76,7 @@
   const WATCH_PRESETS = {
     webex: { label: 'Webex', terms: ['webex'] },
     zoom: { label: 'Zoom', terms: ['zoom'] },
-    microsoft: { label: 'Microsoft 365', terms: ['microsoft', 'office365', 'o365', 'teams', 'mson', 'outlook'] },
+    microsoft: { label: 'Microsoft', terms: ['microsoft', 'office365', 'o365', 'teams', 'mson', 'outlook', 'azure'] },
     teams: { label: 'Teams', terms: ['teams', 'office365', 'o365'] },
     google: { label: 'Google', terms: ['google', 'gmail', 'youtube'] },
     amazon: { label: 'AWS', terms: ['amazon', 'aws'] },

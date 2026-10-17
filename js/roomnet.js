@@ -24,7 +24,7 @@
   // HTTPS (443) request is visible - in no-cors mode browsers hide it.
   const TARGETS = [
     { name: 'Webex', term: 'webex', url: 'https://wdm-a.wbx2.com/wdm/api/v1/ping', what: 'Webex device management service health check' },
-    { name: 'Microsoft 365', term: 'microsoft', url: 'https://graph.microsoft.com/v1.0/', what: 'Microsoft Graph API (Microsoft 365)' },
+    { name: 'Microsoft', term: 'microsoft', url: 'https://graph.microsoft.com/v1.0/', what: 'Microsoft Graph API (Microsoft 365)' },
     { name: 'Zoom', term: 'zoom', url: 'https://st1.zoom.us/favicon.ico', what: 'Zoom static content network' },
     { name: 'Google', term: 'google', url: 'https://www.googleapis.com/discovery/v1/apis?name=drive&preferred=true', what: 'Google APIs front end' },
     { name: 'AWS', term: 'amazon', url: 'https://ec2.us-east-1.amazonaws.com/ping', what: 'AWS EC2 us-east-1 health check' },

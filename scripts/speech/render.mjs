@@ -45,7 +45,7 @@ for (const f of ['phrases.js', 'insights.js', 'narrate.js', 'roomnet.js', 'wxbri
 }
 const { PHRASES, Insights, Narrate, RoomNet, WxBrief } = sandbox;
 const N = Narrate.create({ PH: PHRASES, Insights });
-const SERVICES = RoomNet.probes.map((p) => p.name);   // Webex, Microsoft 365, Zoom, Google, AWS
+const SERVICES = RoomNet.probes.map((p) => p.name);   // Webex, Microsoft, Zoom, Google, AWS
 
 // ── The data, as the app sees it ─────────────────────────────────────────
 const json = JSON.parse(await readFile(DATA, 'utf8'));
