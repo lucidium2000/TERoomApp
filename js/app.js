@@ -896,7 +896,7 @@
     if (S.insightQ && S.insightQ.length && window.Tts && window.Tts.enabled && !overviewBusy()) {
       const f = S.insightQ.shift();
       select(f.focus, { fromTour: true });
-      speakProtected(insightSpeech(f, S.insightN++ === 0));
+      speakInsight(f, S.insightN++ === 0);
       return;
     }
     const list = tourList();
@@ -927,139 +927,65 @@
     : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`);
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-  // ── Spoken summaries (experimental, ?tts=1 - js/tts.js) ──────────────────
-  // How some names should be said (the voice would read "365" as a number).
-  const SAY_AS = [
-    [/\bOffice\s?365\b/gi, 'Office three six five'],
-    [/\b(Microsoft|M)\s?365\b/gi, '$1 three six five'],
-    [/\bO365\b/gi, 'O three six five'],
-  ];
-  const sayAs = (text) => SAY_AS.reduce((t, [re, to]) => t.replace(re, to), text);
-  // The overall synopsis always gets to finish: while it's being said, other
-  // lines (a tapped outage, a heads-up) are skipped and nothing stops it -
+  // ── Spoken summaries (js/tts.js; words from js/narrate.js) ───────────────
+  // The narrator is shared with the GitHub Action, which renders the same
+  // lines to audio for devices too slow to make speech (see speakClips).
+  const PH = window.PHRASES || {};
+  const N = window.Narrate ? window.Narrate.create({ PH, Insights: window.Insights }) : null;
+  const sayAs = (text) => (window.Narrate ? window.Narrate.sayAs(text) : text);
+  const say = (pool, v) => (N ? N.say(pool, v) : '');
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  const numW = (n) => (n >= 0 && n < NUMW.length ? NUMW[n] : String(n));
+  // The overall synopsis (and the analyst's findings) always get to finish:
+  // while they're being said, other lines are skipped and nothing stops them -
   // except turning speech off.
   let overviewOn = false;
   const overviewBusy = () => overviewOn && window.Tts && window.Tts.busy;
-  const tts = (text) => {
+  const cloudMode = () => window.Tts && window.Tts.mode === 'cloud';
+  /** Say a line: live text, or (cloud mode) the pre-rendered clips for it. */
+  const tts = (text, clips) => {
     if (!(window.Tts && window.Tts.enabled) || overviewBusy()) return;
     overviewOn = false;
-    window.Tts.speak(sayAs(text));
+    if (cloudMode()) { if (clips && clips.length) window.Tts.playClips(clips); }
+    else if (text) window.Tts.speak(sayAs(text));
   };
   const ttsStop = () => { if (window.Tts && !overviewBusy()) window.Tts.stop(); };
-  // Narration: said the way a person would mention it in passing, not read
-  // off the card. The tour gets one overall synopsis (see overviewSpeech);
-  // picking an outage gets a line or two about it. Short sentences also come
-  // out sooner on a slow CPU.
-  const pick = (a) => a[Math.floor(Math.random() * a.length)];
-  // A line from the phrase library (js/phrases.js), placeholders filled in and
-  // the first letter capitalised.
-  const PH = window.PHRASES || {};
-  const say = (pool, v = {}) => {
-    const line = pick(PH[pool] || ['']).replace(/\{(\w+)\}/g, (m, k) => (v[k] != null ? v[k] : ''));
-    return line.charAt(0).toUpperCase() + line.slice(1);
-  };
-  const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
-  const numW = (n) => (n >= 0 && n < NUMW.length ? NUMW[n] : String(n));
-  const COUNTRY = { US: 'the US', GB: 'the UK', UK: 'the UK', NL: 'the Netherlands', AE: 'the UAE', DE: 'Germany', FR: 'France', JP: 'Japan', IN: 'India', BR: 'Brazil', CA: 'Canada', AU: 'Australia', SG: 'Singapore', IE: 'Ireland', ES: 'Spain', IT: 'Italy', SE: 'Sweden', ZA: 'South Africa', MX: 'Mexico', KR: 'South Korea', HK: 'Hong Kong' };
-  // "Ashburn, Virginia, US" -> Ashburn; a bare country ("US") isn't a city.
-  const cityOf = (l) => { const parts = l && l.name ? l.name.split(',') : []; return parts.length > 1 ? parts[0].trim() : ''; };
-  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-  const countryOf = (l) => { const parts = (l && l.name ? l.name.split(',') : []).map((q) => q.trim()); const c = parts[parts.length - 1] || ''; return COUNTRY[c] || c; };
-  // Company names as people say them: no "Inc." / "LLC" (and no "Inc.." ).
-  const nameOf = (o) => o.name.replace(/,?\s*\b(Inc|LLC|Ltd|Limited|Corp|Corporation|Co|GmbH|S\.?A)\.?$/i, '').trim();
-  // Less is more: a line or two, the way someone glancing at the screen would
-  // put it - who, where, how it's going. Few numbers, no lists.
-  const spokenWhen = (ms) => {
-    const m = Math.max(0, Math.round((dataNow() - ms) / 60000)), h = Math.round(m / 60);
-    return m < 5 ? 'just now' : m < 50 ? 'a little while ago' : h <= 1 ? 'about an hour ago' : h < 6 ? `about ${numW(h)} hours ago` : 'earlier today';
-  };
-  const spokenFor = (sec) => {
-    const m = Math.round(sec / 60), h = Math.round(m / 60);
-    return m < 15 ? 'a few minutes' : m < 45 ? 'about half an hour' : h <= 1 ? 'about an hour' : `about ${numW(h)} hours`;
-  };
-  /** How long it has lasted (an active one: so far, from its start). */
-  const lastedS = (o) => (o.active ? Math.max(o.durationS || 0, (dataNow() - o.start) / 1000) : o.durationS || 0);
-  function where(o) {
-    const top = o.locations.slice().sort((a, b) => b.n - a.n)[0];
-    return cityOf(top) || countryOf(top) || '';
-  }
-  /** This room's own view of that service, only while it's happening. */
-  function roomTie(o) {
+
+  /** This room's probe for the service an outage belongs to, if it has one. */
+  function roomProbeFor(o) {
     const probes = (window.RoomNet && window.RoomNet.probes) || [];
     for (const term of CFG.watch) {
       if (!watchMatches(term).hits.includes(o)) continue;
       const p = probeFor(term, probes);
-      if (!p || p.status === 'pending') return '';
-      if (p.status === 'down') return say('roomDown');
-      if (p.status === 'slow' || p.status === 'warn') return say('roomSlow');
-      return say('roomFine');
+      return p && p.status !== 'pending' ? p : null;
     }
-    return '';
+    return null;
   }
-  /** The tour's one spoken piece: an overall synopsis, under a paragraph -
-   *  how the internet is doing, which services have had the worst of it, and
-   *  whether this room is affected. Not outage by outage. */
-  function overviewSpeech() {
-    const all = S.outages, act = all.filter((q) => q.active).length;
-    const one = act === 1, few = one ? 'one outage' : 'two outages', fewIs = one ? 'one outage is' : 'two outages are';
-    const health = act === 0 ? say('healthCalm') : act <= 2 ? say('healthFew', { few, fewIs }) : say('healthBusy', { n: numW(act) });
-    // Services with the worst of the last day: active first, then how often
-    // and how widely.
-    const by = new Map();
-    for (const q of all) {
-      const k = nameOf(q), g = by.get(k) || { name: k, n: 0, active: false, spread: 0, kind: q.kind };
-      g.n++; g.active = g.active || q.active; g.spread += q.locations.length;
-      by.set(k, g);
-    }
-    const top = [...by.values()].sort((a, b) => (b.active - a.active) || (b.n - a.n) || (b.spread - a.spread)).slice(0, 3);
-    let worst = '';
-    if (top.length) {
-      const t = top[0], N = t.name;
-      worst = say(t.active ? (t.n > 2 ? 'worstActiveRepeat' : 'worstActiveOne') : (t.n > 2 ? 'worstPastRepeat' : 'worstPastOne'), { N });
-      // "Microsoft Office 365 ... and Microsoft" sounds like a repeat: a second
-      // entry from the same company is named by what it is ("Microsoft's network").
-      const said = new Set([N.split(' ')[0]]);
-      const rest = top.slice(1).map((g) => {
-        const first = g.name.split(' ')[0], dup = said.has(first);
-        said.add(first);
-        return dup ? `${first}'s ${g.kind === 'network' ? 'network' : 'other services'}` : g.name;
-      });
-      if (rest.length) worst += ` ${rest.join(' and ')} had ${say('restTail').replace(/^./, (c) => c.toLowerCase())}.`;
-    }
-    // This room's own view of the services it uses.
-    const probes = ((window.RoomNet && window.RoomNet.probes) || []).filter((p) => p.status !== 'pending');
-    const bad = probes.filter((p) => ['down', 'slow', 'warn'].includes(p.status));
-    const down = bad.length && bad[0].status === 'down';
-    const others = bad.length > 1 ? (down ? `, and neither ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}` : `, and so ${bad.length === 2 ? 'is ' + bad[1].name : 'are a couple of others'}`) : '';
-    const room = !probes.length ? '' : !bad.length ? say('overviewRoomFine')
-      : say(down ? 'overviewRoomDown' : 'overviewRoomSlow', { svc: bad[0].name, others });
-    return [health, worst, dayContext(), room].filter(Boolean).join(' ');
+  const roomStatus = (p) => (!p ? null : p.status === 'down' ? 'down' : p.status === 'slow' || p.status === 'warn' ? 'slow' : 'fine');
+  const roomProbes = () => ((window.RoomNet && window.RoomNet.probes) || []).map((p) => ({ name: p.name, status: p.status }));
+  /** The overview's room line: live text, or the matching pre-rendered clip. */
+  function overviewRoom() {
+    if (!cloudMode()) return { text: N.overviewRoom(roomProbes()) };
+    const seen = roomProbes().filter((p) => p.status !== 'pending');
+    if (!seen.length) return { clip: null };
+    const bad = seen.find((p) => ['down', 'slow', 'warn'].includes(p.status));
+    return { clip: speechClip(bad ? ['room', bad.status === 'down' ? 'overviewDown' : 'overviewSlow', bad.name] : ['room', 'overviewFine']) };
   }
-  /** One sentence about the day as a whole (Insights.context): the strongest
-   *  feature, with a little variety between the top two. */
-  function dayContext() {
-    if (!window.Insights || !window.Insights.context) return '';
-    const feats = window.Insights.context(S.outages, { now: dataNow() });
-    if (!feats.length) return '';
-    const f = feats.length > 1 && Math.random() < 0.35 ? feats[1] : feats[0], v = f.vars;
-    if (f.kind === 'hub') return say('hubLead', v) + ' ' + hubFactLine(v.hub);
-    return say(f.kind, { ...v, n: v.n });
-  }
-  const hubFactLine = (hub) => {
-    const facts = (PH.HUB_FACTS || {})[hub];
-    return facts ? say('hubFact', { hub, fact: pick(facts) }) : '';
-  };
+
   /** Say this and let it finish (see overviewBusy). */
-  function speakProtected(text) {
+  function speakProtected(text, clips) {
     if (overviewBusy()) return;
-    tts(text);
+    tts(text, clips);
     overviewOn = true;
   }
   function speakOverview() {
-    if (!(window.Tts && window.Tts.enabled) || !S.outages.length) return;
+    if (!(window.Tts && window.Tts.enabled) || !S.outages.length || !N) return;
     if (overviewBusy()) return;
     S.overviewT = performance.now();
-    speakProtected(overviewSpeech());
+    const room = overviewRoom();
+    if (cloudMode()) speakProtected('', [speechClip(['overview']), room.clip]);
+    else speakProtected([N.overviewCore(S.outages, dataNow()), room.text].filter(Boolean).join(' '));
     // Then the analyst's best two or three findings, one per tour stop.
     S.insightQ = findInsights().slice(0, 3);
     S.insightN = 0;
@@ -1067,61 +993,67 @@
 
   // ── Insights: patterns across outages, turned into commentary ───────────
   function findInsights() {
-    if (!window.Insights) return [];
+    if (!N) return [];
+    // Cloud mode: the findings the server rendered (same analyst, same data).
+    if (cloudMode()) {
+      const list = (S.speech && S.speech.insights) || [];
+      return list.map((x, i) => ({ ...x, idx: i, focus: S.outages.find((o) => o.id === x.focus), outages: x.outages.map((id) => S.outages.find((o) => o.id === id)).filter(Boolean) }))
+        .filter((x) => x.focus);
+    }
     const probes = (window.RoomNet && window.RoomNet.probes) || [];
     const watch = CFG.watch.map((term) => {
       const { preset, hits } = watchMatches(term), p = probeFor(term, probes);
       return { term: p ? p.term : term, label: preset.label, match: (o) => hits.includes(o) };
     });
-    return window.Insights.analyze(S.outages, { now: dataNow(), watch, probes });
+    return N.findings(S.outages, dataNow(), { watch, probes });
   }
-  /** One finding as a sentence or three, with a lead-in. What the analyst
-   *  knows about who runs on what decides how a network/app overlap is told:
-   *  a known host is said plainly, a company with its own network gets a
-   *  caveat (shared place, not dependency), anything else stays unsure. */
-  function insightSpeech(f, first) {
-    const v = f.vars, likely = f.score > 0.8 ? 'very likely' : f.score > 0.6 ? 'likely' : 'possibly';
-    let pool = {
-      sameCompany: v.together ? (v.first ? 'sameCompanyFirst' : 'sameCompanyTogether') : 'sameCompanyApart',
-      netApp: v.first ? 'netAppFirst' : v.together ? 'netAppTogether' : 'netAppPlain',
-      cluster: 'cluster', sharedHosting: v.separate ? 'sameCityApart' : 'sharedHosting', sameMinute: 'sameMinute',
-      repeat: v.active ? 'repeatActive' : 'repeatPast', wide: v.net ? 'wideNet' : 'wideApp', maintenance: 'maintenance',
-      chain: 'chain', aftershock: 'aftershock', workday: 'workday',
-    }[f.rule];
-    if (f.rule === 'netApp' && v.rel === 'unlikely') pool = 'relUnlikely';
-    const vars = { ...v, likely, n: typeof v.n === 'number' ? numW(v.n) : v.n };
-    const fill = (name) => pick(PH[name] || ['']).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : ''));
-    let text = fill(first ? 'insightFirst' : 'insightNext') + ' ' + fill(pool);
-    // One supporting note: what the relationship is, or a likely cause.
-    let note = '';
-    if (f.rule === 'netApp' && v.rel === 'known') note = fill('relKnown');
-    else if (f.rule === 'netApp' && v.rel !== 'unlikely') note = fill({ edge: 'netTypeEdge', transit: 'netTypeTransit', cloud: 'netTypeCloud' }[v.type] || 'netTypeNetwork');
-    else if (f.rule === 'cluster' || f.rule === 'chain') note = fill(Math.random() < 0.7 ? 'causeFiber' : 'causeRouting');
-    else if (f.rule === 'sameMinute') note = fill('causeShared');
-    else if (f.rule === 'wide' && !v.net) note = fill('causeCentral');
-    else if (f.rule === 'wide' && v.net) note = fill('causeRouting');
-    // A finding that gets a note doesn't also need a generic closing line.
-    if (note) text = text.replace(/ (Worth keeping in mind|Something to watch|Make of that what you will|Food for thought)\.$/, '');
-    text += note;
-    // A well-known hub in the story gets a word of context, if there's room.
-    if (v.hub && !note && Math.random() < 0.6) text += ' ' + hubFactLine(v.hub);
-    if (v.room) text += fill(v.roomDown ? 'insightRoomDown' : 'insightRoomSlow');
-    // Capital letters where sentences start ("{likely} ..." can open one).
-    return text.replace(/(^|[.!?]\s+)([a-z])/g, (m, a, c) => a + c.toUpperCase());
-  }
-  /** Tapped: a little more about this one, still short. */
-  function outageSpeech(o, isNew) {
-    const nm = nameOf(o), at = where(o), aroundAt = at ? ' around ' + at : '';
-    if (isNew) return say('headsUp', { nm, at: aroundAt });
-    const others = o.locations.length > 1 ? ` and ${o.locations.length > 4 ? 'a few' : 'a couple of'} other places` : '';
-    const net = o.kind === 'network';
-    if (o.active) {
-      const what = say(net ? 'whatNetNow' : 'whatAppNow').replace(/^./, (c) => c.toLowerCase());
-      return (say('tappedActive', { nm, what, What: cap(what), place: at ? `, mostly around ${at}${others}` : '' }) + ' ' + roomTie(o)).trim();
+  /** Speak one finding (protected), with a room note if this room feels it. */
+  function speakInsight(f, first) {
+    const p = f.outages.map(roomProbeFor).find((q) => q && roomStatus(q) !== 'fine');
+    if (cloudMode()) {
+      speakProtected('', [speechClip(['insights', f.idx, 'file']), p && speechClip(['room', roomStatus(p) === 'down' ? 'insightDown' : 'insightSlow', p.name])]);
+      return;
     }
-    const what = say(net ? 'whatNetThen' : 'whatAppThen').replace(/^./, (c) => c.toLowerCase());
-    const when = spokenWhen(o.start);
-    return say('tappedCleared', { nm, what, What: cap(what), when, When: cap(when), place: at ? ` around ${at}${others}` : '', dur: spokenFor(o.durationS || 0) });
+    let text = N.insight(f, first);
+    if (p) text += ' ' + N.insightRoom(p.name, roomStatus(p) === 'down');
+    speakProtected(text);
+  }
+  /** Tapped: a little more about this one, still short (plus this room). */
+  function outageSpeech(o, isNew) {
+    const p = o.active ? roomProbeFor(o) : null;
+    if (cloudMode()) {
+      return { clips: [speechClip(['outages', o.id, isNew ? 'new' : 'tap']), !isNew && p && speechClip(['room', 'tie', roomStatus(p)])] };
+    }
+    if (isNew) return { text: N.headsUp(o) };
+    return { text: [N.tapped(o, dataNow()), p ? N.roomTie(roomStatus(p)) : ''].filter(Boolean).join(' ') };
+  }
+  const speakOutage = (o, isNew) => { const s = outageSpeech(o, isNew); tts(s.text, s.clips); };
+
+  // ── Pre-rendered speech (cloud mode) ─────────────────────────────────────
+  // The GitHub Action renders the narration to audio next to outages.json
+  // (scripts/render-speech.mjs): speech/manifest.json lists every clip. A
+  // device too slow to make speech (no WebGPU: the Desk Pro) just plays them.
+  /** Round a latency to a number that has a clip: 1-100 exactly, then tens. */
+  const numBucket = (ms) => (ms <= 100 ? Math.max(1, Math.round(ms)) : Math.min(500, Math.round(ms / 10) * 10));
+  /** The URL of a clip in the manifest (path of keys; arrays pick a variant). */
+  function speechClip(path) {
+    let x = S.speech;
+    for (const k of path) { if (x == null) return null; x = x[k]; }
+    if (Array.isArray(x)) x = x.length ? pick(x) : null;
+    return typeof x === 'string' && S.speechBase ? S.speechBase + x : null;
+  }
+  async function loadSpeechManifest() {
+    if (!S.dataUrl) return;
+    const base = S.dataUrl.replace(/outages\.json(\?.*)?$/, 'speech/');
+    try {
+      const r = await fetch(base + 'manifest.json?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const m = await r.json();
+      S.speech = m; S.speechBase = base;
+      if (window.Tts && window.Tts.setCloudReady) window.Tts.setCloudReady(true, m.voice);
+    } catch (e) {
+      if (window.Tts && window.Tts.setCloudReady) window.Tts.setCloudReady(false, null, 'no pre-rendered speech yet (' + (e.message || e) + ')');
+    }
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -1140,7 +1072,7 @@
     if (!fromTour) sfx('select');   // tour steps are silent
     // Tour steps are silent (the tour gets one overall synopsis instead);
     // picking an outage yourself gets a short line about it.
-    if (!select.quiet && !fromTour) tts(outageSpeech(o, false));
+    if (!select.quiet && !fromTour) speakOutage(o, false);
     fetchWeather(o.locations);
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
@@ -1276,7 +1208,7 @@
     pathTitle.textContent = `Path to ${p.name}`;
     pathMeta.textContent = host;
     pathBody.innerHTML = pcStatus('Starting\u2026');
-    tts(say('pathStart', { svc: p.name }));
+    tts(N && N.pathStart(p.name), [speechClip(['path', 'start', p.name])]);
     pathBody.scrollTop = 0; pcFade();
     pathCard.hidden = false;
     window.PathTrace.run(host, (msg) => { if (run === pathRun) pathBody.innerHTML = pcStatus(msg); })
@@ -1503,10 +1435,12 @@
     }, null);
     const at = (h) => (h && h.city ? ' near ' + h.city : '');
     const ms = last && last.ms != null ? Math.round(last.ms) : null;
-    tts(ms != null
-      ? say('pathLead', { svc: p.name, ms }) + ' '
-        + (slowLink ? say('pathSlow', { at: at(slowLink.h) }) : lossy.length ? say('pathLoss', { at: at(lossy[0]) }) : say('pathClean'))
-      : say('pathNoAnswer', { svc: p.name }));
+    // Cloud mode builds it from clips: "Zoom is about" + "twelve" + "milliseconds away." + how the path looks.
+    if (ms != null) {
+      tts(N && N.pathResult(p.name, ms, slowLink ? at(slowLink.h) : null, lossy.length ? at(lossy[0]) : null),
+        [speechClip(['path', 'lead', p.name]), speechClip(['num', String(numBucket(ms))]), speechClip(['path', 'ms']),
+          speechClip(['path', slowLink ? 'slow' : lossy.length ? 'loss' : 'clean'])]);
+    } else tts(N && N.pathNoAnswer(p.name), [speechClip(['path', 'noAnswer', p.name])]);
     flyTo({ locations: pts.map((q) => ({ lon: q.lon, lat: q.lat })) }, 2700);   // a third slower than a normal flight
   }
   function drawPath(now, R) {
@@ -1736,6 +1670,7 @@
         if (!res.ok) throw new Error(`${u}: HTTP ${res.status}`);
         const json = await res.json();
         if (!json || !Array.isArray(json.network)) throw new Error(`${u}: unexpected format`);
+        S.dataUrl = u;   // the pre-rendered speech sits next to it (speech/)
         return json;
       } catch (e) { lastErr = e; console.warn('[outages]', e.message || e); }
     }
@@ -1775,13 +1710,14 @@
       toast(`New ${o.kind} outage: ${o.name} · ${o.locations[0].name}`);
       sfx('alert');
       if (now() - S.lastInput > 10000 || S.touring) { select.quiet = true; select(o, { fromTour: S.touring }); select.quiet = false; }
-      tts(outageSpeech(o, true));
+      speakOutage(o, true);
     }
   }
 
   async function refresh() {
     try {
       ingest(await loadData());
+      if (cloudMode()) loadSpeechManifest();   // the clips that match this data
       if (!el.error.dataset.diag) el.error.hidden = true;
     } catch (e) {
       console.error(e);
@@ -2332,6 +2268,8 @@
   const ttsBtn = document.getElementById('ttsBtn');
   if (window.Tts && window.Tts.available) {
     const T = window.Tts;
+    T.manifestLoader = loadSpeechManifest;
+    const devName = (d) => ({ auto: 'Auto', webgpu: 'GPU', wasm: 'CPU', cloud: 'Cloud' }[d] || d);
     const ttsUi = () => {
       ttsBtn.setAttribute('aria-pressed', String(T.enabled));
       ttsBtn.classList.toggle('busy', T.enabled && T.state === 'loading');
@@ -2345,8 +2283,8 @@
       if (state === 'activity') return;
       if (state === 'ready') {
         sfx('ready');
-        toast(`Speech ready (${T.info.device === 'webgpu' ? 'GPU' : 'CPU'})`, 'info', true);
-        if (S.selected && !S.touring) tts(outageSpeech(S.selected, false)); else speakOverview();
+        toast(`Speech ready (${devName(T.info.device)})`, 'info', true);
+        if (S.selected && !S.touring) speakOutage(S.selected, false); else speakOverview();
       } else if (state === 'error') { sfx('error'); toast('Speech failed to load: ' + T.error, '', true); T.setEnabled(false); }
     });
     const ttsStats = () => {
@@ -2356,9 +2294,10 @@
       return ttsStatsBase(st) + now + err;
     };
     const ttsStatsBase = (st) => {
-      if (!st.length) return T.info ? `Speech on ${T.info.device === 'webgpu' ? 'GPU' : 'CPU'}, loaded in ${(T.info.loadMs / 1000).toFixed(1)} s - nothing spoken yet` : 'Speech has not run yet';
+      if (!st.length) return T.info ? (T.info.device === 'cloud' ? 'Speech from the cloud (pre-rendered) - nothing played yet' : `Speech on ${devName(T.info.device)}, loaded in ${(T.info.loadMs / 1000).toFixed(1)} s - nothing spoken yet`) : 'Speech has not run yet';
+      if (T.info && T.info.device === 'cloud') return `Speech from the cloud (pre-rendered${T.info.voice ? ', voice ' + T.info.voice : ''}): plays instantly, no CPU used here`;
       const sum = st.reduce((a, x) => ({ ms: a.ms + x.ms, sec: a.sec + x.sec }), { ms: 0, sec: 0 }), rtf = sum.ms / 1000 / sum.sec;
-      return `Speech on ${T.info ? (T.info.device === 'webgpu' ? 'GPU' : 'CPU') + ' ' + T.info.dtype : '?'}: `
+      return `Speech on ${T.info ? devName(T.info.device) + ' ' + T.info.dtype : '?'}: `
         + `${rtf < 1 ? (1 / rtf).toFixed(1) + '\u00D7 faster' : rtf.toFixed(1) + '\u00D7 slower'} than real time over ${st.length} sentence${st.length === 1 ? '' : 's'}`;
     };
     // Press and hold: pick a voice (and see how fast speech is on this device).
@@ -2370,7 +2309,7 @@
       const cur = T.opts.voice;
       const sp = T.opts.speed;
       voicePick.innerHTML = `<div class="vp-head"><b>Voice</b><span>${esc(ttsStats())}</span></div>`
-        + `<div class="vp-group vp-speed"><i>Runs on</i><div>${[['auto', 'Auto'], ['webgpu', 'GPU'], ['wasm', 'CPU']].map(([d, label]) => `<button data-device="${d}" class="${T.opts.device === d ? 'on' : ''}">${label}</button>`).join('')}</div></div>`
+        + `<div class="vp-group vp-speed"><i>Runs on</i><div>${[['auto', 'Auto'], ['webgpu', 'GPU'], ['wasm', 'CPU'], ['cloud', 'Cloud']].map(([d, label]) => `<button data-device="${d}" class="${T.opts.device === d ? 'on' : ''}">${label}</button>`).join('')}</div></div>`
         + `<div class="vp-group vp-speed"><i>Speed</i><div>${SPEEDS.map(([x, label]) => `<button data-speed="${x}" class="${Math.abs(x - sp) < 0.01 ? 'on' : ''}">${label}</button>`).join('')}</div></div>`
         + GROUPS.map(([g, label]) => `<div class="vp-group"><i>${label}</i><div>`
           + T.voices.filter((v) => v.startsWith(g + '_')).map((v) => `<button data-voice="${v}" class="${v === cur ? 'on' : ''}">${voiceName(v)}</button>`).join('')
@@ -2391,7 +2330,7 @@
       const dev = e.target.closest('[data-device]');
       if (dev) {
         e.stopPropagation(); userInput();
-        const d = dev.dataset.device, name = { auto: 'Auto', webgpu: 'GPU', wasm: 'CPU' }[d];
+        const d = dev.dataset.device, name = devName(d);
         if (d === T.opts.device) return;
         T.setDevice(d);
         voicePick.querySelectorAll('[data-device]').forEach((q) => q.classList.toggle('on', q === dev));
@@ -2405,7 +2344,8 @@
         T.setSpeed(parseFloat(spd.dataset.speed));
         voicePick.querySelectorAll('[data-speed]').forEach((q) => q.classList.toggle('on', q === spd));
         sfx('select');
-        if (T.enabled) T.speak(say('speedSample'));
+        if (T.enabled && T.mode !== 'cloud') T.speak(say('speedSample'));
+        else if (T.mode === 'cloud') toast('Speed applies to live speech; cloud speech is pre-rendered at normal speed', 'info', true);
         else toast(`Speed: ${spd.textContent} (turn speech on to hear it)`, 'info', true);
         return;
       }
@@ -2415,7 +2355,8 @@
       T.setVoice(btn.dataset.voice);
       voicePick.querySelectorAll('[data-voice]').forEach((q) => q.classList.toggle('on', q === btn));
       sfx('select');
-      if (T.enabled) T.speak(say('voiceHello', { v: voiceName(btn.dataset.voice) }));
+      if (T.enabled && T.mode !== 'cloud') T.speak(say('voiceHello', { v: voiceName(btn.dataset.voice) }));
+      else if (T.mode === 'cloud') toast(`Voice saved for live speech; cloud speech uses ${S.speech && S.speech.voice ? voiceName(S.speech.voice) : 'the server\'s voice'}`, 'info', true);
       else toast(`Voice: ${voiceName(btn.dataset.voice)} (turn speech on to hear it)`, 'info', true);
     });
     document.addEventListener('pointerdown', (e) => { if (!voicePick.hidden && !voicePick.contains(e.target) && e.target !== ttsBtn && !ttsBtn.contains(e.target)) closeVoices(); }, true);

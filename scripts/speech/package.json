@@ -1,0 +1,10 @@
+{
+  "name": "te-room-speech",
+  "private": true,
+  "description": "Renders the globe's narration to audio in the GitHub Action (see render.mjs).",
+  "type": "module",
+  "dependencies": {
+    "kokoro-js": "1.2.1",
+    "@breezystack/lamejs": "1.2.7"
+  }
+}

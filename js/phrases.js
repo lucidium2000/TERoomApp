@@ -525,7 +525,7 @@
     Johannesburg: ["one of Africa's biggest interconnection hubs", "the center of South Africa's internet", 'a major African meeting point for networks'],
   };
   const hubFact = X(['', 'Worth knowing:', 'For context,', 'By the way,', 'Remember,'], [
-    '{hub} is {fact}.', '{hub}, after all, is {fact}.', 'that matters, because {hub} is {fact}.', '{hub} happens to be {fact}.',
+    '{hub} is {fact}.', '{hub} is, after all, {fact}.', 'that matters, because {hub} is {fact}.', '{hub} happens to be {fact}.',
     'it\'s no small place: {hub} is {fact}.', 'keep in mind {hub} is {fact}.']);
 
   // ── What the knowledge base says about a network/app overlap ────────────
@@ -626,10 +626,10 @@
     overviewRoomFine: E(overviewRoomFine, ROOM_LEAD), overviewRoomDown: E(overviewRoomDown, ROOM_LEAD), overviewRoomSlow: E(overviewRoomSlow, ROOM_LEAD),
     headsUp: E(headsUp, ['', 'Breaking.', 'Fresh one.', 'Attention, please.', 'Just now.']),
     // What went wrong, with an optional detail (it's followed by where).
-    whatNetNow: E(whatNetNow, [''], ['', ' of some kind', ' affecting users', ' across several sites', " that's still unfolding"]),
-    whatAppNow: E(whatAppNow, [''], ['', ' of some kind', ' affecting users', ' across several sites', " that's still unfolding"]),
-    whatNetThen: E(whatNetThen, [''], ['', ' of some kind', ' that affected users', ' across several sites', ' that came and went']),
-    whatAppThen: E(whatAppThen, [''], ['', ' of some kind', ' that affected users', ' across several sites', ' that came and went']),
+    whatNetNow: E(whatNetNow, [''], ['', ' for some users', ' affecting users', ' across several sites', " that's still unfolding"]),
+    whatAppNow: E(whatAppNow, [''], ['', ' for some users', ' affecting users', ' across several sites', " that's still unfolding"]),
+    whatNetThen: E(whatNetThen, [''], ['', ' for some users', ' that affected users', ' across several sites', ' that came and went']),
+    whatAppThen: E(whatAppThen, [''], ['', ' for some users', ' that affected users', ' across several sites', ' that came and went']),
     tappedActive: E(tappedActive, TAP_LEAD), tappedCleared: E(tappedCleared, TAP_LEAD),
     pathStart: E(pathStart, [''], ['', ' Give me a moment.', ' Stand by.', ' Hang on.', ' Coming right up.']),
     pathLead: E(pathLead, PATH_LEAD), pathSlow: E(pathSlow, HOP_LEAD), pathLoss: E(pathLoss, HOP_LEAD), pathClean: E(pathClean, HOP_LEAD),

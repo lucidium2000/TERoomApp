@@ -8,7 +8,13 @@
  *   tts=0          hide the speaker button
  *   ttsvoice=      a Kokoro voice (default af_heart; or pick one by holding the speaker button)
  *   ttsspeed=      0.5..2 (default 1; or pick one by holding the speaker button)
- *   ttsdevice=     auto (WebGPU when available, else CPU) | webgpu | wasm (or pick in the voice settings)
+ *   ttsdevice=     auto (WebGPU when available, else cloud) | webgpu | wasm | cloud (or pick in the voice settings)
+ *
+ * Cloud: the GitHub Action renders the narration to audio files ahead of time
+ * (scripts/render-speech.mjs); this side just plays them (playClips). That's
+ * what a device too slow to make speech itself (the Desk Pro, no WebGPU) uses:
+ * instant, no model download, no CPU. app.js loads the clip manifest and calls
+ * setCloudReady.
  *   ttsdtype=      fp32 | fp16 | q8 | q4 | q4f16 (default fp32 on WebGPU, q8 on CPU)
  *
  * window.Tts = { enabled, setEnabled(on), onChange(fn), speak(text), stop(), state, info, progress, stats }
@@ -35,7 +41,7 @@
     'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily', 'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis'];
   const WORKER_URL = new URL('tts-worker.js' + (new URL(document.currentScript.src).search || ''), document.currentScript.src).href;
 
-  let worker = null, state = 'off', info = null, progress = 0, error = '';
+  let worker = null, state = 'off', info = null, progress = 0, error = '', mode = 'live';
   let ctx = null, gain = null, playAt = 0, curId = 0, sources = [];
   // Speech in progress: genT0 = when the current request started (0 = none
   // pending), chunkT0 = when the sentence now being made started.
@@ -54,13 +60,72 @@
   }
   ['pointerdown', 'touchend', 'click', 'keydown'].forEach((t) => window.addEventListener(t, unlock, { capture: true, passive: true }));
 
-  function load() {
-    if (worker) return;
+  /** Live model (worker) or pre-rendered clips (cloud)? Auto picks the GPU
+   *  when the browser offers one, otherwise cloud. */
+  async function load() {
+    if (worker || mode === 'cloud' && state !== 'off') return;
     state = 'loading'; progress = 0; error = '';
+    let dev = OPTS.device;
+    if (dev === 'auto') dev = (await window.Tts.gpuAvailable()) ? 'webgpu' : 'cloud';
+    if (!enabled) { state = 'off'; return; }
+    if (dev === 'cloud') {
+      mode = 'cloud';
+      if (window.Tts.manifestLoader) window.Tts.manifestLoader(); else setCloudReady(false, null, 'no clip manifest');
+      return;
+    }
+    mode = 'live';
+    if (worker) return;
     try { worker = new Worker(WORKER_URL, { type: 'module' }); } catch (e) { state = 'error'; error = String(e.message || e); return; }
     worker.onmessage = onMessage;
     worker.onerror = (e) => { state = 'error'; error = e.message || 'worker failed'; onChange(state); };
-    worker.postMessage({ type: 'load', device: OPTS.device, dtype: OPTS.dtype });
+    worker.postMessage({ type: 'load', device: dev, dtype: OPTS.dtype });
+  }
+  function setCloudReady(ok, voice, why) {
+    if (mode !== 'cloud' || !enabled) return;
+    const was = state;
+    if (ok) { state = 'ready'; info = { device: 'cloud', dtype: 'pre-rendered', voice: voice || '' }; progress = 1; error = ''; }
+    else { state = 'error'; error = why || 'no pre-rendered speech'; }
+    if (state !== was) onChange(state);
+  }
+
+  // ── Cloud: play pre-rendered clips back to back ─────────────────────────
+  const clipCache = new Map();   // url -> Promise<AudioBuffer>; a few dozen recent ones
+  function clip(url) {
+    if (!clipCache.has(url)) {
+      clipCache.set(url, fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+        .then((b) => ctx.decodeAudioData(b)));
+      if (clipCache.size > 60) clipCache.delete(clipCache.keys().next().value);
+    }
+    return clipCache.get(url).catch((e) => { clipCache.delete(url); throw e; });
+  }
+  /** Play these clips in order, cutting off whatever was playing. */
+  async function playClips(urls) {
+    urls = (urls || []).filter(Boolean);
+    if (!enabled || mode !== 'cloud' || !urls.length) return;
+    if (!ctx) { error = 'audio is locked until the screen is tapped'; onChange('speakerror'); return; }
+    stop();
+    const id = ++curId;
+    genT0 = chunkT0 = performance.now();
+    onChange('activity');
+    const t0 = performance.now();
+    // Fetch them all at once, then schedule in order, gap-free.
+    const bufs = await Promise.all(urls.map((u) => clip(u).catch(() => null)));
+    if (id !== curId) return;   // cancelled meanwhile
+    if (ctx.state === 'suspended') ctx.resume();
+    let at = Math.max(ctx.currentTime + 0.03, playAt);
+    for (const buf of bufs) {
+      if (!buf) continue;
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.connect(gain);
+      src.start(at); at += buf.duration + 0.05;   // a breath between clips
+      sources.push(src);
+      src.onended = () => { sources = sources.filter((q) => q !== src); onChange('activity'); };
+    }
+    playAt = at;
+    const sec = bufs.reduce((a, b) => a + (b ? b.duration : 0), 0);
+    if (sec) { stats.push({ chars: 0, ms: performance.now() - t0, sec, rtf: (performance.now() - t0) / 1000 / sec }); if (stats.length > 30) stats.shift(); }
+    genT0 = 0;
+    onChange('activity');
   }
 
   function onMessage(e) {
@@ -103,15 +168,15 @@
     else {
       stop();
       if (worker) { worker.terminate(); worker = null; }
-      state = 'off'; progress = 0;
+      state = 'off'; progress = 0; mode = 'live';
     }
     onChange(state);
   }
 
   /** Say this, cutting off whatever was being said (only while enabled). */
   function speak(text) {
-    if (!text || !enabled) return;
-    load();
+    if (!text || !enabled || mode === 'cloud') return;   // cloud mode plays clips instead
+    if (!worker) { load(); if (!worker) return; }
     stop();
     curId++;
     genT0 = chunkT0 = performance.now();
@@ -128,14 +193,17 @@
   window.Tts = {
     available: AVAILABLE, voices: VOICES, opts: OPTS,
     get enabled() { return enabled; }, setEnabled, onChange(fn) { onChange = fn; }, unlock,
-    speak, stop,
+    speak, stop, playClips, setCloudReady,
+    /** 'live' (a model making speech here) or 'cloud' (pre-rendered clips). */
+    get mode() { return mode; },
     setVoice(v) { OPTS.voice = v; try { localStorage.setItem('te-tts-voice', v); } catch (_) { /* private mode */ } },
-    /** 'auto' | 'webgpu' | 'wasm': reloads the model there (speech stays on if it was). */
+    /** 'auto' | 'webgpu' | 'wasm' | 'cloud': switches there (speech stays on if it was). */
     setDevice(d) {
       OPTS.device = d;
       try { localStorage.setItem('te-tts-device', d); } catch (_) { /* private mode */ }
-      if (!worker) return;
-      stop(); worker.terminate(); worker = null; info = null; state = 'off';
+      stop();
+      if (worker) { worker.terminate(); worker = null; }
+      info = null; state = 'off'; mode = 'live';
       if (enabled) load();
       onChange(state);
     },

@@ -4,6 +4,12 @@ name: Refresh outage data
 # branch as outages.json. The globe reads it from raw.githubusercontent.com,
 # which sends CORS headers - the ThousandEyes endpoint itself does not.
 #
+# It also renders the narration to audio (speech/, scripts/speech/render.mjs)
+# for devices too slow to make speech themselves, like the Desk Pro. The data
+# is published first, so speech never delays it; then only new or changed
+# lines are rendered (the rest is reused from the previous run) and the
+# branch is published again with the new audio.
+#
 # The branch is force-pushed as a single commit each run, so it never grows.
 # GitHub's cron is best-effort: expect runs every 5-15 minutes, not exactly 5.
 # Offset from :00 because top-of-the-hour schedules are the most delayed or
@@ -17,30 +23,72 @@ on:
 permissions:
   contents: write
 
+# A run in progress finishes (the first speech render can take several
+# minutes); a newer scheduled run waits instead of cancelling it.
 concurrency:
   group: outage-data
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 25
+    env:
+      OUT: ${{ runner.temp }}/out
+      PREV: ${{ runner.temp }}/prev
+      PUSH_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: scripts/speech/package-lock.json
 
       - name: Fetch outages
-        run: node scripts/fetch-outages.mjs "$RUNNER_TEMP/out/outages.json"
+        run: node scripts/fetch-outages.mjs "$OUT/outages.json"
 
-      - name: Publish to data branch
+      - name: Keep the previous speech
         run: |
-          cd "$RUNNER_TEMP/out"
+          mkdir -p "$PREV"
+          if git fetch -q --depth=1 origin data 2>/dev/null; then
+            git --work-tree="$PREV" checkout FETCH_HEAD -- speech 2>/dev/null || true
+          fi
+          if [ -d "$PREV/speech" ]; then cp -r "$PREV/speech" "$OUT/speech"; fi
+          ls "$OUT/speech" 2>/dev/null | wc -l | xargs echo "previous speech files:"
+
+      - name: Publish data
+        run: |
+          cd "$OUT"
           git init -q -b data
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add outages.json
+          git add -A
           git commit -q -m "Outage data $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data:data
+          git push -q --force "$PUSH_URL" data:data
+
+      - name: Install speech renderer
+        run: npm ci --no-audit --no-fund --prefix scripts/speech
+
+      - name: Cache voice model
+        uses: actions/cache@v4
+        with:
+          path: scripts/speech/node_modules/@huggingface/transformers/.cache
+          key: kokoro-82m-v1.0
+
+      - name: Render speech
+        id: speech
+        continue-on-error: true
+        run: |
+          rm -rf "$OUT/speech.new"
+          node scripts/speech/render.mjs "$OUT/outages.json" "$OUT/speech.new" "$PREV/speech"
+          rm -rf "$OUT/speech" && mv "$OUT/speech.new" "$OUT/speech"
+
+      - name: Publish speech
+        if: steps.speech.outcome == 'success'
+        run: |
+          cd "$OUT"
+          git add -A
+          git commit -q --amend -m "Outage data and speech $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q --force "$PUSH_URL" data:data
