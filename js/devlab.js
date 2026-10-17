@@ -174,6 +174,38 @@
     return html;
   }
 
+  // ── Built-in speech output (speechSynthesis) ────────────────────────────
+  // If the platform has its own voices, speech costs no CPU of ours at all.
+  // The voice list often arrives a moment later (voiceschanged).
+  const tts = { last: '' };
+  function sysVoices() {
+    const ss = window.speechSynthesis;
+    if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return 'no API';
+    const v = ss.getVoices() || [];
+    if (!v.length) return 'API present, no voices (yet)';
+    const local = v.filter((x) => x.localService).length;
+    return `${v.length} voice${v.length === 1 ? '' : 's'} (${local} on-device): ${v.slice(0, 6).map((x) => `${x.name} [${x.lang}]`).join(', ')}${v.length > 6 ? ', ...' : ''}`;
+  }
+  if (window.speechSynthesis && 'onvoiceschanged' in window.speechSynthesis) {
+    window.speechSynthesis.addEventListener('voiceschanged', () => { if (staticInfo) { staticInfo.tts = sysVoices(); render(); } });
+  }
+  function testSysVoice() {
+    const ss = window.speechSynthesis;
+    if (!ss || typeof SpeechSynthesisUtterance === 'undefined') { tts.last = 'no speech output API'; render(); return; }
+    const u = new SpeechSynthesisUtterance('Hello from the system voice. If you can hear this, the Desk Pro can talk without any extra work.');
+    const v = ss.getVoices().find((x) => /^en/i.test(x.lang));
+    if (v) u.voice = v;
+    const t0 = performance.now();
+    tts.last = 'speaking...';
+    u.onstart = () => { tts.last = `started after ${Math.round(performance.now() - t0)} ms${u.voice ? ' (' + u.voice.name + ')' : ''}`; render(); };
+    u.onend = () => { tts.last += `, finished at ${((performance.now() - t0) / 1000).toFixed(1)} s`; render(); };
+    u.onerror = (e) => { tts.last = 'error: ' + (e.error || 'unknown'); render(); };
+    ss.cancel(); ss.speak(u);
+    // Some platforms accept the call and never start: say so.
+    setTimeout(() => { if (tts.last === 'speaking...') { tts.last = 'no sound started after 4 s (probably no voice on this device)'; render(); } }, 4000);
+    render();
+  }
+
   // ── Device (collected once) ─────────────────────────────────────────────
   async function collectStatic() {
     const ua = navigator.userAgent;
@@ -185,6 +217,7 @@
       screen: `${screen.width}x${screen.height} @${devicePixelRatio}x, viewport ${innerWidth}x${innerHeight}`,
       touch: navigator.maxTouchPoints,
       speech: (window.SpeechRecognition || window.webkitSpeechRecognition) ? 'API present' : 'no',
+      tts: sysVoices(),
       webnn: navigator.ml ? 'yes' : 'no',
       wakeLock: 'wakeLock' in navigator ? 'yes' : 'no',
     };
@@ -224,7 +257,9 @@
     return row('RoomOS', esc(i.roomos)) + row('Chrome', esc(i.chrome)) + row('CPU cores', esc(i.cores))
       + row('memory', esc(i.memory)) + row('screen', esc(i.screen)) + row('touch points', esc(i.touch))
       + row('WebGL', esc(i.webgl)) + row('WebGPU', esc(i.webgpu)) + row('WebNN', esc(i.webnn))
-      + row('speech recognition', esc(i.speech)) + row('wake lock', esc(i.wakeLock))
+      + row('speech recognition', esc(i.speech))
+      + row('system voice', esc(i.tts) + (tts.last ? ` <i>(test: ${esc(tts.last)})</i>` : ''))
+      + row('wake lock', esc(i.wakeLock))
       + row('storage', esc(i.storage)) + row('permissions', esc(i.perms));
   }
 
@@ -250,7 +285,7 @@
     panel.innerHTML = '<h3>Device Lab <button class="dl-btn dl-close" data-act="close">\u2715 Close debug</button></h3>'
       + ['Room|room|', 'Sound|sound|<button class="dl-btn" data-act="mic">Enable mic</button>',
         'Camera|camera|<button class="dl-btn" data-act="zoomin">Zoom +</button><button class="dl-btn" data-act="zoomout">Zoom -</button>',
-        'Network|net|<button class="dl-btn" data-act="net">Run RTT test</button>', 'Device|device|']
+        'Network|net|<button class="dl-btn" data-act="net">Run RTT test</button>', 'Device|device|<button class="dl-btn" data-act="sysvoice">Test system voice</button>']
         .map((x) => { const [t, k, acts] = x.split('|'); return `<h4>${t}</h4><div data-s="${k}"></div>${acts ? `<div class="dl-acts" data-a="${k}">${acts}</div>` : ''}`; }).join('');
     panel.addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
@@ -258,6 +293,7 @@
       const a = b.dataset.act;
       if (a === 'close') { if (window.Glass) window.Glass.setDebug(false); close(); return; }
       if (a === 'mic') { if (mic.on) { stopMic(); render(); } else startMic(); }
+      else if (a === 'sysvoice') testSysVoice();
       else if (a === 'net') runNet(); else if (a === 'zoomin') zoomStep(1); else if (a === 'zoomout') zoomStep(-1);
       render();
     });
