@@ -448,10 +448,15 @@ body.free.chrome-hidden .cam-chip { opacity: 0; }
 .gesture.pinch .g-open { display: none; }
 .gesture.pinch .g-pinchg { display: inline; }
 .guide-start {
-  margin: .9em 0 0; display: flex; align-items: center; justify-content: center; gap: .5em;
-  font-weight: 700; color: var(--ok);
+  margin: 1em 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5em;
+  font-size: 1.25em; font-weight: 700; color: var(--ok);
 }
-.guide-start svg { width: 1.6em; height: 1.6em; fill: var(--ok); }
+.guide-start svg {
+  width: 6em; height: 6em; fill: var(--ok);
+  filter: drop-shadow(0 0 14px rgba(52, 211, 153, .45)); animation: guide-wave 2.4s ease-in-out infinite;
+}
+@keyframes guide-wave { 50% { transform: rotate(-8deg) scale(1.05); } }
+@media (prefers-reduced-motion: reduce) { .guide-start svg { animation: none; } }
 
 /* ── Phones / narrow portrait screens ──────────────────────────────────────
    Last in the file on purpose: these must win over the wide-card rules
