@@ -6,7 +6,7 @@
   <title>Internet Outage Globe</title>
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=116">
+  <link rel="stylesheet" href="css/app.css?v=117">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -57,6 +57,9 @@
     </div>
     <button id="modeBtn" class="mode-btn" aria-pressed="false" aria-label="Free mode: hide panels for a clean globe" title="Switch between HUD and Free (clean globe) mode">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path class="hud-only" d="M14.5 4.5v15M3.5 15h11"/></svg>
+    </button>
+    <button id="radarBtn" class="radar-btn" aria-pressed="false" aria-label="Weather radar" title="Live weather radar (RainViewer)">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15.5h10a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 15.5Z"/><path d="M9 18.5l-.8 2M13 18.5l-.8 2M17 18.5l-.8 2"/></svg>
     </button>
     <button id="zoomReset" aria-label="Reset view"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.2 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.2-3.8-8.5s1.2-6.1 3.8-8.5Z"/></svg></button>
   </nav>
@@ -205,6 +208,7 @@
     <div class="pc-body" id="pathBody"></div>
   </section>
   <div class="voice-pick" id="voicePick" hidden role="dialog" aria-label="Choose a voice"></div>
+  <a class="radar-credit" id="radarCredit" href="https://www.rainviewer.com" target="_blank" rel="noopener" hidden>Weather data by RainViewer &middot; radar <b></b></a>
   <div class="toast" id="toast" hidden></div>
   <div class="error" id="error" hidden></div>
 
@@ -218,9 +222,10 @@
   <script src="js/tts.js?v=10"></script>
   <script src="js/roomnet.js?v=84"></script>
   <script src="js/pathtrace.js?v=79"></script>
-  <script src="js/glglobe.js?v=17"></script>
+  <script src="js/radar.js?v=1"></script>
+  <script src="js/glglobe.js?v=18"></script>
   <script src="js/glass.js?v=83"></script>
-  <script src="js/app.js?v=145"></script>
+  <script src="js/app.js?v=146"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

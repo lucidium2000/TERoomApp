@@ -802,3 +802,15 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 :root { --ui-zoom: .8; }
 .brand, .panel, .zoomctl, .float, .card, .timeline, .gesture, .guide-card, .roomnet-strip,
 .pathcard, .voice-pick, .toast, .error, .pv-tip, .devlab, .swipe-hint { zoom: var(--ui-zoom); }
+
+/* Weather radar: the toggle (lit when on) and the required credit line. */
+.zoomctl .radar-btn[aria-pressed="true"] {
+  background: rgba(52, 211, 153, .18); border-color: rgba(52, 211, 153, .6); color: #d1fae5;
+  box-shadow: 0 0 18px rgba(52, 211, 153, .3);
+}
+.radar-credit {
+  position: fixed; left: var(--gutter); bottom: calc(var(--gutter) + 5.2em); z-index: 15; zoom: var(--ui-zoom);
+  font-size: .72em; color: var(--ink-3); text-decoration: none; background: rgba(5, 9, 18, .55);
+  padding: .2em .6em; border-radius: 6px;
+}
+.radar-credit b { color: var(--ink-2); font-weight: 600; }

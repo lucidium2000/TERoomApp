@@ -2273,6 +2273,39 @@
     glassBtn.hidden = true;
   }
 
+  // ── Weather radar (js/radar.js, RainViewer) ─────────────────────────────
+  // A toggle (remembered on this device, on by default) and the credit line
+  // RainViewer's terms require while it's showing. WebGL only.
+  const radarBtn = document.getElementById('radarBtn'), radarCredit = document.getElementById('radarCredit');
+  if (window.Radar && window.Radar.enabled && glr) {
+    const RADAR_A = Math.max(0.1, Math.min(1, num('radaralpha', 0.75)));
+    let radarOn = true;
+    try { radarOn = localStorage.getItem('te-radar') !== '0'; } catch (_) { /* default on */ }
+    const applyRadar = () => {
+      radarBtn.setAttribute('aria-pressed', String(radarOn));
+      radarCredit.hidden = !radarOn || !window.Radar.time;
+      if (radarOn) {
+        window.Radar.start((img, t) => {
+          if (!glr) return;
+          glr.setRadar(img, RADAR_A);
+          radarCredit.querySelector('b').textContent = fmtTime(t);
+          radarCredit.hidden = !radarOn;
+        });
+      } else { window.Radar.stop(); if (glr) glr.setRadar(null); }
+    };
+    radarBtn.addEventListener('click', () => {
+      userInput();
+      radarOn = !radarOn;
+      try { localStorage.setItem('te-radar', radarOn ? '1' : '0'); } catch (_) { /* private mode */ }
+      sfx(radarOn ? 'on' : 'off');
+      toast(radarOn ? 'Weather radar on' : 'Weather radar off', 'info');
+      applyRadar();
+    });
+    applyRadar();
+  } else {
+    radarBtn.hidden = true;
+  }
+
   // ── Speaker button: spoken summaries (experimental, js/tts.js) ───────────
   // Tap: speech on/off. On downloads the voice model (~90 MB, once - then
   // cached) and switches camera gestures off; turning gestures on switches
