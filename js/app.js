@@ -2918,6 +2918,7 @@
     const applyRadar = () => {
       radarBtn.setAttribute('aria-pressed', String(mode !== 'off'));
       radarBtn.dataset.mode = mode;
+      document.getElementById('radarBtnLabel').textContent = { loop: 'Radar: past hour', live: 'Radar: live', off: 'Radar: off' }[mode];
       if (mode === 'off') {
         window.Radar.stop();
         if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; }
@@ -3187,6 +3188,8 @@
   function openWxCard(place) {
     userInput(); sfx('open');
     wxPlace = place && isFinite(place.lat) ? place : null;
+    const srch = document.getElementById('wxcSearch');
+    if (srch) { srch.hidden = true; document.getElementById('wxcFind').classList.remove('on'); }
     // Cloud speech only has this room's forecast pre-rendered.
     const canSpeak = !!window.Tts && !(wxPlace && cloudMode());
     document.getElementById('wxcSpeak').hidden = !canSpeak;
@@ -3216,9 +3219,52 @@
       closeWxCard();
     }, 60e3);
   };
-  ['pointerdown', 'pointermove', 'wheel', 'scroll', 'keydown'].forEach((t) => wxCard.addEventListener(t, wxIdle, { passive: true }));
+  ['pointerdown', 'pointermove', 'wheel', 'scroll', 'keydown', 'input'].forEach((t) => wxCard.addEventListener(t, wxIdle, { passive: true }));
   if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden || wxPlace) openWxCard(null); else closeWxCard(); });
   document.getElementById('wxcClose').addEventListener('click', (e) => { e.stopPropagation(); closeWxCard(); });
+  // Search: another city (or a ZIP / postcode) by name - Open-Meteo's free
+  // geocoder - and its forecast in this same card.
+  const wxSearch = document.getElementById('wxcSearch'), wxQ = document.getElementById('wxcQ'), wxHits = document.getElementById('wxcHits');
+  const wxFind = document.getElementById('wxcFind');
+  let wxHitList = [], wxQT = 0, wxQN = 0;
+  wxFind.addEventListener('click', (e) => {
+    e.stopPropagation(); userInput(); sfx('tap');
+    const open = wxSearch.hidden;
+    wxSearch.hidden = !open; wxFind.classList.toggle('on', open);
+    if (open) { wxQ.value = ''; wxHits.innerHTML = ''; wxQ.focus(); }
+  });
+  const showHits = (list) => {
+    wxHitList = list;
+    wxHits.innerHTML = list.length ? list.map((h, i) => `<li data-h="${i}">${esc(h.name)}<small>${esc([h.admin1, h.country].filter(Boolean).join(', '))}</small></li>`).join('')
+      : '<li class="none">No places found</li>';
+  };
+  const geocode = async (q) => {
+    const n = ++wxQN;
+    try {
+      const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=6&language=en&format=json&name=' + encodeURIComponent(q));
+      const j = r.ok ? await r.json() : null;
+      if (n === wxQN) showHits((j && j.results) || []);
+    } catch (_) { if (n === wxQN) showHits([]); }
+  };
+  wxQ.addEventListener('input', () => {
+    clearTimeout(wxQT);
+    const q = wxQ.value.trim();
+    if (q.length < 2) { wxHits.innerHTML = ''; return; }
+    wxQT = setTimeout(() => geocode(q), 300);
+  });
+  const pickHit = (h) => {
+    if (!h) return;
+    wxSearch.hidden = true; wxFind.classList.remove('on');
+    openWxCard({ lat: h.latitude, lon: h.longitude, name: h.name });
+  };
+  wxSearch.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearTimeout(wxQT);
+    if (!wxHitList.length && wxQ.value.trim().length > 1) await geocode(wxQ.value.trim());
+    pickHit(wxHitList[0]);
+  });
+  wxHits.addEventListener('click', (e) => { const li = e.target.closest('li[data-h]'); if (li) { e.stopPropagation(); pickHit(wxHitList[+li.dataset.h]); } });
+  wxQ.addEventListener('keydown', (e) => e.stopPropagation());
   // Hear the forecast: plays it (turning the voice on if needed); tapped
   // while it's talking, it stops.
   document.getElementById('wxcSpeak').addEventListener('click', (e) => {

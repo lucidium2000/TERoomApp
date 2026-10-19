@@ -1078,10 +1078,11 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .pathcard, .voice-pick, .toast, .error, .pv-tip, .devlab, .swipe-hint { zoom: var(--ui-zoom); }
 
 /* Weather radar: the toggle (lit when on) and the header line (credit + time). */
-.zoomctl .radar-btn[aria-pressed="true"] {
-  background: rgba(52, 211, 153, .18); border-color: rgba(52, 211, 153, .6); color: #d1fae5;
-  box-shadow: 0 0 18px rgba(52, 211, 153, .3);
+.wxbar .radar-btn {
+  pointer-events: auto; margin-top: .45em; display: inline-flex; align-items: center; gap: .35em; padding: .22em .65em; border-radius: 99px;
+  font-size: .66em; font-weight: 700; color: var(--ink-2); background: rgba(255, 255, 255, .05); border: 1px solid var(--line); cursor: pointer;
 }
+.wxbar .radar-btn[aria-pressed="true"] { color: #d1fae5; background: rgba(52, 211, 153, .14); border-color: rgba(52, 211, 153, .5); }
 .wxbar .radar-time { margin: .2em 0 0; color: var(--ink-3); font-size: .64em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span, .wxbar .radar-time b { display: block; }
 .wxbar .radar-time b { font-weight: 600; color: var(--ink-2); margin-top: .35em; }
@@ -1091,5 +1092,20 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .wxbar .clock { margin: 0; color: var(--ink-2); font-size: 1.62em; line-height: 1.15; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span::before { content: ''; display: inline-block; width: .55em; height: .55em; margin-right: .4em; border-radius: 50%; background: #34d399; vertical-align: .05em; }
 /* Past-hour loop: the button's glow pulses. */
-.zoomctl .radar-btn[data-mode="loop"] { animation: radar-loop 1.6s ease-in-out infinite; }
-@keyframes radar-loop { 50% { box-shadow: 0 0 26px rgba(52, 211, 153, .7); } }
+.wxbar .radar-btn[data-mode="loop"] { animation: radar-loop 1.8s ease-in-out infinite; }
+@keyframes radar-loop { 50% { box-shadow: 0 0 12px rgba(52, 211, 153, .55); } }
+/* Forecast card: find another place. */
+.wxc-find { position: absolute; top: .55em; right: 3.1em; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--ink-2); cursor: pointer; }
+.wxc-find:hover, .wxc-find.on { color: var(--ink); background: rgba(255, 255, 255, .08); }
+.wx-card h3 { padding-right: 5.5em; }
+.wxc-search { margin: .6em 0 .2em; }
+.wxc-search[hidden] { display: none; }
+.wxc-search input {
+  width: 100%; box-sizing: border-box; padding: .55em .75em; border-radius: 10px; font: inherit; font-size: .9em;
+  color: var(--ink); background: rgba(255, 255, 255, .06); border: 1px solid rgba(22, 189, 235, .45); outline: none;
+}
+.wxc-search ol { list-style: none; margin: .35em 0 0; padding: 0; }
+.wxc-search li { padding: .45em .6em; border-radius: 8px; font-size: .86em; cursor: pointer; }
+.wxc-search li:hover, .wxc-search li.on { background: rgba(22, 189, 235, .14); }
+.wxc-search li small { color: var(--ink-3); margin-left: .4em; }
+.wxc-search li.none { color: var(--ink-3); cursor: default; }

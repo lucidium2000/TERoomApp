@@ -11,7 +11,7 @@
   <link rel="manifest" href="site.webmanifest">
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=173">
+  <link rel="stylesheet" href="css/app.css?v=174">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -29,7 +29,9 @@
   <!-- The local forecast card (tap the weather by the clock). -->
   <section class="wx-card" id="wxCard" hidden role="dialog" aria-labelledby="wxcTitle">
     <button class="card-close" id="wxcClose" aria-label="Close">&times;</button>
+    <button class="wxc-find" id="wxcFind" aria-label="Forecast for another place" title="Forecast for another city or ZIP"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg></button>
     <h3 id="wxcTitle">Weather</h3>
+    <form class="wxc-search" id="wxcSearch" hidden autocomplete="off"><input id="wxcQ" type="search" placeholder="City or ZIP code" enterkeyhint="search"><ol id="wxcHits"></ol></form>
     <p class="wxc-src" id="wxcSrc"></p>
     <div class="wxc-now"><canvas id="wxcIcon" width="64" height="64"></canvas><div class="wxc-big"><b id="wxcTemp"></b><span id="wxcDesc"></span></div><dl class="wxc-stats" id="wxcStats"></dl></div>
     <ol class="wxc-hourly" id="wxcHourly"></ol>
@@ -48,6 +50,7 @@
     <p class="clock" id="localClock"></p>
     <p class="local" role="button" tabindex="0" title="Local forecast" aria-label="Local weather: tap for the forecast"><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span><span class="wx-more" aria-hidden="true">Forecast<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></p>
     <p class="radar-time" id="radarTime" hidden><span>NOAA &middot; RainViewer Radar</span><b><i></i><em></em></b></p>
+    <button id="radarBtn" class="radar-btn" aria-pressed="false" aria-label="Weather radar" title="Weather radar: tap for live, past hour, off"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15.5h10a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 15.5Z"/><path d="M9 18.5l-.8 2M13 18.5l-.8 2M17 18.5l-.8 2"/></svg><span id="radarBtnLabel">Radar</span></button>
   </div>
 
   <aside class="panel" id="panel">
@@ -84,9 +87,6 @@
     </div>
     <button id="modeBtn" class="mode-btn" aria-pressed="false" aria-label="Free mode: hide panels for a clean globe" title="Switch between HUD and Free (clean globe) mode">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path class="hud-only" d="M14.5 4.5v15M3.5 15h11"/></svg>
-    </button>
-    <button id="radarBtn" class="radar-btn" aria-pressed="false" aria-label="Weather radar" title="Weather radar: tap for live, past hour, off">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15.5h10a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 15.5Z"/><path d="M9 18.5l-.8 2M13 18.5l-.8 2M17 18.5l-.8 2"/></svg>
     </button>
     <button id="fsBtn" class="fs-btn" aria-pressed="false" aria-label="Full screen" title="Full screen">
       <svg class="fs-in" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
@@ -265,7 +265,7 @@
   <script src="js/glglobe.js?v=24"></script>
   <script src="js/glass.js?v=88"></script>
   <script src="js/logos.js?v=1"></script>
-  <script src="js/app.js?v=216"></script>
+  <script src="js/app.js?v=217"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>
