@@ -626,7 +626,12 @@
     if (!S.updatedT) return;
     el.updated.textContent = `${windowLabel(S.windowH).toLowerCase()} \u2014 updated ${fmtTime(S.updatedT)}`;
   }
-  function outageVisible(o) { return (S.filter === 'all' || o.kind === S.filter) && inWindow(o); }
+  // Filters (the totals): all, application, network, active - or locations,
+  // which lists places instead of outages (every outage stays on the globe).
+  function outageVisible(o) {
+    const f = S.filter;
+    return (f === 'all' || f === 'locations' || (f === 'active' ? o.active : o.kind === f)) && inWindow(o);
+  }
 
   /** Is this location the one being looked at? (Card hover/tap, or the
    *  mouse within ~20 px of it on the globe.) */
@@ -1326,7 +1331,50 @@
     renderTimeline();
   }
 
+  // By location: every place in the window with its outages, sorted by the
+  // most outages (active first) or by distance from where the globe is
+  // looking. Tap one to fly there and open its latest outage.
+  S.locSort = 'most';
+  function locationGroups() {
+    const by = new Map();
+    for (const o of S.outages) {
+      if (!inWindow(o)) continue;
+      for (const l of o.locations) {
+        const g = by.get(l.name) || { name: l.name, label: l.label || String(l.name).split(',')[0], lat: l.lat, lon: l.lon, outages: [], active: 0, kinds: new Set() };
+        if (!g.outages.includes(o)) { g.outages.push(o); g.active += o.active ? 1 : 0; g.kinds.add(o.kind); }
+        by.set(l.name, g);
+      }
+    }
+    const centre = [view.lon, view.lat];
+    const list = [...by.values()];
+    for (const g of list) g.dist = d3.geoDistance(centre, [g.lon, g.lat]) * 6371;
+    return list.sort(S.locSort === 'near'
+      ? (a, b) => a.dist - b.dist
+      : (a, b) => (b.active - a.active) || (b.outages.length - a.outages.length) || a.dist - b.dist);
+  }
+  const PIN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+  function renderLocations() {
+    const groups = locationGroups();
+    const dist = (km) => (WX_C ? `${Math.round(km).toLocaleString()} km` : `${Math.round(km * 0.621371).toLocaleString()} mi`);
+    const head = `<li class="loc-sort">Sort by <button data-sort="most" class="${S.locSort === 'most' ? 'on' : ''}">Most outages</button>`
+      + `<button data-sort="near" class="${S.locSort === 'near' ? 'on' : ''}">Nearest to view</button></li>`;
+    if (!groups.length) { el.list.innerHTML = head + '<li class="empty">No outage locations in this window.</li>'; return; }
+    el.list.innerHTML = head + groups.map((g, i) => {
+      const kind = g.kinds.size > 1 ? 'mixed' : [...g.kinds][0];
+      const names = [...new Set(g.outages.map((o) => o.name.replace(/,?\s*(Inc|LLC)\.?$/, '')))];
+      const who = names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '');
+      return `<li class="row loc ${kind}${g.active ? ' active' : ''}" data-loc="${i}">`
+        + `<div class="ico">${PIN}</div>`
+        + `<div><div class="nm">${esc(g.label)}</div><div class="meta">${esc(who)}</div></div>`
+        + `<div class="ago"><span class="loc-n"><b>${g.outages.length}</b> outage${g.outages.length === 1 ? '' : 's'}</span>`
+        + (S.locSort === 'near' || !g.active ? `<span class="loc-d">${dist(g.dist)}</span>` : '')
+        + (g.active ? `<span class="loc-act">${g.active} active</span>` : '') + '</div></li>';
+    }).join('');
+    S.locRows = groups;
+  }
+
   function renderList() {
+    if (S.filter === 'locations') return renderLocations();
     const list = S.outages.filter(outageVisible).slice().sort((a, b) => (b.active - a.active) || (b.start - a.start));
     if (!list.length) { el.list.innerHTML = `<li class="empty">No outages in the ${S.windowH === 1 ? 'last hour' : `last ${S.windowH} hours`}.</li>`; return; }
     el.list.innerHTML = list.map((o) => {
@@ -2350,6 +2398,20 @@
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 
   el.list.addEventListener('click', (e) => {
+    const sortBtn = e.target.closest('[data-sort]');
+    if (sortBtn) { e.stopPropagation(); userInput(); sfx('tap'); S.locSort = sortBtn.dataset.sort; renderList(); return; }
+    const locRow = e.target.closest('.row.loc');
+    if (locRow) {
+      userInput();
+      const g = S.locRows && S.locRows[+locRow.dataset.loc];
+      if (!g) return;
+      const o = g.outages.slice().sort((a, b) => (b.active - a.active) || (b.start - a.start))[0];
+      select(o);
+      // Frame the place itself, and ring it among the outage's locations.
+      S.locPick = o.locations.find((l) => l.name === g.name) || null;
+      zoomTo(Math.max(view.zoom, 2.4), [g.lon, g.lat]);
+      return;
+    }
     const row = e.target.closest('.row');
     if (!row) return;
     userInput();

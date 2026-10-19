@@ -90,6 +90,20 @@ button.stat { font: inherit; color: inherit; background: none; border: 0; border
 button.stat:hover { background: rgba(255, 255, 255, .05); }
 .stat.app.on { background: rgba(22, 189, 235, .16); box-shadow: inset 0 -2px 0 var(--app); }
 .stat.net.on { background: rgba(241, 94, 34, .16); box-shadow: inset 0 -2px 0 var(--net); }
+.stat.act.on { background: rgba(244, 63, 94, .16); box-shadow: inset 0 -2px 0 var(--bad); }
+.stat.loc.on { background: rgba(255, 255, 255, .08); box-shadow: inset 0 -2px 0 var(--ink-2); }
+/* By-location list. */
+.list .loc-sort { display: flex; align-items: center; gap: .4em; padding: .2em .3em .5em; font-size: .74em; color: var(--ink-3); }
+.list .loc-sort button { padding: .2em .6em; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); font-weight: 600; cursor: pointer; background: none; font-size: 1em; }
+.list .loc-sort button.on { color: var(--ink); background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .25); }
+.row.loc .ico { color: var(--ink-2); background: rgba(255, 255, 255, .06); display: grid; place-items: center; }
+.row.loc.active .ico { color: var(--bad); }
+.row.loc.mixed { background: linear-gradient(90deg, rgba(167, 139, 250, .14), rgba(167, 139, 250, .03) 70%); box-shadow: inset 3px 0 0 rgba(167, 139, 250, .7); }
+.row.loc .ago { display: grid; justify-items: end; gap: .1em; color: var(--ink-2); }
+.row.loc .ago b { color: var(--ink); }
+.row.loc .loc-n { white-space: nowrap; }
+.row.loc .loc-act { color: var(--bad); font-weight: 700; font-size: .9em; }
+.row.loc .loc-d { color: var(--ink-3); font-size: .9em; }
 .stats.filtered button.stat:not(.on) { opacity: .55; }
 .filter-all {
   position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 50%); z-index: 1;
@@ -153,7 +167,7 @@ img.mark { background: #101a2c !important; padding: 18%; box-sizing: border-box;
 .row .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .meta { color: var(--ink-2); font-size: .85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .ago { color: var(--ink-2); font-size: .85em; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.row.active .ago { color: var(--bad); font-weight: 700; }
+.row.active:not(.loc) .ago { color: var(--bad); font-weight: 700; }
 .list .empty { color: var(--ink-3); padding: 1em .5em; }
 
 /* ── Zoom controls (left edge, mid-height: clear of the card and timeline) ── */
