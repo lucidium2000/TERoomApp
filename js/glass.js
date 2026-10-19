@@ -47,7 +47,15 @@
   const LITE_BUDGET = Math.max(0.1, Math.min(1, parseFloat(qs.get('handbudget')) || 0.6));
   // Carry glass.js's ?v= onto the worker, so a cached old worker is never paired with new code.
   const WORKER_URL = new URL('face-worker.js' + new URL(document.currentScript.src).search, document.currentScript.src).href;
-  const MIN_INTERVAL_MS = 50;      // never ask for more than ~20 Hz
+  // Hand tracking input: frame width (?handw=, default 640) and the most
+  // frames a second sent to the models (?handfps=, default 15).
+  const HAND_W = Math.max(256, Math.min(1280, parseInt(qs.get('handw'), 10) || 640));
+  const HAND_FPS = Math.max(5, Math.min(30, parseInt(qs.get('handfps'), 10) || 15));
+  // How readily a hand is accepted and kept (?handconf=, default 0.35; it was
+  // 0.5): lower holds on through blur and partial views, at the risk of the
+  // odd phantom hand - the deliberate open palm to start guards against that.
+  const HAND_CONF = Math.max(0.1, Math.min(0.9, parseFloat(qs.get('handconf')) || 0.35));
+  const MIN_INTERVAL_MS = Math.round(1000 / HAND_FPS);
   const BUDGET = 0.3;              // main-thread fallback: spend at most ~30% of time detecting
   const MAX_INTERVAL_MS = 250;     // ...but never track slower than 4 Hz
   const WARMUP_FRAMES = 3;         // first GPU runs compile shaders: don't let them skew timing
@@ -141,10 +149,11 @@
     onState('starting');
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        // Small frames: BlazeFace works at 128x128 internally, so more pixels
-        // only cost upload and resize time.
-        // 30 fps: shorter exposure (less blur on a swiping hand) and more samples per swipe.
-        video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 30 } },
+        // 640 wide: a hand a metre or two away is ~2x the pixels it was at
+        // 320, so the finger model has real detail to hold on to (the models
+        // resize internally, so it costs mostly the frame copy). 15 fps keeps
+        // that cost in check; detection never runs faster than that anyway.
+        video: { facingMode: 'user', width: { ideal: HAND_W }, height: { ideal: Math.round(HAND_W * 3 / 4) }, frameRate: { ideal: HAND_FPS } },
         audio: false,
       });
     } catch (e) {
@@ -243,7 +252,7 @@
             handLm = await vision.HandLandmarker.createFromOptions(files, {
               baseOptions: { modelAssetPath: MP_BASE + 'hand_landmarker.task', delegate: d },
               runningMode: 'VIDEO', numHands: 2,
-              minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.3,
+              minHandDetectionConfidence: Math.max(HAND_CONF, 0.4), minHandPresenceConfidence: HAND_CONF, minTrackingConfidence: Math.min(0.3, HAND_CONF),
             });
             stats.hands = true; stats.handDelegate = d;
             break;
@@ -301,7 +310,7 @@
           resolve(w);
         } else if (m.type === 'error') { clearTimeout(to); reject(new Error(m.message)); }
       };
-      w.postMessage({ type: 'init', base: MP_BASE, delegate, hands: SWIPE_ON, handEngine: HAND_ENGINE, tfBase: TF_BASE });
+      w.postMessage({ type: 'init', base: MP_BASE, delegate, hands: SWIPE_ON, handEngine: HAND_ENGINE, tfBase: TF_BASE, handConf: HAND_CONF });
     });
   }
 
@@ -455,9 +464,9 @@
   }
 
   /** The models work at ~128-224 px internally, but cameras often ignore the
-   *  320x240 we ask for and deliver full HD. Shrinking each frame ourselves
+   *  size we ask for and deliver full HD. Shrinking each frame ourselves
    *  keeps the GPU upload and resize per detection small whatever we're sent. */
-  const SMALL_W = 320;
+  const SMALL_W = HAND_W;
   let smallC = null, smallG = null;
   function smallFrame(forceCanvas) {
     const vw = video.videoWidth, vh = video.videoHeight;

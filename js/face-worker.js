@@ -52,7 +52,7 @@ async function create(Task, files, opts, want) {
   throw lastErr || new Error('MediaPipe task failed to initialise');
 }
 
-async function init(base, want, wantHands, handEngine, tfBase) {
+async function init(base, want, wantHands, handEngine, tfBase, handConf = 0.35) {
   let webgpuErr = null;
   if (wantHands && handEngine === 'webgpu') {
     try { tfHands = await initWebGPUHands(tfBase); } catch (e) { tfHands = null; webgpuErr = String((e && e.message) || e); }
@@ -75,14 +75,14 @@ async function init(base, want, wantHands, handEngine, tfBase) {
         baseOptions: { modelAssetPath: base + 'hand_landmarker.task' },
         runningMode: 'VIDEO',
         numHands: 2,
-        // Lenient: a swiping hand is blurred and partly out of frame.
-        // Detection/presence 0.5: fewer phantom hands. Tracking (box overlap with
-        // the last frame) stays low at 0.3: at ~6 results a second a moving hand
-        // shifts a lot between frames, and a failed track re-runs the slower
-        // palm detector.
-        minHandDetectionConfidence: 0.5,
-        minHandPresenceConfidence: 0.5,
-        minTrackingConfidence: 0.3,
+        // Lenient, so a moving (blurred, partly hidden) hand stays tracked:
+        // presence at handConf (0.35 by default), detection a little stricter
+        // (new hands only, so fewer phantoms), tracking low - at a few results
+        // a second a moving hand shifts a lot, and a lost track re-runs the
+        // slower palm detector.
+        minHandDetectionConfidence: Math.max(handConf, 0.4),
+        minHandPresenceConfidence: handConf,
+        minTrackingConfidence: Math.min(0.3, handConf),
       }, want);
       hands = h.task; handsOk = true; handDelegate = h.delegate;
     } catch (e) { /* face tracking still works without hands */ }
@@ -100,7 +100,7 @@ self.onmessage = async (ev) => {
   const m = ev.data;
   if (m.type === 'init') {
     try {
-      const r = await init(m.base, m.delegate, m.hands, m.handEngine, m.tfBase);
+      const r = await init(m.base, m.delegate, m.hands, m.handEngine, m.tfBase, m.handConf);
       self.postMessage({ type: 'ready', delegate: r.delegate, hands: r.hands, handDelegate: r.handDelegate, gl: r.gl, webgpuErr: r.webgpuErr });
     } catch (e) {
       self.postMessage({ type: 'error', message: String((e && e.message) || e) });
