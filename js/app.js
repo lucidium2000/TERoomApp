@@ -391,9 +391,9 @@
   // ── Rendering ────────────────────────────────────────────────────────────
   function resize() {
     S.w = window.innerWidth; S.h = window.innerHeight;
-    // While the camera is on, render at 1x: the globe shares the GPU with the
-    // face/hand models, and on a 4K (2x) screen 1.5x is 2.25x the pixels.
-    S.pr = (S.camOn ? Math.min(1, CFG.dpr) : CFG.dpr) * S.scale;
+    // Full resolution whether or not the camera is on (dropping to 1x for
+    // gestures cost more in looks than it gained in tracking speed).
+    S.pr = CFG.dpr * S.scale;
     canvas.width = Math.round(S.w * S.pr); canvas.height = Math.round(S.h * S.pr);
     S.stars = buildStars(S.w, S.h);
     sphereSprite = null;
@@ -2551,7 +2551,7 @@
       else if (state === 'off') { if (camWasOn) sfx('camOff'); camWasOn = false; }
       else if (state === 'error') { sfx('error'); camWasOn = false; }
       // Render resolution follows the camera (1x while it's on).
-      if (S.camOn !== camWasOn) { S.camOn = camWasOn; resizeAndDraw(); if (window.Radar && window.Radar.setLite) window.Radar.setLite(camWasOn); }
+      if (S.camOn !== camWasOn) S.camOn = camWasOn;
       const on = state === 'starting' || state === 'face' || state === 'motion';
       glassBtn.setAttribute('aria-pressed', String(on));
       glassBtn.classList.toggle('busy', state === 'starting');
