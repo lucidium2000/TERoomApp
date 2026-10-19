@@ -105,6 +105,8 @@
      *  since the last update (0..1 frame units, viewer's view, +x = their
      *  right, +y = down); info.ratio is fist spacing / spacing at grab start. */
     onGrab(fn) { onGrab = fn; },
+    /** fn({dir: +1 | -1 (viewer's right / left), dist, ms}): a fast spin. */
+    onSpin(fn) { onSpin = fn; },
     /** fn('left' | 'right'): the viewer's hand that pinched (experimental). */
     onPinch(fn) { onPinch = fn; },
     /** fn(state: 'hold' | 'cancel' | 'armed' | 'paused', progress 0..1). */
@@ -581,7 +583,33 @@
     if (latch) grab.latched = true;
     onGrab('end', { ratio: grab.ratio });
   }
-  let onGrab = () => {};
+  let onGrab = () => {}, onSpin = () => {};
+  // Fast spin: people fling the globe faster than the hand can be tracked -
+  // the grabbing hand blurs out and turns up on the other side. So if the
+  // hand that held the globe is seen again (fist or not, same hand when it's
+  // known) at least SPIN.DX of the frame across from where it last held,
+  // within SPIN.WINDOW_MS, that's a spin in that direction - even if the grab
+  // was dropped in between. ?spindx= / ?spinms= tune it.
+  const SPIN = {
+    DX: Math.max(0.1, Math.min(0.8, parseFloat(qs.get('spindx')) || 0.3)),
+    WINDOW_MS: Math.max(200, Math.min(3000, parseInt(qs.get('spinms'), 10) || 1000)),
+  };
+  function checkSpin(palms, now) {
+    const m = grab.memory;
+    if (!m || now - m.t > SPIN.WINDOW_MS) return false;
+    const rx = (p) => (p.rx != null ? p.rx : p.x);
+    const same = palms.filter((p) => !m.label || !p.label || p.label === m.label);
+    const cand = same.length === 1 ? same[0] : same.sort((a, b) => Math.abs(rx(b) - m.x) - Math.abs(rx(a) - m.x))[0];
+    if (!cand) return false;
+    const jump = rx(cand) - m.x;
+    if (Math.abs(jump) < SPIN.DX) return false;
+    grab.memory = null;
+    if (grab.on) releaseGrab(now, false);
+    grab.pendMode = null; grab.pendN = 0;
+    // Mirror x: the camera faces the viewer.
+    onSpin({ dir: -jump > 0 ? 1 : -1, dist: Math.abs(jump), ms: now - m.t });
+    return true;
+  }
 
   function curl(lm, aspect) {
     const d = (a, b) => Math.hypot(lm[a][0] - lm[b][0], (lm[a][1] - lm[b][1]) * aspect);
@@ -597,6 +625,7 @@
   }
 
   function updateGrab(palms, now, aspect) {
+    if (palms.length && checkSpin(palms, now)) return;
     const withLm = palms.filter((p) => p.lm);
     grab.curls = withLm.map((p) => curl(p.lm, aspect));
     grab.upright = withLm.map((p) => handUpright(p.lm, aspect));
@@ -608,6 +637,10 @@
       grab.pendMode = null; grab.pendN = 0;
       // Seen but not an upright fist (opened, or turned/tilted): fast release.
       const openHand = grab.curls.length > 0;
+      // A hand seen open where it let go is a deliberate release: forget it for the fast spin
+      // (bringing the hand back across to grab again isn't a spin). A hand
+      // that vanished keeps its memory - that's what a blurred fling looks like.
+      if (openHand && grab.memory && palms.some((p) => Math.abs((p.rx != null ? p.rx : p.x) - grab.memory.x) < SPIN.DX * 0.5)) grab.memory = null;
       if (grab.on && now - grab.lastSeen > (openHand ? GRAB.OPEN_MS : GRAB.LOST_MS)) releaseGrab(now, false);
       return;
     }
@@ -637,6 +670,7 @@
     if (!grab.on || grab.mode !== mode) {
       const first = !grab.on;
       grab.on = true; grab.mode = mode; grab.px = pt.x; grab.py = pt.y; grab.lastAction = now; grab.lastT = now; grab.rejected = 0;
+      grab.memory = mode === 'pan' ? { x: pt.x, t: now, label: fists[0].label || '' } : null;
       if (mode === 'zoom') { grab.d0 = Math.max(0.05, dist); grab.ratio = 1; grab.lastRatio = 1; }
       onGrab(first ? 'start' : 'mode', { mode, ratio: 1 });
       return;
@@ -660,6 +694,9 @@
         grab.ratio = r;
       }
     }
+    // Where the holding hand last was, for the fast-spin check (one-fist
+    // drags only; a jump too big to be a drag doesn't move it).
+    if (mode === 'pan' && !rejected) grab.memory = { x: pt.x, t: now, label: fists[0].label || '' };
     onGrab('move', { mode, ratio: grab.ratio, dx, dy, rejected });
   }
 

@@ -2574,6 +2574,15 @@
     // and eased in per frame; letting go flings with the fist's last velocity.
     const GRAB_PAN = num('grabpan', 1.6);   // screen widths of drag per frame-width of fist travel
     let grabZoom0 = 1;
+    // A fling too fast to track (see Glass.onSpin): spin the globe that way -
+    // one turn, two for a really big throw - landing back where it was.
+    if (window.Glass.onSpin) window.Glass.onSpin((sp) => {
+      userInput();
+      S.grab = null; S.dragging = false; S.grabTarget = null;
+      sfx('whoosh');
+      // Hand to the viewer's right -> the surface turns right (longitude falls).
+      spinTurns(-sp.dir * (sp.dist > 0.55 ? 2 : 1));
+    });
     window.Glass.onGrab((state, info) => {
       const now = performance.now();
       if (state === 'start' || state === 'mode') {
