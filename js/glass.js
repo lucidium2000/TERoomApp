@@ -388,9 +388,10 @@
     if (worker) {
       if (busy) return;   // one frame in flight at a time
       busy = true; lastSend = now;
-      // With hands on, faces are only looked for on every other frame: head
-      // position is heavily smoothed anyway, and the hand gets the full rate.
-      const withFace = !handSwipe || (++frameN % FACE_EVERY === 0);
+      // With hands on, faces are only looked for every FACE_EVERY-th frame
+      // (every 8th while a hand is in view): the hand gets the model time.
+      const faceEvery = now - lastHandSeen < 1500 ? FACE_EVERY * 2 : FACE_EVERY;
+      const withFace = !stats.hands || (++frameN % faceEvery === 0);
       const vw = video.videoWidth, vh = video.videoHeight;
       const bmpOpts = vw > SMALL_W + 16 ? { resizeWidth: SMALL_W, resizeHeight: Math.round((SMALL_W * vh) / vw), resizeQuality: 'low' } : undefined;
       createImageBitmap(video, bmpOpts).then((bitmap) => {

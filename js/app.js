@@ -2551,7 +2551,7 @@
       else if (state === 'off') { if (camWasOn) sfx('camOff'); camWasOn = false; }
       else if (state === 'error') { sfx('error'); camWasOn = false; }
       // Render resolution follows the camera (1x while it's on).
-      if (S.camOn !== camWasOn) { S.camOn = camWasOn; resizeAndDraw(); }
+      if (S.camOn !== camWasOn) { S.camOn = camWasOn; resizeAndDraw(); if (window.Radar && window.Radar.setLite) window.Radar.setLite(camWasOn); }
       const on = state === 'starting' || state === 'face' || state === 'motion';
       glassBtn.setAttribute('aria-pressed', String(on));
       glassBtn.classList.toggle('busy', state === 'starting');

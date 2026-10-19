@@ -55,6 +55,7 @@
     }
   }
 
+  let lite = false, full = null;
   let timer = 0, lastKey = '', onFrames = () => {}, frameTime = 0, running = false, animate = false, gen = 0;
   const built = new Map();   // "path|z" -> canvas, a few dozen at most
 
@@ -192,6 +193,16 @@
     regionBox: REG_BOX,
     regional: REG,
     /** Keep the stitched size within the GPU's maximum texture size. */
+    /** Lighter frames (half the size each way) while the camera's hand
+     *  tracking shares the GPU; back to full detail when it stops. */
+    setLite(on) {
+      if (!!on === lite) return;
+      lite = !!on;
+      if (lite) { full = [Z, LOOP_Z, REG_W, REG_LOOP_W]; Z = Math.max(1, Z - 1); LOOP_Z = Math.max(1, LOOP_Z - 1); REG_W = Math.max(1024, REG_W / 2); REG_LOOP_W = Math.max(1024, REG_LOOP_W / 2); }
+      else if (full) [Z, LOOP_Z, REG_W, REG_LOOP_W] = full;
+      lastKey = '';
+      if (running) update(true);
+    },
     setMaxTex(px) {
       while (Z > 1 && TILE * (1 << Z) > px) Z--;
       while (LOOP_Z > 1 && TILE * (1 << LOOP_Z) > px) LOOP_Z--;
