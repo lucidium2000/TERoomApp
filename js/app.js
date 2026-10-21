@@ -503,10 +503,46 @@
     localDate.textContent = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     localClock.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
+  const PRECISE_KEY = 'te-precise-loc';
+  function preciseLoc() {
+    try { const v = JSON.parse(localStorage.getItem(PRECISE_KEY) || 'null'); return v && isFinite(v.lat) && isFinite(v.lon) ? v : null; } catch (_) { return null; }
+  }
+  /** Ask the browser for this device's position (it asks the person first),
+   *  name the place, save it on this device, and refresh everything local. */
+  function usePreciseLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) return reject(new Error('Location isn\u2019t available on this device'));
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude, lon = pos.coords.longitude;
+        let city = '', region = '';
+        try {
+          const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&localityLanguage=en`);
+          const j = r.ok ? await r.json() : {};
+          city = j.city || j.locality || ''; region = j.principalSubdivision || '';
+        } catch (_) { /* coordinates alone are fine */ }
+        try { localStorage.setItem(PRECISE_KEY, JSON.stringify({ lat, lon, city, region, acc: Math.round(pos.coords.accuracy || 0), t: Date.now() })); } catch (_) { /* private mode */ }
+        S.wxBrief = null; S.wxNow = null;
+        await localWeather();
+        resolve({ city, region });
+      }, (err) => reject(new Error(err.code === 1 ? 'Location permission was declined' : 'Couldn\u2019t get the location')),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10 * 60e3 });
+    });
+  }
+  function useNetworkLocation() {
+    try { localStorage.removeItem(PRECISE_KEY); } catch (_) { /* */ }
+    S.wxBrief = null; S.wxNow = null;
+    return localWeather();
+  }
+
   async function localWeather() {
     try {
-      const room = window.PathTrace && window.PathTrace.roomInfo ? await window.PathTrace.roomInfo() : null;
+      let room = window.PathTrace && window.PathTrace.roomInfo ? await window.PathTrace.roomInfo() : null;
       if (!room || !isFinite(room.lat)) return;
+      // A precise location set on this device (the forecast card's "Use my
+      // exact location") replaces the network's guess for the place - the
+      // provider and its network stay as the IP lookup found them.
+      const pre = preciseLoc();
+      if (pre) room = { ...room, lat: pre.lat, lon: pre.lon, city: pre.city || room.city, region: pre.region || room.region, precise: true };
       S.room = room;   // the globe marks it (drawRoom)
       // The spoken rundown for the tour (js/wxbrief.js); live speech only -
       // cloud speech gets its own, rendered by the GitHub Action.
@@ -3138,6 +3174,15 @@
     document.getElementById('wxcSrc').textContent = !w && !n ? '' : (w && w.source === 'nws' ? 'National Weather Service' : 'Open-Meteo')
       + (n && w && w.source === 'nws' ? ' \u00B7 now from Open-Meteo' : '');
     wxCard.classList.toggle('no-now', !(n && n.current));
+    // This device's own place: where it came from, and a way to make it exact.
+    const locRow = document.getElementById('wxcLoc');
+    locRow.hidden = !!pl || !navigator.geolocation;
+    if (!pl) {
+      const precise = !!(S.room && S.room.precise);
+      locRow.classList.toggle('precise', precise);
+      document.getElementById('wxcLocText').textContent = precise ? 'Exact location (this device)' : 'Approximate - from the network';
+      document.getElementById('wxcLocBtn').textContent = precise ? 'Use network location' : 'Use my exact location';
+    }
     const c = n && n.current, d = n && n.daily;
     if (c) {
       wxIcon(document.getElementById('wxcIcon'), c.weather_code, c.is_day === 1, 56);
@@ -3222,6 +3267,18 @@
   ['pointerdown', 'pointermove', 'wheel', 'scroll', 'keydown', 'input'].forEach((t) => wxCard.addEventListener(t, wxIdle, { passive: true }));
   if (wxLine) wxLine.addEventListener('click', (e) => { e.stopPropagation(); if (wxCard.hidden || wxPlace) openWxCard(null); else closeWxCard(); });
   document.getElementById('wxcClose').addEventListener('click', (e) => { e.stopPropagation(); closeWxCard(); });
+  document.getElementById('wxcLocBtn').addEventListener('click', async (e) => {
+    e.stopPropagation(); userInput(); sfx('tap');
+    const btn = e.currentTarget;
+    if (S.room && S.room.precise) { await useNetworkLocation(); toast('Using the network\u2019s location', 'info'); renderWxCard(); return; }
+    btn.textContent = 'Locating\u2026'; btn.disabled = true;
+    try {
+      const r = await usePreciseLocation();
+      toast(`Location set${r.city ? ': ' + r.city : ''}`, 'info');
+    } catch (err) { toast(err.message, 'info'); }
+    btn.disabled = false;
+    renderWxCard();
+  });
   // Search: another city (or a ZIP / postcode) by name - Open-Meteo's free
   // geocoder - and its forecast in this same card.
   const wxSearch = document.getElementById('wxcSearch'), wxQ = document.getElementById('wxcQ'), wxHits = document.getElementById('wxcHits');

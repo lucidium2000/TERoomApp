@@ -1095,6 +1095,14 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
 .wxbar .radar-btn[data-mode="loop"] { animation: radar-loop 1.8s ease-in-out infinite; }
 @keyframes radar-loop { 50% { box-shadow: 0 0 12px rgba(52, 211, 153, .55); } }
 /* Forecast card: find another place. */
+.wxc-loc { display: flex; align-items: center; gap: .45em; margin: -.35em 0 .7em; font-size: .74em; color: var(--ink-3); }
+.wxc-loc[hidden] { display: none; }
+.wxc-loc.precise svg { color: var(--ok); }
+.wxc-loc button {
+  margin-left: auto; padding: .25em .7em; border-radius: 99px; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap;
+  color: #bae6fd; background: rgba(22, 189, 235, .12); border: 1px solid rgba(22, 189, 235, .45);
+}
+.wxc-loc.precise button { color: var(--ink-2); background: none; border-color: var(--line); }
 .wxc-find { position: absolute; top: .55em; right: 3.1em; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--ink-2); cursor: pointer; }
 .wxc-find:hover, .wxc-find.on { color: var(--ink); background: rgba(255, 255, 255, .08); }
 .wx-card h3 { padding-right: 5.5em; }
