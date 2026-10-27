@@ -1107,7 +1107,7 @@ body.power-on .map-key { display: flex; }
 .map-key .mk.off { opacity: .32; }
 .map-key i { display: block; flex: none; }
 .map-key .mk-wx i { width: .62em; height: .62em; border-radius: 50%; background: #34d399; }
-.map-key .mk-pwr i { width: .52em; height: .52em; background: #fbbf24; transform: rotate(45deg); }
+.map-key .mk-pwr i { width: .78em; height: .78em; border-radius: 50%; background: #fbbf24 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 2 4 14h7l-1 8 9-12h-7l1-8z' fill='%231c1305'/%3E%3C/svg%3E") center / 72% no-repeat; }
 .map-key .mk-app i { width: .62em; height: .62em; border-radius: 50%; background: #16bdeb; }
 .map-key .mk-net i { width: .62em; height: .62em; border-radius: 50%; background: #f15e22; }
 .card-note { margin: .55em 0 0; padding: .45em .65em; border-radius: 8px; font-size: .78em; font-weight: 600; color: #fde68a; background: rgba(251, 191, 36, .12); border: 1px solid rgba(251, 191, 36, .28); }

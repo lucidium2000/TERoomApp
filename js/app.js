@@ -763,8 +763,8 @@
   }
 
   // ── US power outages on the globe (merged from a contributor's version) ──
-  // Gold diamonds (not circles, not a heatmap) so power never blends into the
-  // internet dots or the radar. Only drawn while the Power toggle is on.
+  // Amber bolt badges (not circles, not a heatmap) so power never blends into
+  // the internet dots or the radar. Only drawn while the Power toggle is on.
   const LAYER_NEAR = 0.9;   // degrees: same-area weather / power / internet
   function nearestPower(lon, lat) {
     if (!S.power || !S.power.on || !S.power.markers) return null;
@@ -794,38 +794,56 @@
     const pwrN = (n) => n >= 10000
       ? (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'k'
       : Math.round(n).toLocaleString('en-US');
+    // An amber badge with a lightning bolt - unmistakably power, and a shape
+    // no other layer uses - sized by customers out (rose for the largest).
+    // Zoomed out, the smaller outages are plain amber dots so the US doesn't
+    // turn into a field of icons. A ring in the internet outage's colour marks
+    // power out near one.
+    const rank = new Map(pwr.markers.map((a, i) => [a.fips, i]));
+    const wide = view.zoom < 2;
     const marks = pwr.markers.slice().sort((a, b) => a.out - b.out);
-    const placed = [];
     for (const a of marks) {
       const p = proj.point(a.lon, a.lat);
       if (!p) continue;
       const isSel = sel && sel.fips === a.fips;
       const net = nearestInternet(a.lon, a.lat);
-      const r = Math.min(11 * k, (3.6 + Math.sqrt(a.out) * 0.07) * k) * (isSel ? 1.4 : 1);
+      const big = a.out >= 2000 || a.pct >= 5;
+      const fill = isSel ? '#fde68a' : big ? '#fb7185' : '#fbbf24';
+      if (wide && !isSel && !net && rank.get(a.fips) >= 15) {
+        ctx.beginPath(); ctx.arc(p[0], p[1], 2.8 * k, 0, 2 * Math.PI);
+        ctx.fillStyle = fill; ctx.fill();
+        ctx.lineWidth = 1.2 * k; ctx.strokeStyle = 'rgba(5,7,13,0.85)'; ctx.stroke();
+        S.hits.push({ x: p[0], y: p[1], r: 14, pwr: a });
+        continue;
+      }
+      const r = Math.max(6 * k, Math.min(12.5 * k, (5 + Math.sqrt(a.out) * 0.11) * k)) * (isSel ? 1.3 : 1);
       if (isSel || net || a.out >= 800) {
         const period = isSel ? 1400 : 2800;
         const t = ((((now + (a.lon * 37 | 0)) % period) + period) % period) / period;
         ctx.strokeStyle = `rgba(251,191,36,${((1 - t) * (isSel ? 0.85 : net ? 0.55 : 0.35)).toFixed(3)})`;
-        ctx.lineWidth = 1.7 * k;
-        ctx.beginPath(); ctx.arc(p[0], p[1], r * 1.55 + t * 16 * k, 0, 2 * Math.PI); ctx.stroke();
+        ctx.lineWidth = 1.6 * k;
+        ctx.beginPath(); ctx.arc(p[0], p[1], r * 1.25 + t * 14 * k, 0, 2 * Math.PI); ctx.stroke();
       }
       ctx.save();
       ctx.translate(p[0], p[1]);
+      // Badge.
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 2 * Math.PI);
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.lineWidth = 1.6 * k; ctx.strokeStyle = 'rgba(5,7,13,0.9)'; ctx.stroke();
+      if (net) {
+        ctx.beginPath(); ctx.arc(0, 0, r + 2.4 * k, 0, 2 * Math.PI);
+        ctx.lineWidth = 1.8 * k; ctx.strokeStyle = net.kind === 'network' ? '#f15e22' : '#16bdeb'; ctx.stroke();
+      }
+      // Bolt (the toolbar icon's shape, centred and scaled to the badge).
+      const b = (r * 1.45) / 24;
       ctx.beginPath();
-      ctx.moveTo(0, -r * 1.55); ctx.lineTo(r * 1.05, 0); ctx.lineTo(0, r * 1.55); ctx.lineTo(-r * 1.05, 0);
-      ctx.closePath();
-      ctx.fillStyle = isSel ? '#fde68a' : (a.out >= 2000 || a.pct >= 5 ? '#fb7185' : '#fbbf24');
-      ctx.strokeStyle = '#05070d';
-      ctx.lineWidth = 1.8 * k;
-      ctx.fill(); ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, -r * 0.48); ctx.lineTo(r * 0.3, 0); ctx.lineTo(0, r * 0.48); ctx.lineTo(-r * 0.3, 0);
-      ctx.closePath();
-      ctx.fillStyle = net ? (net.kind === 'network' ? '#f15e22' : '#16bdeb') : 'rgba(255,255,255,0.92)';
-      ctx.fill();
+      ctx.moveTo(1 * b, -10 * b); ctx.lineTo(-8 * b, 2 * b); ctx.lineTo(-1 * b, 2 * b); ctx.lineTo(-2 * b, 10 * b);
+      ctx.lineTo(7 * b, -2 * b); ctx.lineTo(0, -2 * b); ctx.closePath();
+      ctx.fillStyle = '#1c1305'; ctx.fill();
       ctx.restore();
-      S.hits.push({ x: p[0], y: p[1], r: Math.max(20, r * 2.2), pwr: a });
+      S.hits.push({ x: p[0], y: p[1], r: Math.max(20, r * 2), pwr: a });
     }
+    const placed = [];
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     const labelSet = pwr.markers.filter((a, i) => i < 5 || (sel && a.fips === sel.fips));
@@ -908,17 +926,19 @@
         ctx.globalAlpha = a;
         ctx.drawImage(sprite, p[0] - r * 3, p[1] - r * 3, r * 6, r * 6);
         ctx.globalAlpha = 1;
-        // Power out nearby (power layer on): a gold diamond outline round the dot.
+        // Power out nearby (power layer on): a small amber bolt badge on the dot.
         if (nearestPower(loc.lon, loc.lat)) {
           ctx.save();
-          ctx.translate(p[0], p[1]);
-          const d = Math.max(5.5 * k, r * 0.85);
+          const br = 4.2 * k;
+          ctx.translate(p[0] + r * 0.9 + br * 0.4, p[1] - r * 0.9 - br * 0.4);
+          ctx.beginPath(); ctx.arc(0, 0, br, 0, 2 * Math.PI);
+          ctx.fillStyle = '#fbbf24'; ctx.fill();
+          ctx.lineWidth = 1.1 * k; ctx.strokeStyle = 'rgba(5,7,13,0.9)'; ctx.stroke();
+          const b = (br * 1.45) / 24;
           ctx.beginPath();
-          ctx.moveTo(0, -d); ctx.lineTo(d * 0.72, 0); ctx.lineTo(0, d); ctx.lineTo(-d * 0.72, 0);
-          ctx.closePath();
-          ctx.strokeStyle = 'rgba(251,191,36,0.95)';
-          ctx.lineWidth = 1.7 * k;
-          ctx.stroke();
+          ctx.moveTo(1 * b, -10 * b); ctx.lineTo(-8 * b, 2 * b); ctx.lineTo(-1 * b, 2 * b); ctx.lineTo(-2 * b, 10 * b);
+          ctx.lineTo(7 * b, -2 * b); ctx.lineTo(0, -2 * b); ctx.closePath();
+          ctx.fillStyle = '#1c1305'; ctx.fill();
           ctx.restore();
         }
 
