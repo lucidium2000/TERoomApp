@@ -267,6 +267,7 @@ void main() {
     let radarTexs = [blankTex], radarByImg = new Map();
     let regTexs = [blankTex], regByImg = new Map(), regOn = false, regBox = [-130, 20, -60, 55];
     let radarA = 0, radarCur = 0, radarNext = 0, radarMix = 0;
+    let statesOn = false;   // state lines without the radar (the power layer)
 
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     let renderer = '';
@@ -453,7 +454,7 @@ void main() {
       gl.drawArrays(gl.LINES, 0, coastCount);
       // With the radar on, borders brighten and states/provinces appear, so
       // the weather has something to be read against.
-      const wx = radarA > 0;
+      const wx = radarA > 0 || statesOn;
       if (wx) gl.uniform4f(Lu.uColor, 0.62, 0.71, 0.84, 0.9);
       else gl.uniform4f(Lu.uColor, 0.282, 0.376, 0.518, 0.85);   // borders #486084
       gl.drawArrays(gl.LINES, coastCount, borderCount);
@@ -466,6 +467,6 @@ void main() {
       gl.disable(gl.BLEND);
     }
 
-    return { setWorld, setStates, setStars, setRadar, setRadarFrames, setRadarPos, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
+    return { setWorld, setStates, setStars, setRadar, setRadarFrames, setRadarPos, setStatesOn: (on) => { statesOn = !!on; }, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
   };
 })();

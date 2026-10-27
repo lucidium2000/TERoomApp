@@ -1083,6 +1083,38 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   font-size: .66em; font-weight: 700; color: var(--ink-2); background: rgba(255, 255, 255, .05); border: 1px solid var(--line); cursor: pointer;
 }
 .wxbar .radar-btn[aria-pressed="true"] { color: #d1fae5; background: rgba(52, 211, 153, .14); border-color: rgba(52, 211, 153, .5); }
+/* US power outages (js/power.js; merged from a contributor's version). */
+.wxbar .power-btn { margin-top: .3em; }
+.wxbar .power-btn[aria-pressed="true"] { color: #fde68a; background: rgba(251, 191, 36, .16); border-color: rgba(251, 191, 36, .55); }
+.wxbar .power-time span::before { background: #fbbf24; }
+.wxbar .power-time b em { color: #fbbf24; }
+.wxbar .power-time.stale b { color: #fda4af; }
+.pwr-sec { flex: none; max-height: 11.5em; display: flex; flex-direction: column; gap: .35em; }
+.pwr-sec[hidden] { display: none !important; }
+.pwr-sec .sec-ico { color: #fbbf24; filter: drop-shadow(0 0 6px rgba(251, 191, 36, .5)); }
+.panel .pwr-sec::before { background: linear-gradient(90deg, transparent, #fbbf24 20%, #fbbf24 80%, transparent); }
+.pwr-flag { margin-left: auto; color: #fda4af; font-size: .8em; letter-spacing: .04em; text-transform: none; }
+.pwr-list { max-height: 8.2em; }
+.pwr-list li { display: flex; justify-content: space-between; gap: .8em; padding: .35em .5em; border-radius: 8px; cursor: pointer; }
+.pwr-list li:hover, .pwr-list li[aria-current="true"] { background: rgba(251, 191, 36, .12); }
+.pwr-list li b { font-weight: 600; color: var(--ink); }
+.pwr-list li span { font-variant-numeric: tabular-nums; color: #fde68a; font-weight: 700; }
+.pwr-list li.big span { color: #fda4af; }
+/* The map key only shows while power is on (with it, there are four kinds of mark). */
+.map-key { display: none; flex-wrap: wrap; justify-content: flex-end; gap: .35em .75em; margin: .5em 0 0; font-size: .62em; font-weight: 700; color: var(--ink-2); pointer-events: none; }
+body.power-on .map-key { display: flex; }
+.map-key .mk { display: inline-flex; align-items: center; gap: .35em; }
+.map-key .mk.off { opacity: .32; }
+.map-key i { display: block; flex: none; }
+.map-key .mk-wx i { width: .62em; height: .62em; border-radius: 50%; background: #34d399; }
+.map-key .mk-pwr i { width: .52em; height: .52em; background: #fbbf24; transform: rotate(45deg); }
+.map-key .mk-app i { width: .62em; height: .62em; border-radius: 50%; background: #16bdeb; }
+.map-key .mk-net i { width: .62em; height: .62em; border-radius: 50%; background: #f15e22; }
+.card-note { margin: .55em 0 0; padding: .45em .65em; border-radius: 8px; font-size: .78em; font-weight: 600; color: #fde68a; background: rgba(251, 191, 36, .12); border: 1px solid rgba(251, 191, 36, .28); }
+.card-note[hidden] { display: none; }
+.pwr-card h3 { padding-right: 2.4em; color: #fde68a; }
+.pwr-credit { margin: .9em 0 0; font-size: .72em; color: var(--ink-3); line-height: 1.4; }
+.pwr-credit a { color: #fbbf24; }
 .wxbar .radar-time { margin: .2em 0 0; color: var(--ink-3); font-size: .64em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span, .wxbar .radar-time b { display: block; }
 .wxbar .radar-time b { font-weight: 600; color: var(--ink-2); margin-top: .35em; }

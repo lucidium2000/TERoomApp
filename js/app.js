@@ -20,6 +20,7 @@
  *   kiosk=1         hide the cursor
  *   pathhigh=<ms>   path trace: latency a link must add to show red (amber at half), default 30
  *   units=c         weather on city labels in Celsius (default Fahrenheit)
+ *   power=0         remove the US power-outage layer entirely (default: available, off until toggled)
  *   autoupdate=0    don't reload by itself when a new version is published
  *   signage=1       non-interactive digital signage: tour always on, no controls
  *   mode=free       clean globe: no panels; a floating callout appears at the outage
@@ -64,7 +65,7 @@
   const COLORS = { network: '#f15e22', application: '#16bdeb' };
   /** Interface sound (js/sound.js); silent until the first touch. */
   const sfx = (name) => { if (window.Sfx) window.Sfx.play(name); };
-  const RGB = { network: '241,94,34', application: '22,189,235' };
+  const RGB = { network: '241,94,34', application: '22,189,235', power: '251,191,36' };
   const RAD = Math.PI / 180;
   const ZOOM_MIN = 0.6, ZOOM_MAX = 8;
   const SPIN_RESUME_MS = 12000;
@@ -761,6 +762,96 @@
     ctx.restore();
   }
 
+  // ── US power outages on the globe (merged from a contributor's version) ──
+  // Gold diamonds (not circles, not a heatmap) so power never blends into the
+  // internet dots or the radar. Only drawn while the Power toggle is on.
+  const LAYER_NEAR = 0.9;   // degrees: same-area weather / power / internet
+  function nearestPower(lon, lat) {
+    if (!S.power || !S.power.on || !S.power.markers) return null;
+    let best = null, bd = LAYER_NEAR;
+    for (const a of S.power.markers) {
+      const d = Math.hypot(a.lon - lon, a.lat - lat);
+      if (d < bd) { bd = d; best = a; }
+    }
+    return best;
+  }
+  function nearestInternet(lon, lat) {
+    let best = null, bd = LAYER_NEAR;
+    for (const o of S.drawOrder) {
+      if (!outageVisible(o)) continue;
+      for (const loc of o.locations) {
+        const d = Math.hypot(loc.lon - lon, loc.lat - lat);
+        if (d < bd) { bd = d; best = o; }
+      }
+    }
+    return best;
+  }
+
+  function drawPower(now, k) {
+    const pwr = S.power;
+    if (!pwr || !pwr.on || !pwr.markers) return;
+    const sel = S.pwrSel;
+    const pwrN = (n) => n >= 10000
+      ? (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'k'
+      : Math.round(n).toLocaleString('en-US');
+    const marks = pwr.markers.slice().sort((a, b) => a.out - b.out);
+    const placed = [];
+    for (const a of marks) {
+      const p = proj.point(a.lon, a.lat);
+      if (!p) continue;
+      const isSel = sel && sel.fips === a.fips;
+      const net = nearestInternet(a.lon, a.lat);
+      const r = Math.min(11 * k, (3.6 + Math.sqrt(a.out) * 0.07) * k) * (isSel ? 1.4 : 1);
+      if (isSel || net || a.out >= 800) {
+        const period = isSel ? 1400 : 2800;
+        const t = ((((now + (a.lon * 37 | 0)) % period) + period) % period) / period;
+        ctx.strokeStyle = `rgba(251,191,36,${((1 - t) * (isSel ? 0.85 : net ? 0.55 : 0.35)).toFixed(3)})`;
+        ctx.lineWidth = 1.7 * k;
+        ctx.beginPath(); ctx.arc(p[0], p[1], r * 1.55 + t * 16 * k, 0, 2 * Math.PI); ctx.stroke();
+      }
+      ctx.save();
+      ctx.translate(p[0], p[1]);
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 1.55); ctx.lineTo(r * 1.05, 0); ctx.lineTo(0, r * 1.55); ctx.lineTo(-r * 1.05, 0);
+      ctx.closePath();
+      ctx.fillStyle = isSel ? '#fde68a' : (a.out >= 2000 || a.pct >= 5 ? '#fb7185' : '#fbbf24');
+      ctx.strokeStyle = '#05070d';
+      ctx.lineWidth = 1.8 * k;
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.48); ctx.lineTo(r * 0.3, 0); ctx.lineTo(0, r * 0.48); ctx.lineTo(-r * 0.3, 0);
+      ctx.closePath();
+      ctx.fillStyle = net ? (net.kind === 'network' ? '#f15e22' : '#16bdeb') : 'rgba(255,255,255,0.92)';
+      ctx.fill();
+      ctx.restore();
+      S.hits.push({ x: p[0], y: p[1], r: Math.max(20, r * 2.2), pwr: a });
+    }
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    const labelSet = pwr.markers.filter((a, i) => i < 5 || (sel && a.fips === sel.fips));
+    for (const a of labelSet) {
+      const p = proj.point(a.lon, a.lat);
+      if (!p) continue;
+      const isSel = sel && sel.fips === a.fips;
+      const title = a.name + ', ' + a.state;
+      const count = pwrN(a.out) + ' without power';
+      ctx.font = `${isSel ? 700 : 600} ${Math.round((isSel ? 12 : 10.5) * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      const tw = Math.max(ctx.measureText(title).width, ctx.measureText(count).width);
+      const x = p[0] + 12 * k, y = p[1];
+      const h = 26 * k, w = tw + 12 * k;
+      if (!isSel && placed.some((q) => Math.abs(q.y - y) < 20 * k && x < q.x + q.w && x + w > q.x)) continue;
+      placed.push({ x, y, w });
+      ctx.fillStyle = isSel ? 'rgba(5,7,13,0.9)' : 'rgba(5,7,13,0.72)';
+      ctx.fillRect(x - 5 * k, y - h / 2, w, h);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillText(title, x, y - 5.5 * k);
+      ctx.fillStyle = '#e6edf7';
+      ctx.font = `500 ${Math.round(10 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(count, x, y + 6.5 * k);
+    }
+    ctx.textAlign = 'start';
+  }
+
   function drawOutages(now, R) {
     S.hits = [];
     // Weather label boxes: this frame's become the next frame's hover test.
@@ -817,6 +908,19 @@
         ctx.globalAlpha = a;
         ctx.drawImage(sprite, p[0] - r * 3, p[1] - r * 3, r * 6, r * 6);
         ctx.globalAlpha = 1;
+        // Power out nearby (power layer on): a gold diamond outline round the dot.
+        if (nearestPower(loc.lon, loc.lat)) {
+          ctx.save();
+          ctx.translate(p[0], p[1]);
+          const d = Math.max(5.5 * k, r * 0.85);
+          ctx.beginPath();
+          ctx.moveTo(0, -d); ctx.lineTo(d * 0.72, 0); ctx.lineTo(0, d); ctx.lineTo(-d * 0.72, 0);
+          ctx.closePath();
+          ctx.strokeStyle = 'rgba(251,191,36,0.95)';
+          ctx.lineWidth = 1.7 * k;
+          ctx.stroke();
+          ctx.restore();
+        }
 
         S.hits.push({ x: p[0], y: p[1], r: Math.max(22, r * 2), o });
       }
@@ -895,16 +999,18 @@
         ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 2 * Math.PI); ctx.stroke();
         ctx.strokeStyle = `rgba(255,255,255,${((1 - t) * 0.65).toFixed(3)})`;
         ctx.beginPath(); ctx.arc(p[0], p[1], r + t * 24 * k, 0, 2 * Math.PI); ctx.stroke();
-        if (labelled.has(hi)) return;   // its name is already on the map
-        ctx.font = `700 ${Math.round(14 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.textBaseline = 'middle';
-        const label = hi.label || hi.name, w = ctx.measureText(label).width, x = p[0] + r + 8 * k, y = p[1] - r - 6 * k;
-        ctx.fillStyle = 'rgba(5,7,13,0.88)';
-        ctx.fillRect(x - 6 * k, y - 12 * k, w + 12 * k, 24 * k);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(label, x, y + 0.5);
+        if (!labelled.has(hi)) {   // (its name may already be on the map)
+          ctx.font = `700 ${Math.round(14 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+          ctx.textBaseline = 'middle';
+          const label = hi.label || hi.name, w = ctx.measureText(label).width, x = p[0] + r + 8 * k, y = p[1] - r - 6 * k;
+          ctx.fillStyle = 'rgba(5,7,13,0.88)';
+          ctx.fillRect(x - 6 * k, y - 12 * k, w + 12 * k, 24 * k);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(label, x, y + 0.5);
+        }
       }
     }
+    drawPower(now, k);
   }
 
   // ── Perf overlay (?perf=1) ───────────────────────────────────────────────
@@ -1213,12 +1319,22 @@
     S.insightN = 0;
   }
 
+  /** With the power layer on: a sentence on US power outages (live speech). */
+  function powerLine() {
+    const pw = S.power;
+    if (!pw || !pw.on || !pw.national || !pw.national.customers || pw.stale) return '';
+    const top = (pw.areas || [])[0];
+    const n = pw.national.customers, round = n >= 10000 ? Math.round(n / 1000) * 1000 : Math.round(n / 100) * 100;
+    const states = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming', DC: 'D.C.', PR: 'Puerto Rico' };
+    return `On the power grid, about ${round.toLocaleString('en-US')} customers are without power across the US`
+      + (top ? `, the most in ${top.name} County, ${states[top.state] || top.state}.` : '.');
+  }
   /** The recap's second level: the rest of the day, then this room's line. */
   function moreSpeech() {
     if (!N) return null;
     const room = overviewRoom();
     if (cloudMode()) { const clips = [speechClip(['overviewMore']), room.clip].filter(Boolean); return clips.length ? { clips } : null; }
-    const text = [N.overviewMore(S.outages, dataNow()), room.text].filter(Boolean).join(' ');
+    const text = [N.overviewMore(S.outages, dataNow()), room.text, powerLine()].filter(Boolean).join(' ');
     return text ? { text } : null;
   }
   /** The local weather rundown to say: live text, or the clip the GitHub
@@ -1328,10 +1444,19 @@
   }
 
   function select(o, { fromTour = false } = {}) {
+    if (o && closePowerCard) closePowerCard();
     if (o && S.pathOpen) closePath();
     const had = S.selected;
     S.selected = o;
-    if (!o) { if (had) sfx('close'); el.card.hidden = true; hideFloat(); renderList(); renderTimeline(); ttsStop(); return; }
+    if (!o) {
+      if (had) sfx('close');
+      el.card.hidden = true;
+      hideFloat();
+      const note = document.getElementById('cardNote');
+      if (note) { note.hidden = true; note.textContent = ''; }
+      renderList(); renderTimeline(); ttsStop();
+      return;
+    }
     if (!fromTour) sfx('select');   // tour steps are silent
     // Tour steps are silent (the tour gets one overall synopsis instead);
     // picking an outage yourself gets a short line about it.
@@ -1353,6 +1478,13 @@
     ];
     if (o.asn) metrics.push(['AS' + o.asn, 'Network']);
     el.cardMetrics.innerHTML = metrics.map(([b, s]) => `<div><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
+    // Power layer on: a note when a county near this outage is without power.
+    const pwrNear = o.locations.map((l) => nearestPower(l.lon, l.lat)).find(Boolean);
+    const note = document.getElementById('cardNote');
+    if (note) {
+      note.hidden = !pwrNear;
+      note.textContent = pwrNear ? `Power out nearby: ${pwrNear.name}, ${pwrNear.state} \u00B7 ${Math.round(pwrNear.out).toLocaleString('en-US')} customers` : '';
+    }
     const locs = o.locations.slice().sort((a, b) => b.n - a.n);
     // Each location: hover lights up its point on the globe, tap zooms to it.
     S.locHover = null; S.locPick = null; S.cardLocList = locs.slice(0, 8);
@@ -2386,13 +2518,19 @@
         return;
       }
       S.roomPick = 0;
-      // Tap: pick the nearest marker, else clear the selection.
-      let best = null, bd = Infinity;
+      // Tap: the nearest internet outage, else a power county (when that
+      // layer's on), else clear the selection.
+      let bestNet = null, bestPwr = null, bdN = Infinity, bdP = Infinity;
       for (const h of S.hits) {
         const d = Math.hypot(h.x - e.clientX, h.y - e.clientY);
-        if (d < h.r && d < bd) { bd = d; best = h; }
+        if (d >= h.r) continue;
+        if (h.pwr) { if (d < bdP) { bdP = d; bestPwr = h.pwr; } }
+        else if (d < bdN) { bdN = d; bestNet = h.o; }
       }
-      select(best ? best.o : null);
+      if (bestNet && bestPwr && bdP + 6 < bdN) openPowerCard(bestPwr);
+      else if (bestNet) { closePowerCard(); select(bestNet); }
+      else if (bestPwr) openPowerCard(bestPwr);
+      else { closePowerCard(); select(null); }
     }
     if (down && now() - down.lt > 80) S.vel.lon = S.vel.lat = 0;   // held still before release: no flick
     else if (down) releaseFling();
@@ -2909,6 +3047,14 @@
   // header line ("NOAA · RainViewer Radar", the credit RainViewer asks for, and the
   // frame time) shows while it's on. WebGL only.
   const radarBtn = document.getElementById('radarBtn');
+  /** The map key (shown only while power is on) dims the layers that are off. */
+  function syncMapKey() {
+    const key = document.getElementById('mapKey');
+    if (!key) return;
+    const pwr = key.querySelector('.mk-pwr'), wx = key.querySelector('.mk-wx');
+    if (pwr) pwr.classList.toggle('off', !(S.power && S.power.on));
+    if (wx) wx.classList.toggle('off', !(radarBtn && !radarBtn.hidden && radarBtn.getAttribute('aria-pressed') === 'true'));
+  }
   const radarTime = document.getElementById('radarTime'), radarWhen = radarTime.querySelector('b i'), radarClock = radarTime.querySelector('b em');
   if (window.Radar && window.Radar.enabled && glr) {
     window.Radar.setMaxTex(glr.info.maxTex || 4096);
@@ -2961,11 +3107,13 @@
         frames = { n: 0, times: [] };
         radarTime.hidden = true;
         if (glr) glr.setRadar(null);
+        syncMapKey();
         return;
       }
       window.Radar.setAnimate(mode === 'loop');
       window.Radar.start(onFrames);
       loadStates();
+      syncMapKey();
     };
     radarBtn.addEventListener('click', () => {
       userInput();
@@ -2985,6 +3133,131 @@
     applyRadar();
   } else {
     radarBtn.hidden = true;
+  }
+
+  // ── US power outages (js/power.js, MassOutage; merged from a contributor) ─
+  // Off until the Power button turns it on; the choice is remembered on this
+  // device. Off, nothing about the globe, panel or cards changes.
+  const powerBtn = document.getElementById('powerBtn');
+  const powerTime = document.getElementById('powerTime');
+  const pwrCard = document.getElementById('pwrCard');
+  const fmtN = (n) => Math.round(n).toLocaleString('en-US');
+  function closePowerCard() {
+    S.pwrSel = null;
+    if (pwrCard) pwrCard.hidden = true;
+    document.querySelectorAll('#pwrList [aria-current]').forEach((x) => x.removeAttribute('aria-current'));
+  }
+  function openPowerCard(a) {
+    if (!a) return;
+    if (S.selected) select(null);
+    const wxc = document.getElementById('wxCard');
+    if (wxc && !wxc.hidden) wxc.hidden = true;
+    S.pwrSel = a;
+    userInput(); sfx('select');
+    flyTo({ locations: [{ lon: a.lon, lat: a.lat, n: a.out, name: a.name }] }, 1600);
+    const pw = S.power || {};
+    document.getElementById('pwrTitle').textContent = a.name + ', ' + a.state;
+    document.getElementById('pwrSrc').textContent = 'MassOutage \u00B7 ' + (pw.stale ? 'data may be stale' : pw.delayed ? 'feed delayed' : 'live')
+      + (pw.asOf ? ' \u00B7 as of ' + fmtTime(Date.parse(pw.asOf)) : '');
+    document.getElementById('pwrOut').textContent = fmtN(a.out);
+    document.getElementById('pwrWhere').textContent = 'customers without power';
+    const stats = [];
+    if (a.pct) stats.push(`<div><dt>Share</dt><dd>${a.pct.toFixed(a.pct >= 1 ? 1 : 2)}%</dd></div>`);
+    if (pw.national) stats.push(`<div><dt>US now</dt><dd>${fmtN(pw.national.customers)}</dd></div>`);
+    document.getElementById('pwrStats').innerHTML = stats.join('');
+    const rank = pw.areas ? pw.areas.findIndex((x) => x.fips === a.fips) + 1 : 0;
+    const net = nearestInternet(a.lon, a.lat);
+    const bits = [];
+    if (rank) bits.push(`${a.name}, ${a.state} is #${rank} in the US right now by customers out.`);
+    if (net) bits.push(`Internet outage in this area: ${net.name}.`);
+    if (pw.delayed && pw.notice) bits.push(pw.notice);
+    document.getElementById('pwrText').textContent = bits.join(' ');
+    pwrCard.hidden = false;
+    const r = document.querySelector('.wxbar').getBoundingClientRect();
+    pwrCard.style.top = ((r.bottom + 8) / UIZ) + 'px';
+    pwrCard.style.right = (Math.max(8, innerWidth - r.right) / UIZ) + 'px';
+    document.querySelectorAll('#pwrList [data-fips]').forEach((x) => {
+      if (x.dataset.fips === a.fips) x.setAttribute('aria-current', 'true'); else x.removeAttribute('aria-current');
+    });
+  }
+  document.getElementById('pwrClose').addEventListener('click', () => { closePowerCard(); userInput(); sfx('close'); });
+  pwrCard.addEventListener('pointerdown', (e) => e.stopPropagation());
+  document.addEventListener('pointerdown', (e) => {
+    if (!pwrCard.hidden && !e.target.closest('#pwrCard, #powerBtn, #pwrSec')) closePowerCard();
+  });
+  if (window.Power && window.Power.enabled) {
+    const powerWhen = powerTime.querySelector('b i'), powerClock = powerTime.querySelector('b em');
+    let on = false;
+    try { on = localStorage.getItem('te-power-on') === '1'; } catch (_) { /* default off */ }
+    let statesLoaded = false;
+    const loadPowerStates = () => {
+      if (!glr || statesLoaded) return;
+      statesLoaded = true;
+      fetch('vendor/states-50m.json').then((r) => r.json())
+        .then((d) => glTry('states', () => glr.setStates(d.lines)))
+        .catch((e) => { statesLoaded = false; console.warn('[power] states', e.message || e); });
+    };
+    const fillPwrList = (markers) => {
+      const sec = document.getElementById('pwrSec'), ol = document.getElementById('pwrList');
+      sec.hidden = !on;
+      if (!on) { ol.innerHTML = ''; return; }
+      const rows = markers || [];
+      if (!rows.length) { ol.innerHTML = '<li class="empty">Loading live US outages\u2026</li>'; return; }
+      ol.innerHTML = rows.slice(0, 6).map((a) => {
+        const cur = S.pwrSel && S.pwrSel.fips === a.fips ? ' aria-current="true"' : '';
+        const big = a.out >= 2000 || a.pct >= 5 ? ' big' : '';
+        return `<li class="pwr-row${big}" data-fips="${esc(a.fips)}"${cur}><b>${esc(a.name)}, ${esc(a.state)}</b><span>${fmtN(a.out)}</span></li>`;
+      }).join('');
+    };
+    document.getElementById('pwrList').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-fips]');
+      if (!row || !S.power) return;
+      const a = (S.power.markers || []).find((x) => x.fips === row.dataset.fips) || (S.power.areas || []).find((x) => x.fips === row.dataset.fips);
+      if (a) { userInput(); openPowerCard(a); }
+    });
+    const applyPower = () => {
+      powerBtn.setAttribute('aria-pressed', String(on));
+      document.getElementById('powerBtnLabel').textContent = on ? 'Power: on' : 'Power: off';
+      if (!S.power) S.power = { on: false, markers: [] };
+      S.power.on = on;
+      document.body.classList.toggle('power-on', on);
+      if (glr && glr.setStatesOn) glr.setStatesOn(on);
+      syncMapKey();
+      if (!on) {
+        window.Power.stop();
+        powerTime.hidden = true;
+        closePowerCard();
+        fillPwrList([]);
+        return;
+      }
+      loadPowerStates();
+      fillPwrList(S.power.markers);
+      window.Power.start((snap) => {
+        S.power = { on: true, markers: snap.markers, areas: snap.areas, national: snap.national, asOf: snap.asOf, stale: snap.stale, delayed: snap.delayed, notice: snap.notice };
+        powerTime.hidden = false;
+        powerTime.classList.toggle('stale', !!(snap.stale || snap.delayed));
+        const n = snap.national && snap.national.customers;
+        powerWhen.textContent = snap.stale ? 'stale \u00B7 ' : snap.delayed ? 'delayed \u00B7 ' : '';
+        powerClock.textContent = (n ? fmtN(n) + ' customers out' : '') + (snap.asOf ? ' \u00B7 ' + fmtTime(Date.parse(snap.asOf)) : '');
+        document.getElementById('pwrFlag').textContent = snap.stale ? 'stale data' : snap.delayed ? 'feed delayed' : '';
+        fillPwrList(snap.markers);
+        if (S.pwrSel) {
+          const next = snap.areas.find((x) => x.fips === S.pwrSel.fips);
+          if (next) openPowerCard(next); else closePowerCard();
+        }
+      });
+    };
+    powerBtn.addEventListener('click', () => {
+      userInput();
+      on = !on;
+      try { localStorage.setItem('te-power-on', on ? '1' : '0'); } catch (_) { /* private mode */ }
+      sfx(on ? 'on' : 'off');
+      toast(on ? 'US power outages on the globe' : 'Power outages off', 'info');
+      applyPower();
+    });
+    applyPower();
+  } else {
+    powerBtn.hidden = true;
   }
 
   // ── Speaker button: spoken summaries (experimental, js/tts.js) ───────────
@@ -3231,6 +3504,7 @@
   }
   /** Open the card: this room's area (no place), or a place {lat, lon, name}. */
   function openWxCard(place) {
+    closePowerCard();
     userInput(); sfx('open');
     wxPlace = place && isFinite(place.lat) ? place : null;
     const srch = document.getElementById('wxcSearch');

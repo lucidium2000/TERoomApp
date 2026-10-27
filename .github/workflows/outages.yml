@@ -53,13 +53,22 @@ jobs:
       - name: Fetch outages
         run: node scripts/fetch-outages.mjs "$OUT/outages.json"
 
+      # US power outages (MassOutage, CC BY 4.0) for the optional power layer:
+      # a backup copy for when the building's IP hits MassOutage's public rate
+      # limit. Allowed to fail - it never holds up the outage data or speech.
+      - name: Fetch power outages
+        continue-on-error: true
+        run: node scripts/fetch-power.mjs "$OUT/power.json"
+
       - name: Keep the previous speech
         run: |
           mkdir -p "$PREV"
           if git fetch -q --depth=1 origin data 2>/dev/null; then
             git --work-tree="$PREV" checkout FETCH_HEAD -- speech 2>/dev/null || true
+            git --work-tree="$PREV" checkout FETCH_HEAD -- power.json 2>/dev/null || true
           fi
           if [ -d "$PREV/speech" ]; then cp -r "$PREV/speech" "$OUT/speech"; fi
+          if [ ! -f "$OUT/power.json" ] && [ -f "$PREV/power.json" ]; then cp "$PREV/power.json" "$OUT/power.json"; fi
           ls "$OUT/speech" 2>/dev/null | wc -l | xargs echo "previous speech files:"
 
       - name: Publish data
