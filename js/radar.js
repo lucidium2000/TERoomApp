@@ -44,22 +44,26 @@
   const SOFT = Math.max(0, parseFloat(qs.get('radarsoft') ?? '1.2') || 0);   // blur, px at 4096 wide
   const TILE = 512, EVERY = 10 * 60e3, LOOP_FRAMES = 7;
   // RainViewer's free tier allows 100 requests a minute per IP: keep a token
-  // bucket of 80 a minute, so a full first load can't trip it.
-  let tokens = 80, tokenT = performance.now();
-  async function token() {
-    for (;;) {
-      const now = performance.now();
-      tokens = Math.min(80, tokens + (now - tokenT) * 80 / 60000); tokenT = now;
-      if (tokens >= 1) { tokens -= 1; return; }
-      await new Promise((r) => setTimeout(r, 300));
-    }
+  // bucket of 90 a minute, so a full first load can't trip it.
+  // (Requests are made in priority order by update(); low = wait for others.)
+  let tokens = 90, tokenT = performance.now(), worldWaiting = 0;
+  async function token(low) {
+    if (!low) worldWaiting++;
+    try {
+      for (;;) {
+        const now = performance.now();
+        tokens = Math.min(90, tokens + (now - tokenT) * 90 / 60000); tokenT = now;
+        if (tokens >= 1 && (!low || worldWaiting === 0)) { tokens -= 1; return; }
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    } finally { if (!low) worldWaiting--; }
   }
 
   let lite = false, full = null;
   let timer = 0, lastKey = '', onFrames = () => {}, frameTime = 0, running = false, animate = false, gen = 0;
   const built = new Map();   // "path|z" -> canvas, a few dozen at most
 
-  const loadImg = (url) => token().then(() => new Promise((resolve, reject) => {
+  const loadImg = (url, low) => token(low).then(() => new Promise((resolve, reject) => {
     const im = new Image();
     im.crossOrigin = 'anonymous';   // the tiles allow it; WebGL needs it
     im.onload = () => resolve(im);
@@ -92,9 +96,9 @@
   }
 
   // Detail boxes: the UK & Ireland and Australia from RainViewer at a much
-  // higher zoom than the world layer (zoom 6 / 5 for the live frame - about
-  // 1.2 / 2.5 km a pixel against ~10 km - one level lower for the past-hour
-  // loop), packed into one atlas image so the globe needs a single extra
+  // higher zoom than the world layer (zoom 6 / 5 - about 1.2 / 2.5 km a pixel
+  // against ~10 km - for every frame, the past-hour loop too; fetched after
+  // the world layer, never ahead of it), packed into one atlas image so the globe needs a single extra
   // texture. The shader lays each box over the world layer, feathered at its
   // edges, as it does with NOAA over North America. ?radardetail=0 skips it.
   const DETAIL_ON = qs.get('radardetail') !== '0';
@@ -104,15 +108,15 @@
   ];
   const detBuilt = new Map();
   const mercY = (lat, size) => (0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)) / (2 * Math.PI)) * size;
-  async function buildDetail(host, path, live) {
-    const key = path + '|' + (live ? 'L' : 'l');
+  async function buildDetail(host, path) {
+    const key = path;
     if (detBuilt.has(key)) return detBuilt.get(key);
-    const W = live ? 2048 : 1024, H = W / 2;
+    const W = 2048, H = W / 2;
     const atlas = document.createElement('canvas');
     atlas.width = W; atlas.height = H;
     const ag = atlas.getContext('2d');
     await Promise.all(DETAIL.map(async (d) => {
-      const z = live ? d.z : d.z - 1, n = 1 << z, size = TILE * n;
+      const z = d.z, n = 1 << z, size = TILE * n;   // full detail for every frame
       const [w, s, e, nth] = d.box;
       const x0 = Math.floor((w + 180) / 360 * n), x1 = Math.floor((e + 180) / 360 * n);
       const y0 = Math.floor(mercY(nth, n)), y1 = Math.floor(mercY(s, n));
@@ -145,7 +149,7 @@
       atlas.width = 0;
     }
     detBuilt.set(key, img);
-    if (detBuilt.size > 10) detBuilt.delete(detBuilt.keys().next().value);
+    if (detBuilt.size > 9) detBuilt.delete(detBuilt.keys().next().value);
     return img;
   }
 
@@ -206,29 +210,55 @@
       if (key === lastKey && !force) return;
       const times = frames.map((f) => f.time * 1000);
       frameTime = times[times.length - 1];
+      // The world (and NOAA) layer first, exactly as fast as before; the UK /
+      // Australia detail follows behind it (newest frame first) and is
+      // patched in as each frame's is ready. Built frames are cached, so after
+      // the first load only the newest frame's detail is fetched.
+      const known = (k) => (DETAIL_ON ? detBuilt.get(frames[k].path) || null : null);
       if (!animate) {
-        const [img, reg, det] = await Promise.all([build(idx.host, frames[0].path, Z), REG ? region(times[0], REG_W) : null,
-          DETAIL_ON ? buildDetail(idx.host, frames[0].path, true) : null]);
+        const [img, reg] = await Promise.all([build(idx.host, frames[0].path, Z), REG ? region(times[0], REG_W) : null]);
         if (!running || mine !== gen) return;
-        lastKey = key; onFrames([img], times, [reg], [det]);
+        lastKey = key; onFrames([img], times, [reg], [known(0)]);
+        if (DETAIL_ON && !known(0)) {
+          const det = await buildDetail(idx.host, frames[0].path);
+          if (!running || mine !== gen) return;
+          onFrames([img], times, [reg], [det]);
+        }
         return;
       }
       // The past hour, newest first: the latest frame is the live one (most
       // likely built already), shown at once; older frames join the loop as
       // they arrive, so it plays within seconds instead of after a minute.
-      const imgs = new Array(frames.length).fill(null), regs = new Array(frames.length).fill(null), dets = new Array(frames.length).fill(null);
-      for (let i = frames.length - 1; i >= 0; i--) {
-        const last = i === frames.length - 1;
-        [imgs[i], regs[i], dets[i]] = await Promise.all([
-          build(idx.host, frames[i].path, last ? Z : LOOP_Z),
-          REG ? region(times[i], last ? REG_W : REG_LOOP_W) : null,
-          DETAIL_ON ? buildDetail(idx.host, frames[i].path, last) : null,
-        ]);
-        if (!running || mine !== gen) return;
+      const imgs = new Array(frames.length).fill(null), regs = new Array(frames.length).fill(null);
+      const dets = frames.map((f, k) => known(k));
+      const send = () => {
         const have = imgs.map((im, k) => k).filter((k) => imgs[k]);
         onFrames(have.map((k) => imgs[k]), have.map((k) => times[k]), have.map((k) => regs[k]), have.map((k) => dets[k]));
+      };
+      // Order: the newest frame's world layer, then its detail (so the sharp
+      // UK / Australia view shows within seconds), then the older frames'
+      // world layers, then their detail.
+      const newest = frames.length - 1;
+      const loadDetail = async (i) => {
+        if (!DETAIL_ON || dets[i]) return true;
+        dets[i] = await buildDetail(idx.host, frames[i].path);
+        if (!running || mine !== gen) return false;
+        send();
+        return true;
+      };
+      for (let i = newest; i >= 0; i--) {
+        const last = i === newest;
+        [imgs[i], regs[i]] = await Promise.all([
+          build(idx.host, frames[i].path, last ? Z : LOOP_Z),
+          REG ? region(times[i], last ? REG_W : REG_LOOP_W) : null,
+        ]);
+        if (!running || mine !== gen) return;
+        send();
+        if (last && !(await loadDetail(i))) return;
       }
       lastKey = key;
+      for (let i = newest - 1; i >= 0; i--) if (!(await loadDetail(i))) return;
+      return;
     } catch (e) {
       console.warn('[radar]', e.message || e);
     }
@@ -253,6 +283,9 @@
     regionBox: REG_BOX,
     /** The detail boxes and where each sits in the detail atlas. */
     detail: DETAIL.map((d) => ({ box: d.box, rect: d.rect })),
+    /** Debugging: the detail atlases built so far (newest last). */
+    get detailBuilt() { return [...detBuilt.values()]; },
+    get debugState() { return { worldWaiting, tokens: Math.round(tokens), gen, animate, running, built: built.size }; },
     regional: REG,
     /** Keep the stitched size within the GPU's maximum texture size. */
     /** Lighter frames (half the size each way) while the camera's hand

@@ -62,6 +62,7 @@ uniform sampler2D uDetB;  // its next frame, while animating
 uniform vec4 uDetBox0, uDetBox1;    // each box: west, south, east, north
 uniform vec4 uDetRect0, uDetRect1;  // where it sits in the atlas: u0, v0, u1, v1
 uniform float uDetOn;
+uniform float uDetHasA, uDetHasB;   // this frame / the next has its detail yet
 
 const float PI = 3.14159265;
 
@@ -162,9 +163,11 @@ void main() {
           vec2 e2 = min(q, 1.0 - q);
           float inD = smoothstep(0.0, 0.06, min(e2.x, e2.y));
           vec2 auv = mix(rc.xy, rc.zw, clamp(q, 0.0, 1.0));
-          vec4 dd = texture2D(uDet, auv);
-          if (uRadarMix > 0.0) dd = mix(dd, texture2D(uDetB, auv), uRadarMix);
-          rd = mix(rd, dd, inD);
+          // Each frame's detail replaces its own share of the blend; a frame
+          // whose detail hasn't arrived yet keeps the world layer.
+          float wA = uDetHasA * (1.0 - uRadarMix), wB = uDetHasB * uRadarMix;
+          vec4 dd = texture2D(uDet, auv) * wA + texture2D(uDetB, auv) * wB;
+          rd = rd * (1.0 - inD * (wA + wB)) + dd * inD;
         }
       }
       g = g * (1.0 - rd.a * uRadarA) + rd.rgb * uRadarA;
@@ -254,7 +257,7 @@ void main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const Q = { aPos: gl.getAttribLocation(quadProg, 'aPos') };
-    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA', 'uReg', 'uRegB', 'uRegBox', 'uRegOn', 'uDet', 'uDetB', 'uDetBox0', 'uDetBox1', 'uDetRect0', 'uDetRect1', 'uDetOn']) Q[n] = gl.getUniformLocation(quadProg, n);
+    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA', 'uReg', 'uRegB', 'uRegBox', 'uRegOn', 'uDet', 'uDetB', 'uDetBox0', 'uDetBox1', 'uDetRect0', 'uDetRect1', 'uDetOn', 'uDetHasA', 'uDetHasB']) Q[n] = gl.getUniformLocation(quadProg, n);
     const Lu = { aP: gl.getAttribLocation(lineProg, 'aP') };
     for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
     gl.useProgram(quadProg);
@@ -285,7 +288,7 @@ void main() {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
     let radarTexs = [blankTex], radarByImg = new Map();
     let regTexs = [blankTex], regByImg = new Map(), regOn = false, regBox = [-130, 20, -60, 55];
-    let detTexs = [blankTex], detByImg = new Map(), detOn = false, detLayout = null;
+    let detTexs = [blankTex], detByImg = new Map(), detOn = false, detLayout = null, detHas = [];
     let radarA = 0, radarCur = 0, radarNext = 0, radarMix = 0;
     let statesOn = false;   // state lines without the radar (the power layer)
 
@@ -412,9 +415,11 @@ void main() {
       const useReg = !!(imgs && regs && regs.length === imgs.length && regs.every(Boolean));
       const b = syncTexs(useReg ? regs : null, regByImg);
       regTexs = b.texs; regByImg = b.byImg; regOn = useReg;
-      const useDet = !!(imgs && dets && layout && layout.length >= 2 && dets.length === imgs.length && dets.every(Boolean));
+      // Detail may be missing for some frames while it loads: those keep the world layer.
+      const useDet = !!(imgs && dets && layout && layout.length >= 2 && dets.length === imgs.length && dets.some(Boolean));
       const c = syncTexs(useDet ? dets : null, detByImg);
       detTexs = c.texs; detByImg = c.byImg; detOn = useDet;
+      detHas = useDet ? dets.map(Boolean) : [];
       if (layout) detLayout = layout;
       if (box) regBox = box;
       radarCur = radarNext = radarTexs.length - 1; radarMix = 0;
@@ -451,6 +456,8 @@ void main() {
       gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, regTexs[radarCur] || regTexs[0]);
       gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, regTexs[radarNext] || regTexs[0]);
       gl.uniform1f(Q.uDetOn, detOn && radarA > 0 && detLayout ? 1 : 0);
+      gl.uniform1f(Q.uDetHasA, detHas[radarCur] ? 1 : 0);
+      gl.uniform1f(Q.uDetHasB, detHas[radarNext] ? 1 : 0);
       if (detLayout) {
         gl.uniform4fv(Q.uDetBox0, detLayout[0].box); gl.uniform4fv(Q.uDetBox1, detLayout[1].box);
         gl.uniform4fv(Q.uDetRect0, detLayout[0].rect); gl.uniform4fv(Q.uDetRect1, detLayout[1].rect);
