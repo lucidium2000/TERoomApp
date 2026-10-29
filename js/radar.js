@@ -91,6 +91,64 @@
     return img;
   }
 
+  // Detail boxes: the UK & Ireland and Australia from RainViewer at a much
+  // higher zoom than the world layer (zoom 6 / 5 for the live frame - about
+  // 1.2 / 2.5 km a pixel against ~10 km - one level lower for the past-hour
+  // loop), packed into one atlas image so the globe needs a single extra
+  // texture. The shader lays each box over the world layer, feathered at its
+  // edges, as it does with NOAA over North America. ?radardetail=0 skips it.
+  const DETAIL_ON = qs.get('radardetail') !== '0';
+  const DETAIL = [
+    { id: 'au', box: [112, -44.5, 155, -10], z: 5, rect: [0, 0, 0.625, 1] },
+    { id: 'uk', box: [-11, 49.5, 3, 61], z: 6, rect: [0.625, 0, 1, 0.6426] },
+  ];
+  const detBuilt = new Map();
+  const mercY = (lat, size) => (0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)) / (2 * Math.PI)) * size;
+  async function buildDetail(host, path, live) {
+    const key = path + '|' + (live ? 'L' : 'l');
+    if (detBuilt.has(key)) return detBuilt.get(key);
+    const W = live ? 2048 : 1024, H = W / 2;
+    const atlas = document.createElement('canvas');
+    atlas.width = W; atlas.height = H;
+    const ag = atlas.getContext('2d');
+    await Promise.all(DETAIL.map(async (d) => {
+      const z = live ? d.z : d.z - 1, n = 1 << z, size = TILE * n;
+      const [w, s, e, nth] = d.box;
+      const x0 = Math.floor((w + 180) / 360 * n), x1 = Math.floor((e + 180) / 360 * n);
+      const y0 = Math.floor(mercY(nth, n)), y1 = Math.floor(mercY(s, n));
+      const st = document.createElement('canvas');
+      st.width = (x1 - x0 + 1) * TILE; st.height = (y1 - y0 + 1) * TILE;
+      const sg = st.getContext('2d');
+      const jobs = [];
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        jobs.push(loadImg(`${host}${path}/${TILE}/${z}/${x}/${y}/${COLOR}/1_1.png`)
+          .then((im) => sg.drawImage(im, (x - x0) * TILE, (y - y0) * TILE)).catch(() => {}));
+      }
+      await Promise.all(jobs);
+      // Reproject the box, row by row, into its rectangle of the atlas.
+      const rx = d.rect[0] * W, ry = d.rect[1] * H, rw = (d.rect[2] - d.rect[0]) * W, rh = (d.rect[3] - d.rect[1]) * H;
+      const sx = (w + 180) / 360 * size - x0 * TILE, sw = (e - w) / 360 * size;
+      for (let row = 0; row < rh; row++) {
+        const lat = nth - ((row + 0.5) / rh) * (nth - s);
+        const sy = mercY(lat, size) - y0 * TILE;
+        ag.drawImage(st, sx, Math.max(0, Math.min(st.height - 1, sy - 0.5)), sw, 1, rx, ry + row, rw, 1);
+      }
+      st.width = 0;
+    }));
+    let img = atlas;
+    if (SOFT > 0) {
+      img = document.createElement('canvas');
+      img.width = W; img.height = H;
+      const g2 = img.getContext('2d');
+      g2.filter = `blur(${(SOFT * 0.6).toFixed(2)}px)`;   // these pixels are already ~5x finer
+      g2.drawImage(atlas, 0, 0);
+      atlas.width = 0;
+    }
+    detBuilt.set(key, img);
+    if (detBuilt.size > 10) detBuilt.delete(detBuilt.keys().next().value);
+    return img;
+  }
+
   /** One radar frame as an equirectangular canvas (cached). */
   async function build(host, path, z) {
     const key = path + '|' + z;
@@ -149,24 +207,26 @@
       const times = frames.map((f) => f.time * 1000);
       frameTime = times[times.length - 1];
       if (!animate) {
-        const [img, reg] = await Promise.all([build(idx.host, frames[0].path, Z), REG ? region(times[0], REG_W) : null]);
+        const [img, reg, det] = await Promise.all([build(idx.host, frames[0].path, Z), REG ? region(times[0], REG_W) : null,
+          DETAIL_ON ? buildDetail(idx.host, frames[0].path, true) : null]);
         if (!running || mine !== gen) return;
-        lastKey = key; onFrames([img], times, [reg]);
+        lastKey = key; onFrames([img], times, [reg], [det]);
         return;
       }
       // The past hour, newest first: the latest frame is the live one (most
       // likely built already), shown at once; older frames join the loop as
       // they arrive, so it plays within seconds instead of after a minute.
-      const imgs = new Array(frames.length).fill(null), regs = new Array(frames.length).fill(null);
+      const imgs = new Array(frames.length).fill(null), regs = new Array(frames.length).fill(null), dets = new Array(frames.length).fill(null);
       for (let i = frames.length - 1; i >= 0; i--) {
         const last = i === frames.length - 1;
-        [imgs[i], regs[i]] = await Promise.all([
+        [imgs[i], regs[i], dets[i]] = await Promise.all([
           build(idx.host, frames[i].path, last ? Z : LOOP_Z),
           REG ? region(times[i], last ? REG_W : REG_LOOP_W) : null,
+          DETAIL_ON ? buildDetail(idx.host, frames[i].path, last) : null,
         ]);
         if (!running || mine !== gen) return;
         const have = imgs.map((im, k) => k).filter((k) => imgs[k]);
-        onFrames(have.map((k) => imgs[k]), have.map((k) => times[k]), have.map((k) => regs[k]));
+        onFrames(have.map((k) => imgs[k]), have.map((k) => times[k]), have.map((k) => regs[k]), have.map((k) => dets[k]));
       }
       lastKey = key;
     } catch (e) {
@@ -191,6 +251,8 @@
     get time() { return frameTime; },
     /** The regional layer's bounds: [west, south, east, north]. */
     regionBox: REG_BOX,
+    /** The detail boxes and where each sits in the detail atlas. */
+    detail: DETAIL.map((d) => ({ box: d.box, rect: d.rect })),
     regional: REG,
     /** Keep the stitched size within the GPU's maximum texture size. */
     /** Lighter frames (half the size each way) while the camera's hand

@@ -3099,9 +3099,9 @@
       if (i !== shownIdx) { shownIdx = i; label(i); }
       loopRaf = requestAnimationFrame(loop);
     }
-    const onFrames = (imgs, times, regs) => {
+    const onFrames = (imgs, times, regs, dets) => {
       if (!glr || mode === 'off') return;
-      glr.setRadarFrames(imgs, RADAR_A, regs, window.Radar.regionBox);
+      glr.setRadarFrames(imgs, RADAR_A, regs, window.Radar.regionBox, dets, window.Radar.detail);
       frames = { n: imgs.length, times };
       radarTime.hidden = false;
       shownIdx = -1;
@@ -3589,12 +3589,34 @@
     wxHits.innerHTML = list.length ? list.map((h, i) => `<li data-h="${i}">${esc(h.name)}<small>${esc([h.admin1, h.country].filter(Boolean).join(', '))}</small></li>`).join('')
       : '<li class="none">No places found</li>';
   };
+  // "Birmingham UK", "Paris, France", "Portland OR": the geocoder wants just
+  // the place name, so the last word(s) narrow its results instead.
+  const PLACE_ALIAS = { uk: 'united kingdom', gb: 'united kingdom', england: 'united kingdom', scotland: 'united kingdom', wales: 'united kingdom',
+    us: 'united states', usa: 'united states', au: 'australia', nz: 'new zealand', uae: 'united arab emirates' };
+  const US_STATES = { al: 'alabama', ak: 'alaska', az: 'arizona', ar: 'arkansas', ca: 'california', co: 'colorado', ct: 'connecticut', de: 'delaware', fl: 'florida', ga: 'georgia', hi: 'hawaii', id: 'idaho', il: 'illinois', in: 'indiana', ia: 'iowa', ks: 'kansas', ky: 'kentucky', la: 'louisiana', me: 'maine', md: 'maryland', ma: 'massachusetts', mi: 'michigan', mn: 'minnesota', ms: 'mississippi', mo: 'missouri', mt: 'montana', ne: 'nebraska', nv: 'nevada', nh: 'new hampshire', nj: 'new jersey', nm: 'new mexico', ny: 'new york', nc: 'north carolina', nd: 'north dakota', oh: 'ohio', ok: 'oklahoma', or: 'oregon', pa: 'pennsylvania', ri: 'rhode island', sc: 'south carolina', sd: 'south dakota', tn: 'tennessee', tx: 'texas', ut: 'utah', vt: 'vermont', va: 'virginia', wa: 'washington', wv: 'west virginia', wi: 'wisconsin', wy: 'wyoming' };
+  const geoFetch = async (name) => {
+    const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&format=json&name=' + encodeURIComponent(name));
+    const j = r.ok ? await r.json() : null;
+    return (j && j.results) || [];
+  };
   const geocode = async (q) => {
     const n = ++wxQN;
     try {
-      const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=6&language=en&format=json&name=' + encodeURIComponent(q));
-      const j = r.ok ? await r.json() : null;
-      if (n === wxQN) showHits((j && j.results) || []);
+      let list = await geoFetch(q);
+      const parts = q.split(/[,\s]+/).filter(Boolean);
+      if (!list.length && parts.length > 1) {
+        // Try the place without its last one or two words, kept to results
+        // whose state / country matches them.
+        for (const cut of [1, 2]) {
+          if (parts.length <= cut) break;
+          const want = parts.slice(-cut).join(' ').toLowerCase();
+          const full = PLACE_ALIAS[want] || US_STATES[want] || want;
+          const got = (await geoFetch(parts.slice(0, -cut).join(' ')))
+            .filter((h) => [h.country, h.admin1, h.country_code].some((v) => v && String(v).toLowerCase().startsWith(full)));
+          if (got.length) { list = got; break; }
+        }
+      }
+      if (n === wxQN) showHits(list.slice(0, 6));
     } catch (_) { if (n === wxQN) showHits([]); }
   };
   wxQ.addEventListener('input', () => {
