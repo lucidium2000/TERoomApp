@@ -5,15 +5,18 @@ name: Refresh outage data
 # which sends CORS headers - the ThousandEyes endpoint itself does not.
 #
 # It also renders the narration to audio (speech/, scripts/speech/render.mjs)
-# for devices too slow to make speech themselves, like the Desk Pro. The data
-# is published first, so speech never delays it; then only new or changed
-# lines are rendered (the rest is reused from the previous run) and the
-# branch is published again with the new audio.
+# for devices too slow to make speech themselves, like the Desk Pro, and
+# keeps a backup copy of the US power data (power.json).
 #
-# The branch is force-pushed as a single commit each run, so it never grows.
-# GitHub's cron is best-effort: expect runs every 5-15 minutes, not exactly 5.
-# Offset from :00 because top-of-the-hour schedules are the most delayed or
-# dropped. A brand-new schedule can also take an hour or more to start firing.
+# GitHub's cron is best-effort, and for a small repository it really fires
+# only every few hours, not every 5 minutes. So each run keeps going: it
+# refreshes every REFRESH_MIN minutes for nearly the 6-hour job limit, and the
+# next scheduled start (queued behind it) takes over when it ends. Each round
+# publishes the data first, so speech never delays it, then renders only new
+# or changed lines (the rest is reused) and publishes again with the audio.
+#
+# The branch is force-pushed as a single commit each round, so it never grows.
+# Pushes retry: GitHub occasionally rejects one with a server-side error.
 
 on:
   schedule:
@@ -23,8 +26,8 @@ on:
 permissions:
   contents: write
 
-# A run in progress finishes (the first speech render can take several
-# minutes); a newer scheduled run waits instead of cancelling it.
+# One run at a time; a newer one waits in the queue and takes over when the
+# current one ends (so there's no gap between them).
 concurrency:
   group: outage-data
   cancel-in-progress: false
@@ -32,9 +35,14 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 358
     env:
       PUSH_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+      REFRESH_MIN: 5
+      RUN_MIN: 345          # keep refreshing this long, then hand over to the next run
+      # Where the room is, for the spoken weather (Settings > Secrets and
+      # variables > Actions > Variables). Unset: no weather line.
+      WEATHER_POINT: ${{ vars.WEATHER_POINT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,38 +58,8 @@ jobs:
           cache: npm
           cache-dependency-path: scripts/speech/package-lock.json
 
-      - name: Fetch outages
-        run: node scripts/fetch-outages.mjs "$OUT/outages.json"
-
-      # US power outages (MassOutage, CC BY 4.0) for the optional power layer:
-      # a backup copy for when the building's IP hits MassOutage's public rate
-      # limit. Allowed to fail - it never holds up the outage data or speech.
-      - name: Fetch power outages
-        continue-on-error: true
-        run: node scripts/fetch-power.mjs "$OUT/power.json"
-
-      - name: Keep the previous speech
-        run: |
-          mkdir -p "$PREV"
-          if git fetch -q --depth=1 origin data 2>/dev/null; then
-            git --work-tree="$PREV" checkout FETCH_HEAD -- speech 2>/dev/null || true
-            git --work-tree="$PREV" checkout FETCH_HEAD -- power.json 2>/dev/null || true
-          fi
-          if [ -d "$PREV/speech" ]; then cp -r "$PREV/speech" "$OUT/speech"; fi
-          if [ ! -f "$OUT/power.json" ] && [ -f "$PREV/power.json" ]; then cp "$PREV/power.json" "$OUT/power.json"; fi
-          ls "$OUT/speech" 2>/dev/null | wc -l | xargs echo "previous speech files:"
-
-      - name: Publish data
-        run: |
-          cd "$OUT"
-          git init -q -b data
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -q -m "Outage data $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push -q --force "$PUSH_URL" data:data
-
       - name: Install speech renderer
+        continue-on-error: true
         run: npm ci --no-audit --no-fund --prefix scripts/speech
 
       - name: Cache voice model
@@ -90,22 +68,51 @@ jobs:
           path: scripts/speech/node_modules/@huggingface/transformers/.cache
           key: kokoro-82m-v1.0
 
-      - name: Render speech
-        id: speech
-        continue-on-error: true
-        env:
-          # Where the room is, for the spoken weather (Settings > Secrets and
-          # variables > Actions > Variables). Unset: no weather line.
-          WEATHER_POINT: ${{ vars.WEATHER_POINT }}
+      - name: Keep the previous speech and power data
         run: |
-          rm -rf "$OUT/speech.new"
-          node scripts/speech/render.mjs "$OUT/outages.json" "$OUT/speech.new" "$PREV/speech"
-          rm -rf "$OUT/speech" && mv "$OUT/speech.new" "$OUT/speech"
+          mkdir -p "$PREV" "$OUT"
+          if git fetch -q --depth=1 origin data 2>/dev/null; then
+            git --work-tree="$PREV" checkout FETCH_HEAD -- speech 2>/dev/null || true
+            git --work-tree="$PREV" checkout FETCH_HEAD -- power.json 2>/dev/null || true
+          fi
+          if [ -d "$PREV/speech" ]; then cp -r "$PREV/speech" "$OUT/speech"; fi
+          if [ -f "$PREV/power.json" ]; then cp "$PREV/power.json" "$OUT/power.json"; fi
+          ls "$OUT/speech" 2>/dev/null | wc -l | xargs echo "previous speech files:"
 
-      - name: Publish speech
-        if: steps.speech.outcome == 'success'
+      - name: Refresh every few minutes
         run: |
-          cd "$OUT"
-          git add -A
-          git commit -q --amend -m "Outage data and speech $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push -q --force "$PUSH_URL" data:data
+          push() {   # $1: commit message. Retries GitHub's occasional server-side rejections.
+            ( cd "$OUT"
+              [ -d .git ] || { git init -q -b data; git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"; }
+              git add -A
+              git commit -q --amend -m "$1" 2>/dev/null || git commit -q -m "$1"
+              for i in 1 2 3 4; do git push -q --force "$PUSH_URL" data:data && return 0; echo "push failed ($i), retrying"; sleep $((i * 10)); done
+              return 1 )
+          }
+          end=$(( $(date +%s) + RUN_MIN * 60 ))
+          round=0
+          while :; do
+            round=$((round + 1)); start=$(date +%s)
+            echo "::group::Round $round ($(date -u +%H:%MZ))"
+            if node scripts/fetch-outages.mjs "$OUT/outages.json"; then
+              # US power: optional, every other round (MassOutage asks for no
+              # more than one request every 5 minutes).
+              if [ $((round % 2)) -eq 1 ]; then node scripts/fetch-power.mjs "$OUT/power.json" || echo "power fetch failed (kept the last copy)"; fi
+              push "Outage data $(date -u +%Y-%m-%dT%H:%MZ)" || echo "::warning::data push failed"
+              # Speech: only new or changed lines; allowed to fail.
+              rm -rf "$OUT/speech.new"
+              if [ -d scripts/speech/node_modules ] && SPEECH_BUDGET_S=180 node scripts/speech/render.mjs "$OUT/outages.json" "$OUT/speech.new" "$OUT/speech"; then
+                rm -rf "$OUT/speech" && mv "$OUT/speech.new" "$OUT/speech"
+                push "Outage data and speech $(date -u +%Y-%m-%dT%H:%MZ)" || echo "::warning::speech push failed"
+              else
+                echo "speech render skipped or failed (data is published)"
+              fi
+            else
+              echo "::warning::outage fetch failed; trying again next round"
+            fi
+            echo "::endgroup::"
+            now=$(date +%s)
+            [ $(( now + REFRESH_MIN * 60 )) -gt "$end" ] && break
+            wait=$(( REFRESH_MIN * 60 - (now - start) )); [ "$wait" -gt 0 ] && sleep "$wait"
+          done
+          echo "Done after $round rounds; the next scheduled run takes over."

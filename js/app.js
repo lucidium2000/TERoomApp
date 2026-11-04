@@ -661,8 +661,13 @@
   /** The line under the title: the time window and when the data was published. */
   function showUpdated() {
     if (!S.updatedT) return;
-    el.updated.textContent = `${windowLabel(S.windowH).toLowerCase()} \u2014 updated ${fmtTime(S.updatedT)}`;
+    // Over 30 minutes old: say so (amber), rather than look current.
+    const ageMin = (Date.now() - S.updatedT) / 60000, late = ageMin > 30;
+    const ago = ageMin < 90 ? `${Math.round(ageMin)} min ago` : `${Math.round(ageMin / 60)} h ago`;
+    el.updated.textContent = `${windowLabel(S.windowH).toLowerCase()} \u2014 updated ${fmtTime(S.updatedT)}` + (late ? ` \u00B7 delayed (${ago})` : '');
+    el.updated.classList.toggle('late', late);
   }
+  setInterval(showUpdated, 60e3);
   // Filters (the totals): all, application, network, active - or locations,
   // which lists places instead of outages (every outage stays on the globe).
   function outageVisible(o) {
