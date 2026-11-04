@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Path trace for "From this room" (click a row).
  *
  * A web page can't traceroute (browsers give pages no access to TTLs or

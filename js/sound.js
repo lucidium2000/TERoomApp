@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Interface sounds: short, soft synthesized tones (Web Audio, no files).
  *
  * window.Sfx.play(name) - see SOUNDS below for the names.

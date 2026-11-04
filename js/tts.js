@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Spoken summaries with Kokoro (experimental). The model runs in
  * js/tts-worker.js; this side queues the audio it returns and plays it
  * through Web Audio, gap-free, as each sentence arrives.

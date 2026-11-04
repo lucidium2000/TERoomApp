@@ -173,3 +173,7 @@ python3 -m http.server 8765         # then open http://localhost:8765
 ```
 
 No build step and no dependencies. d3-geo, topojson-client and the Natural Earth world atlas are bundled in `vendor/`.
+
+---
+
+Created by Christopher Hunt ([@lucidium2000](https://github.com/lucidium2000)), 2026.

@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Face + hand detection off the main thread, so inference never stalls the globe.
  *
  * Classic worker (not module): MediaPipe's loader calls importScripts(), which

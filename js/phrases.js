@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* What the spoken summaries can say (js/app.js picks a line at random, fills
  * in the {placeholders} and capitalises the first letter). Many pools are an
  * opener crossed with a core sentence, so they read naturally in any

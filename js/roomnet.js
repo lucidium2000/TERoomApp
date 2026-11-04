@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* "From this room": live response times from this browser to the services
  * people here depend on - a tiny, in-browser take on a ThousandEyes agent.
  *

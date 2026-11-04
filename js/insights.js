@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Insights: a small, rule-based "analyst" for Internet Insights outages.
  *
  * It looks at the last 24 hours the way an engineer would - which outages

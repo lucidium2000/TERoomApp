@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Device Lab: what can a web page actually use on this device?
  *
  * Shown alongside the camera debug view (hold the camera button, or

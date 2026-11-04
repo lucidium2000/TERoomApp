@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Logos for providers and apps (built by scripts/build-logos.py from
  * Simple Icons, CC0, and the companies' own site icons). First match wins.
  * mark: a single-colour brand mark (drawn on a dark tile); else a full icon. */

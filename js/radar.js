@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Live weather radar for the globe: NOAA MRMS over North America (sharp,
  * quality-controlled), RainViewer (rainviewer.com) for the rest of the world.
  *

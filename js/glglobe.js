@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* WebGL globe renderer.
  *
  * Canvas 2D re-projects every coastline and border on the CPU each frame, and

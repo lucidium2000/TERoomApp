@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Glass mode (experimental): head-tracked parallax and lean-to-zoom.
  *
  * The device camera finds the main subject in front of the screen - a face via

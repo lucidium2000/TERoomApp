@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* A spoken weather rundown for a place, from free public services - no key.
  *
  * US: the National Weather Service (api.weather.gov, US government, public

@@ -1,4 +1,4 @@
-/* Internet Outage Globe
+/* Internet Outage Globe (TERoomApp) - created by Christopher Hunt (github.com/lucidium2000)
  *
  * Full-screen canvas globe of ThousandEyes Internet Insights outages, styled
  * after TE-Optics' globe view: navy land on a shaded ocean, faint graticule,
@@ -3778,6 +3778,22 @@
       const busy = (window.Glass && window.Glass.grabbing) || S.guideOpen || S.dragging;
       if (updatePending && idle && !busy) reloadNow();
     }, UPDATE_EVERY_MS);
+  }
+  // Credits, for anyone who goes looking: tap the LIVE badge five times
+  // quickly, or run TERoomApp.about() in the browser console.
+  const CREDIT = { app: 'TERoomApp', author: 'Christopher Hunt', github: 'github.com/lucidium2000/TERoomApp', since: 2026 };
+  window.TERoomApp = Object.freeze({ ...CREDIT, about() { return `${CREDIT.app} \u00B7 created by ${CREDIT.author} \u00B7 ${CREDIT.github}`; } });
+  {
+    const live = document.querySelector('.brand .live');
+    let taps = [];
+    if (live) {
+      live.style.pointerEvents = 'auto';
+      live.addEventListener('click', () => {
+        const t = performance.now();
+        taps = taps.filter((x) => t - x < 2500).concat(t);
+        if (taps.length >= 5) { taps = []; toast(`Created by ${CREDIT.author} \u00B7 ${CREDIT.github}`, 'info'); }
+      });
+    }
   }
   // Manual: press and hold the ThousandEyes logo for a second.
   {

@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Narration: turns outages (and, live, this room's checks) into the lines
  * the voice says. Shared by the browser (live speech) and the GitHub Action
  * (scripts/render-speech.mjs), which renders the same lines to audio files

@@ -1,3 +1,4 @@
+// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
 /* Kokoro text-to-speech, in a module worker so the globe and gestures keep
  * running while it thinks (experimental: ?tts=1, or the Device Lab test).
  *

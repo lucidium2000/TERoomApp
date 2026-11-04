@@ -240,7 +240,8 @@ def main():
         print(('ok ' if file else '-- ') + key, src)
         if file:
             entries.append({'re': pattern, 'file': file, 'mark': kind == 'si'})
-    js = ('/* Logos for providers and apps (built by scripts/build-logos.py from\n'
+    js = ('// Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).\n'
+          '/* Logos for providers and apps (built by scripts/build-logos.py from\n'
           ' * Simple Icons, CC0, and the companies\' own site icons). First match wins.\n'
           ' * mark: a single-colour brand mark (drawn on a dark tile); else a full icon. */\n'
           '(function (root) {\n  \'use strict\';\n  const LIST = [\n'
