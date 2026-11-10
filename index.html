@@ -7,6 +7,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="author" content="Christopher Hunt">
+  <script>
+    // Phones (iPhone, Android phones) get the mobile app instead. Never on
+    // RoomOS devices; ?desktop=1 stays here (and is remembered for the visit).
+    (function () {
+      try {
+        var q = new URLSearchParams(location.search), ua = navigator.userAgent || '';
+        if (q.get('desktop') === '1') { sessionStorage.setItem('te-desktop', '1'); return; }
+        if (sessionStorage.getItem('te-desktop') === '1' || /RoomOS|Cisco/i.test(ua)) return;
+        if (/iPhone|iPod/.test(ua) || /Android.*Mobile/.test(ua)) location.replace('https://lucidium2000.github.io/TEMobile/');
+      } catch (e) { /* stay */ }
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>ThousandEyes Internet Insights</title>
   <link rel="icon" href="favicon.ico" sizes="any">
