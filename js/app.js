@@ -3104,9 +3104,9 @@
       if (i !== shownIdx) { shownIdx = i; label(i); }
       loopRaf = requestAnimationFrame(loop);
     }
-    const onFrames = (imgs, times, regs, dets) => {
+    const onFrames = (imgs, times, regs, dets, masks) => {
       if (!glr || mode === 'off') return;
-      glr.setRadarFrames(imgs, RADAR_A, regs, window.Radar.regionBox, dets, window.Radar.detail);
+      glr.setRadarFrames(imgs, RADAR_A, regs, window.Radar.regionBox, dets, window.Radar.detail, masks);
       frames = { n: imgs.length, times };
       radarTime.hidden = false;
       shownIdx = -1;
@@ -3140,6 +3140,9 @@
       loadStates();
       syncMapKey();
     };
+    // Detail regions nearest where the globe is looking load first.
+    setInterval(() => { if (mode !== 'off') window.Radar.setFocus(view.lon, view.lat); }, 2000);
+    window.Radar.setFocus(view.lon, view.lat);
     radarBtn.addEventListener('click', () => {
       userInput();
       mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];

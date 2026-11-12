@@ -96,62 +96,127 @@
     return img;
   }
 
-  // Detail boxes: the UK & Ireland and Australia from RainViewer at a much
-  // higher zoom than the world layer (zoom 6 / 5 - about 1.2 / 2.5 km a pixel
-  // against ~10 km - for every frame, the past-hour loop too; fetched after
-  // the world layer, never ahead of it), packed into one atlas image so the globe needs a single extra
-  // texture. The shader lays each box over the world layer, feathered at its
-  // edges, as it does with NOAA over North America. ?radardetail=0 skips it.
+  // Detail boxes: regions where RainViewer has real radar, fetched at a much
+  // higher zoom than the world layer (about 2.5 km a pixel at zoom 5, 1.2 at
+  // zoom 6, against ~10 km), for every frame of the past-hour loop too:
+  //   Mexico, Central America & the Caribbean; northern South America
+  //   (Colombia, Venezuela, Ecuador, western Brazil); Brazil's east & south;
+  //   Australia; the UK & Ireland.
+  // All five are packed into one 4096 x 2048 atlas per frame (about 3.3 km a
+  // pixel, 1.6 for the UK), so the globe needs a single extra texture. Each
+  // region loads on its own - nearest to where the globe is looking first -
+  // and appears as soon as it's in; tiles RainViewer has no radar for (open
+  // sea, the Amazon interior) are skipped using its coverage map. The shader
+  // lays each region over the world layer, feathered at its edges.
+  // ?radardetail=0 skips all of it.
   const DETAIL_ON = qs.get('radardetail') !== '0';
+  const DET_W = 4096, DET_H = 2048;
   const DETAIL = [
-    { id: 'au', box: [112, -44.5, 155, -10], z: 5, rect: [0, 0, 0.625, 1] },
-    { id: 'uk', box: [-11, 49.5, 3, 61], z: 6, rect: [0.625, 0, 1, 0.6426] },
+    { id: 'mx', box: [-118, 7, -58, 33], z: 5, rect: [0.0000, 0.0000, 0.4951, 0.4292] },
+    { id: 'nsa', box: [-81, -13, -58, 13], z: 5, rect: [0.4951, 0.0000, 0.6851, 0.4292] },
+    { id: 'au', box: [112, -44.5, 155, -10], z: 5, rect: [0.0000, 0.4292, 0.3547, 0.9985] },
+    { id: 'br', box: [-60, -35, -34, -1], z: 5, rect: [0.3547, 0.4292, 0.5693, 0.9902] },
+    { id: 'uk', box: [-11, 49.5, 3, 61], z: 6, rect: [0.5693, 0.4292, 0.8003, 0.8091] },
   ];
-  const detBuilt = new Map();
   const mercY = (lat, size) => (0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)) / (2 * Math.PI)) * size;
-  async function buildDetail(host, path) {
-    const key = path;
-    if (detBuilt.has(key)) return detBuilt.get(key);
-    const W = 2048, H = W / 2;
-    const atlas = document.createElement('canvas');
-    atlas.width = W; atlas.height = H;
-    const ag = atlas.getContext('2d');
-    await Promise.all(DETAIL.map(async (d) => {
-      const z = d.z, n = 1 << z, size = TILE * n;   // full detail for every frame
-      const [w, s, e, nth] = d.box;
-      const x0 = Math.floor((w + 180) / 360 * n), x1 = Math.floor((e + 180) / 360 * n);
-      const y0 = Math.floor(mercY(nth, n)), y1 = Math.floor(mercY(s, n));
-      const st = document.createElement('canvas');
-      st.width = (x1 - x0 + 1) * TILE; st.height = (y1 - y0 + 1) * TILE;
-      const sg = st.getContext('2d');
+  let focus = null;   // [lon, lat] the globe is looking at (setFocus)
+  const byFocus = () => DETAIL.slice().sort((a, b) => {
+    if (!focus) return 0;
+    const d = (r) => {
+      const cx = Math.max(r.box[0], Math.min(r.box[2], focus[0])), cy = Math.max(r.box[1], Math.min(r.box[3], focus[1]));
+      return Math.hypot((cx - focus[0]) * Math.cos(focus[1] * Math.PI / 180), cy - focus[1]);
+    };
+    return d(a) - d(b);
+  });
+
+  // RainViewer's coverage map (zoom 2, fetched once): transparent where a
+  // radar reaches. A detail tile with no coverage anywhere is skipped.
+  let coverage = null;
+  async function loadCoverage() {
+    if (coverage) return coverage;
+    coverage = (async () => {
+      const c = document.createElement('canvas'); c.width = c.height = 2048;
+      const g = c.getContext('2d');
       const jobs = [];
-      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
-        jobs.push(loadImg(`${host}${path}/${TILE}/${z}/${x}/${y}/${COLOR}/1_1.png`)
-          .then((im) => sg.drawImage(im, (x - x0) * TILE, (y - y0) * TILE)).catch(() => {}));
+      for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) {
+        jobs.push(loadImg(`https://tilecache.rainviewer.com/v2/coverage/0/512/2/${x}/${y}/0/0_0.png`)
+          .then((im) => g.drawImage(im, x * 512, y * 512)).catch(() => { g.fillStyle = 'rgba(0,0,0,0)'; }));
       }
       await Promise.all(jobs);
-      // Reproject the box, row by row, into its rectangle of the atlas.
-      const rx = d.rect[0] * W, ry = d.rect[1] * H, rw = (d.rect[2] - d.rect[0]) * W, rh = (d.rect[3] - d.rect[1]) * H;
-      const sx = (w + 180) / 360 * size - x0 * TILE, sw = (e - w) / 360 * size;
-      for (let row = 0; row < rh; row++) {
-        const lat = nth - ((row + 0.5) / rh) * (nth - s);
-        const sy = mercY(lat, size) - y0 * TILE;
-        ag.drawImage(st, sx, Math.max(0, Math.min(st.height - 1, sy - 0.5)), sw, 1, rx, ry + row, rw, 1);
-      }
-      st.width = 0;
-    }));
-    let img = atlas;
-    if (SOFT > 0) {
-      img = document.createElement('canvas');
-      img.width = W; img.height = H;
-      const g2 = img.getContext('2d');
-      g2.filter = `blur(${(SOFT * 0.6).toFixed(2)}px)`;   // these pixels are already ~5x finer
-      g2.drawImage(atlas, 0, 0);
-      atlas.width = 0;
+      try { return g.getImageData(0, 0, 2048, 2048).data; } catch (_) { return null; }
+    })();
+    return coverage;
+  }
+  /** Does this tile (zoom z) have any radar coverage? (true when unknown) */
+  function covered(cov, z, x, y) {
+    if (!cov) return true;
+    const k = 512 / (1 << (z - 2));   // tile size in coverage pixels
+    const x0 = Math.floor(x * k), y0 = Math.floor(y * k), n = Math.max(1, Math.ceil(k));
+    for (let yy = y0; yy < Math.min(2048, y0 + n); yy += 2) {
+      for (let xx = x0; xx < Math.min(2048, x0 + n); xx += 2) if (cov[(yy * 2048 + xx) * 4 + 3] < 128) return true;
     }
-    detBuilt.set(key, img);
-    if (detBuilt.size > 9) detBuilt.delete(detBuilt.keys().next().value);
+    return false;
+  }
+
+  /** One region of one frame, reprojected to its rectangle's size (cached). */
+  const regionBuilt = new Map();   // path|id -> canvas
+  async function buildRegion(host, path, d) {
+    const key = path + '|' + d.id;
+    if (regionBuilt.has(key)) return regionBuilt.get(key);
+    const cov = await loadCoverage();
+    const z = d.z, n = 1 << z, size = TILE * n;
+    const [w, s, e, nth] = d.box;
+    const x0 = Math.floor((w + 180) / 360 * n), x1 = Math.floor((e + 180) / 360 * n);
+    const y0 = Math.floor(mercY(nth, n)), y1 = Math.floor(mercY(s, n));
+    const st = document.createElement('canvas');
+    st.width = (x1 - x0 + 1) * TILE; st.height = (y1 - y0 + 1) * TILE;
+    const sg = st.getContext('2d');
+    const jobs = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+      if (!covered(cov, z, x, y)) continue;
+      jobs.push(loadImg(`${host}${path}/${TILE}/${z}/${x}/${y}/${COLOR}/1_1.png`)
+        .then((im) => sg.drawImage(im, (x - x0) * TILE, (y - y0) * TILE)).catch(() => {}));
+    }
+    await Promise.all(jobs);
+    const rw = Math.round((d.rect[2] - d.rect[0]) * DET_W), rh = Math.round((d.rect[3] - d.rect[1]) * DET_H);
+    const out = document.createElement('canvas');
+    out.width = rw; out.height = rh;
+    const og = out.getContext('2d');
+    const sx = (w + 180) / 360 * size - x0 * TILE, sw = (e - w) / 360 * size;
+    for (let row = 0; row < rh; row++) {
+      const lat = nth - ((row + 0.5) / rh) * (nth - s);
+      const sy = mercY(lat, size) - y0 * TILE;
+      og.drawImage(st, sx, Math.max(0, Math.min(st.height - 1, sy - 0.5)), sw, 1, 0, row, rw, 1);
+    }
+    st.width = 0;
+    let img = out;
+    if (SOFT > 0) {
+      img = document.createElement('canvas'); img.width = rw; img.height = rh;
+      const g2 = img.getContext('2d');
+      g2.filter = `blur(${(SOFT * 0.6).toFixed(2)}px)`;   // these pixels are already ~3x finer
+      g2.drawImage(out, 0, 0);
+      out.width = 0;
+    }
+    regionBuilt.set(key, img);
+    if (regionBuilt.size > DETAIL.length * 9) regionBuilt.delete(regionBuilt.keys().next().value);
     return img;
+  }
+  /** The atlas for a frame from the regions built so far: {img, mask} (mask:
+   *  which regions are in, in DETAIL order), or null when none are. */
+  const atlasBuilt = new Map();   // path -> {img, mask}
+  function composeAtlas(path) {
+    const mask = DETAIL.map((d) => regionBuilt.has(path + '|' + d.id));
+    if (!mask.some(Boolean)) return null;
+    const prev = atlasBuilt.get(path);
+    if (prev && prev.mask.join() === mask.join()) return prev;
+    const c = document.createElement('canvas'); c.width = DET_W; c.height = DET_H;
+    const g = c.getContext('2d');
+    DETAIL.forEach((d, i) => { if (mask[i]) g.drawImage(regionBuilt.get(path + '|' + d.id), Math.round(d.rect[0] * DET_W), Math.round(d.rect[1] * DET_H)); });
+    if (prev) prev.img.width = 0;   // free the older composite
+    const a = { img: c, mask };
+    atlasBuilt.set(path, a);
+    if (atlasBuilt.size > 9) { const k = atlasBuilt.keys().next().value; atlasBuilt.get(k).img.width = 0; atlasBuilt.delete(k); }
+    return a;
   }
 
   /** One radar frame as an equirectangular canvas (cached). */
@@ -215,36 +280,41 @@
       // Australia detail follows behind it (newest frame first) and is
       // patched in as each frame's is ready. Built frames are cached, so after
       // the first load only the newest frame's detail is fetched.
-      const known = (k) => (DETAIL_ON ? detBuilt.get(frames[k].path) || null : null);
+      const atlas = (k) => (DETAIL_ON ? composeAtlas(frames[k].path) : null);
       if (!animate) {
         const [img, reg] = await Promise.all([build(idx.host, frames[0].path, Z), REG ? region(times[0], REG_W) : null]);
         if (!running || mine !== gen) return;
-        lastKey = key; onFrames([img], times, [reg], [known(0)]);
-        if (DETAIL_ON && !known(0)) {
-          const det = await buildDetail(idx.host, frames[0].path);
-          if (!running || mine !== gen) return;
-          onFrames([img], times, [reg], [det]);
+        lastKey = key;
+        const sendLive = () => { const a = atlas(0); onFrames([img], times, [reg], [a && a.img], [a && a.mask]); };
+        sendLive();
+        if (DETAIL_ON) {
+          for (const d of byFocus()) {
+            if (regionBuilt.has(frames[0].path + '|' + d.id)) continue;
+            await buildRegion(idx.host, frames[0].path, d);
+            if (!running || mine !== gen) return;
+            sendLive();
+          }
         }
         return;
       }
-      // The past hour, newest first: the latest frame is the live one (most
-      // likely built already), shown at once; older frames join the loop as
-      // they arrive, so it plays within seconds instead of after a minute.
+      // The past hour. Order: the newest frame's world layer, then its detail
+      // regions (nearest the view first, each shown as it arrives), then the
+      // older frames' world layers, then their detail.
       const imgs = new Array(frames.length).fill(null), regs = new Array(frames.length).fill(null);
-      const dets = frames.map((f, k) => known(k));
       const send = () => {
         const have = imgs.map((im, k) => k).filter((k) => imgs[k]);
-        onFrames(have.map((k) => imgs[k]), have.map((k) => times[k]), have.map((k) => regs[k]), have.map((k) => dets[k]));
+        const at = have.map((k) => atlas(k));
+        onFrames(have.map((k) => imgs[k]), have.map((k) => times[k]), have.map((k) => regs[k]), at.map((a) => a && a.img), at.map((a) => a && a.mask));
       };
-      // Order: the newest frame's world layer, then its detail (so the sharp
-      // UK / Australia view shows within seconds), then the older frames'
-      // world layers, then their detail.
       const newest = frames.length - 1;
       const loadDetail = async (i) => {
-        if (!DETAIL_ON || dets[i]) return true;
-        dets[i] = await buildDetail(idx.host, frames[i].path);
-        if (!running || mine !== gen) return false;
-        send();
+        if (!DETAIL_ON) return true;
+        for (const d of byFocus()) {
+          if (regionBuilt.has(frames[i].path + '|' + d.id)) continue;
+          await buildRegion(idx.host, frames[i].path, d);
+          if (!running || mine !== gen) return false;
+          send();
+        }
         return true;
       };
       for (let i = newest; i >= 0; i--) {
@@ -283,10 +353,13 @@
     /** The regional layer's bounds: [west, south, east, north]. */
     regionBox: REG_BOX,
     /** The detail boxes and where each sits in the detail atlas. */
-    detail: DETAIL.map((d) => ({ box: d.box, rect: d.rect })),
+    detail: DETAIL.map((d) => ({ id: d.id, box: d.box, rect: d.rect })),
+    /** Where the globe is looking: detail regions nearest it load first. */
+    setFocus(lon, lat) { if (isFinite(lon) && isFinite(lat)) focus = [lon, lat]; },
     /** Debugging: the detail atlases built so far (newest last). */
-    get detailBuilt() { return [...detBuilt.values()]; },
-    get debugState() { return { worldWaiting, tokens: Math.round(tokens), gen, animate, running, built: built.size }; },
+    get detailBuilt() { return [...atlasBuilt.values()].map((a) => a.img); },
+    get detailRegions() { return [...regionBuilt.keys()]; },
+    get debugState() { return { tokens: Math.round(tokens), gen, animate, running, built: built.size, regions: regionBuilt.size }; },
     regional: REG,
     /** Keep the stitched size within the GPU's maximum texture size. */
     /** Lighter frames (half the size each way) while the camera's hand

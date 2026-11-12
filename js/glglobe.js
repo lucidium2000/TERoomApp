@@ -58,12 +58,12 @@ uniform sampler2D uReg;   // regional high-res radar (NOAA MRMS over North Ameri
 uniform sampler2D uRegB;  // its next frame, while animating
 uniform vec4 uRegBox;     // its bounds: west, south, east, north (degrees)
 uniform float uRegOn;     // 1 when the regional frames are loaded
-uniform sampler2D uDet;   // detail boxes (UK, Australia) packed in one atlas
+uniform sampler2D uDet;   // detail regions (radar.js DETAIL) packed in one atlas
 uniform sampler2D uDetB;  // its next frame, while animating
-uniform vec4 uDetBox0, uDetBox1;    // each box: west, south, east, north
-uniform vec4 uDetRect0, uDetRect1;  // where it sits in the atlas: u0, v0, u1, v1
+uniform vec4 uDetBox[5];  // each region: west, south, east, north
+uniform vec4 uDetRect[5]; // where it sits in the atlas: u0, v0, u1, v1
+uniform float uDetHasA[5], uDetHasB[5];   // this frame / the next has that region yet
 uniform float uDetOn;
-uniform float uDetHasA, uDetHasB;   // this frame / the next has its detail yet
 
 const float PI = 3.14159265;
 
@@ -152,21 +152,40 @@ void main() {
         vec2 ruv = vec2((lonDeg - uRegBox.x) / (uRegBox.z - uRegBox.x), (uRegBox.w - latDeg) / (uRegBox.w - uRegBox.y));
         vec2 e = min(ruv, 1.0 - ruv);
         float inR = smoothstep(0.0, 0.04, min(e.x, e.y));
+        // NOAA has no radar for Mexico, Cuba or the Bahamas: there, keep the
+        // world layer (and the Mexico detail) instead of NOAA's blank.
+        // The US's southern edge (the Mexican border, then the Gulf and the
+        // Florida Keys) as a latitude for each longitude.
+        float bLat;
+        if (lonDeg < -114.8) bLat = 32.5;
+        else if (lonDeg < -111.0) bLat = mix(32.5, 31.33, (lonDeg + 114.8) / 3.8);
+        else if (lonDeg < -108.2) bLat = 31.33;
+        else if (lonDeg < -106.5) bLat = 31.8;
+        else if (lonDeg < -101.0) bLat = mix(31.8, 29.4, (lonDeg + 106.5) / 5.5);
+        else if (lonDeg < -97.2) bLat = mix(29.4, 25.9, (lonDeg + 101.0) / 3.8);
+        else if (lonDeg < -83.0) bLat = 25.6;
+        else bLat = 24.3;
+        inR *= smoothstep(bLat - 1.2, bLat + 0.6, latDeg);   // 0 south of it
         vec2 cuv = clamp(ruv, 0.0, 1.0);
         vec4 rr = texture2D(uReg, cuv);
         if (uRadarMix > 0.0) rr = mix(rr, texture2D(uRegB, cuv), uRadarMix);
-        rd = mix(rd, rr, inR);
+        // In the seam (the box's feathered edge, the border band) show both
+        // layers - NOAA over the world - so the two sources' small
+        // disagreements don't cut a cell off with a straight line.
+        vec4 ov = rr + rd * (1.0 - rr.a);
+        rd = mix(mix(rd, ov, smoothstep(0.0, 0.3, inR)), rr, smoothstep(0.55, 1.0, inR));
       }
       if (uDetOn > 0.0) {
-        for (int i = 0; i < 2; i++) {
-          vec4 bx = i == 0 ? uDetBox0 : uDetBox1, rc = i == 0 ? uDetRect0 : uDetRect1;
+        for (int i = 0; i < 5; i++) {
+          vec4 bx = uDetBox[i], rc = uDetRect[i];
           vec2 q = vec2((lonDeg - bx.x) / (bx.z - bx.x), (bx.w - latDeg) / (bx.w - bx.y));
           vec2 e2 = min(q, 1.0 - q);
           float inD = smoothstep(0.0, 0.06, min(e2.x, e2.y));
           vec2 auv = mix(rc.xy, rc.zw, clamp(q, 0.0, 1.0));
           // Each frame's detail replaces its own share of the blend; a frame
           // whose detail hasn't arrived yet keeps the world layer.
-          float wA = uDetHasA * (1.0 - uRadarMix), wB = uDetHasB * uRadarMix;
+          float wA = uDetHasA[i] * (1.0 - uRadarMix), wB = uDetHasB[i] * uRadarMix;
+          if (wA + wB <= 0.0) continue;
           vec4 dd = texture2D(uDet, auv) * wA + texture2D(uDetB, auv) * wB;
           rd = rd * (1.0 - inD * (wA + wB)) + dd * inD;
         }
@@ -258,7 +277,7 @@ void main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const Q = { aPos: gl.getAttribLocation(quadProg, 'aPos') };
-    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA', 'uReg', 'uRegB', 'uRegBox', 'uRegOn', 'uDet', 'uDetB', 'uDetBox0', 'uDetBox1', 'uDetRect0', 'uDetRect1', 'uDetOn', 'uDetHasA', 'uDetHasB']) Q[n] = gl.getUniformLocation(quadProg, n);
+    for (const n of ['uRes', 'uEye', 'uCtr', 'uRw', 'uR', 'uRot', 'uSun', 'uStarOff', 'uPx', 'uLand', 'uStars', 'uRadar', 'uRadarB', 'uRadarMix', 'uRadarA', 'uReg', 'uRegB', 'uRegBox', 'uRegOn', 'uDet', 'uDetB', 'uDetBox', 'uDetRect', 'uDetOn', 'uDetHasA', 'uDetHasB']) Q[n] = gl.getUniformLocation(quadProg, n);
     const Lu = { aP: gl.getAttribLocation(lineProg, 'aP') };
     for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uColor', 'uSun']) Lu[n] = gl.getUniformLocation(lineProg, n);
     gl.useProgram(quadProg);
@@ -290,6 +309,8 @@ void main() {
     let radarTexs = [blankTex], radarByImg = new Map();
     let regTexs = [blankTex], regByImg = new Map(), regOn = false, regBox = [-130, 20, -60, 55];
     let detTexs = [blankTex], detByImg = new Map(), detOn = false, detLayout = null, detHas = [];
+    let detBoxes = new Float32Array(20), detRects = new Float32Array(20);
+    const hasVec = (m) => { const v = new Float32Array(5); (m || []).forEach((x, i) => { if (i < 5) v[i] = x ? 1 : 0; }); return v; };
     let radarA = 0, radarCur = 0, radarNext = 0, radarMix = 0;
     let statesOn = false;   // state lines without the radar (the power layer)
 
@@ -410,18 +431,23 @@ void main() {
     }
     /** Several radar frames (oldest first) for animation; null clears.
      *  regs (optional): the matching regional frames, inside box [w, s, e, n]. */
-    function setRadarFrames(imgs, alpha, regs, box, dets, layout) {
+    function setRadarFrames(imgs, alpha, regs, box, dets, layout, masks) {
       const a = syncTexs(imgs, radarByImg);
       radarTexs = a.texs; radarByImg = a.byImg;
       const useReg = !!(imgs && regs && regs.length === imgs.length && regs.every(Boolean));
       const b = syncTexs(useReg ? regs : null, regByImg);
       regTexs = b.texs; regByImg = b.byImg; regOn = useReg;
       // Detail may be missing for some frames while it loads: those keep the world layer.
-      const useDet = !!(imgs && dets && layout && layout.length >= 2 && dets.length === imgs.length && dets.some(Boolean));
+      const useDet = !!(imgs && dets && layout && layout.length && dets.length === imgs.length && dets.some(Boolean));
       const c = syncTexs(useDet ? dets : null, detByImg);
       detTexs = c.texs; detByImg = c.byImg; detOn = useDet;
-      detHas = useDet ? dets.map(Boolean) : [];
-      if (layout) detLayout = layout;
+      // Per frame, which regions it has: [frame][region] -> 0/1.
+      detHas = useDet ? dets.map((d, k) => (d ? (masks && masks[k]) || layout.map(() => true) : [])) : [];
+      if (layout) {
+        detLayout = layout.slice(0, 5);
+        detBoxes = new Float32Array(20); detRects = new Float32Array(20);
+        detLayout.forEach((r, i) => { detBoxes.set(r.box, i * 4); detRects.set(r.rect, i * 4); });
+      }
       if (box) regBox = box;
       radarCur = radarNext = radarTexs.length - 1; radarMix = 0;
       radarA = imgs === null ? 0 : alpha != null ? alpha : radarA;
@@ -457,12 +483,10 @@ void main() {
       gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, regTexs[radarCur] || regTexs[0]);
       gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, regTexs[radarNext] || regTexs[0]);
       gl.uniform1f(Q.uDetOn, detOn && radarA > 0 && detLayout ? 1 : 0);
-      gl.uniform1f(Q.uDetHasA, detHas[radarCur] ? 1 : 0);
-      gl.uniform1f(Q.uDetHasB, detHas[radarNext] ? 1 : 0);
-      if (detLayout) {
-        gl.uniform4fv(Q.uDetBox0, detLayout[0].box); gl.uniform4fv(Q.uDetBox1, detLayout[1].box);
-        gl.uniform4fv(Q.uDetRect0, detLayout[0].rect); gl.uniform4fv(Q.uDetRect1, detLayout[1].rect);
-      }
+      gl.uniform1fv(Q.uDetHasA, hasVec(detHas[radarCur]));
+      gl.uniform1fv(Q.uDetHasB, hasVec(detHas[radarNext]));
+      gl.uniform4fv(Q.uDetBox, detBoxes);
+      gl.uniform4fv(Q.uDetRect, detRects);
       gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, detTexs[radarCur] || detTexs[0]);
       gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, detTexs[radarNext] || detTexs[0]);
       gl.uniform3f(Q.uEye, p.eye[0], p.eye[1], p.eye[2]);
