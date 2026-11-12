@@ -658,13 +658,49 @@
     return S.windowH >= 24 || o.active || o.start + (o.durationS || 0) * 1000 >= dataNow() - S.windowH * 3600e3;
   }
   const windowLabel = (h) => (h === 1 ? 'Last hour' : `Last ${h} hours`);
+
+  // Regions (the Global Outages region filter): each location gets one, from
+  // its country where the name says it, else from its coordinates. An outage
+  // shows if any of its locations is in a chosen region. Remembered here.
+  const REGIONS = [
+    { id: 'na', name: 'North America', short: 'N. America' },
+    { id: 'latam', name: 'Latin America & Caribbean', short: 'LATAM' },
+    { id: 'eu', name: 'Europe', short: 'Europe' },
+    { id: 'mea', name: 'Middle East & Africa', short: 'MEA' },
+    { id: 'apac', name: 'Asia Pacific', short: 'APAC' },
+  ];
+  const LATAM_C = /\b(mexico|guatemala|belize|honduras|el salvador|nicaragua|costa rica|panama|cuba|haiti|dominican|jamaica|puerto rico|bahamas|barbados|trinidad|aruba|cura[cç]ao|cayman|virgin islands|guadeloupe|martinique|colombia|venezuela|ecuador|peru|bolivia|brazil|brasil|paraguay|uruguay|argentina|chile|guyana|suriname|french guiana)\b/i;
+  const NA_C = /(,\s*(us|usa|united states|canada|ca)$)|\b(united states|canada|greenland|bermuda)\b/i;
+  function regionOf(l) {
+    const nm = String(l.name || '');
+    const c = nm.split(',').pop().trim();
+    if (LATAM_C.test(c)) return 'latam';
+    if (NA_C.test(nm)) return 'na';
+    const lat = l.lat, lon = l.lon;
+    if (lon < -30) {
+      if (lat < 14.5) return 'latam';
+      if (lat < 32.6 && lon > -118 && lon < -86.6 && !(lat > 25.8 && lon > -106.6)) return 'latam';   // Mexico, not Texas
+      if (lat < 24.4 && lon >= -86.6) return 'latam';                                            // the Caribbean
+      return 'na';
+    }
+    if (lon >= 60 || lon < -150) return 'apac';
+    if (lat >= 35.5 && lon < 45) return 'eu';
+    return 'mea';
+  }
+  S.regions = null;   // null = all; else a Set of region ids
+  try { const r = JSON.parse(localStorage.getItem('te-regions') || 'null'); if (Array.isArray(r) && r.length && r.length < REGIONS.length) S.regions = new Set(r); } catch (_) { /* all */ }
+  const locInRegion = (l) => !S.regions || S.regions.has(l.region || (l.region = regionOf(l)));
+  const inRegion = (o) => !S.regions || o.locations.some(locInRegion);
+  /** In the panel's time window and region. */
+  const inScope = (o) => inWindow(o) && inRegion(o);
+  const regionLabel = () => (!S.regions ? 'All regions' : S.regions.size === 1 ? REGIONS.find((r) => S.regions.has(r.id)).short : `${S.regions.size} regions`);
   /** The line under the title: the time window and when the data was published. */
   function showUpdated() {
     if (!S.updatedT) return;
     // Over 30 minutes old: say so (amber), rather than look current.
     const ageMin = (Date.now() - S.updatedT) / 60000, late = ageMin > 30;
     const ago = ageMin < 90 ? `${Math.round(ageMin)} min ago` : `${Math.round(ageMin / 60)} h ago`;
-    el.updated.textContent = `${windowLabel(S.windowH).toLowerCase()} \u2014 updated ${fmtTime(S.updatedT)}` + (late ? ` \u00B7 delayed (${ago})` : '');
+    el.updated.textContent = `${windowLabel(S.windowH).toLowerCase()}${S.regions ? ' \u00B7 ' + regionLabel() : ''} \u2014 updated ${fmtTime(S.updatedT)}` + (late ? ` \u00B7 delayed (${ago})` : '');
     el.updated.classList.toggle('late', late);
   }
   setInterval(showUpdated, 60e3);
@@ -672,7 +708,7 @@
   // which lists places instead of outages (every outage stays on the globe).
   function outageVisible(o) {
     const f = S.filter;
-    return (f === 'all' || f === 'locations' || (f === 'active' ? o.active : o.kind === f)) && inWindow(o);
+    return (f === 'all' || f === 'locations' || (f === 'active' ? o.active : o.kind === f)) && inScope(o);
   }
 
   /** Is this location the one being looked at? (Card hover/tap, or the
@@ -1531,8 +1567,9 @@
   function locationGroups() {
     const by = new Map();
     for (const o of S.outages) {
-      if (!inWindow(o)) continue;
+      if (!inScope(o)) continue;
       for (const l of o.locations) {
+        if (!locInRegion(l)) continue;
         const g = by.get(l.name) || { name: l.name, label: l.label || String(l.name).split(',')[0], lat: l.lat, lon: l.lon, outages: [], active: 0, kinds: new Set() };
         if (!g.outages.includes(o)) { g.outages.push(o); g.active += o.active ? 1 : 0; g.kinds.add(o.kind); }
         by.set(l.name, g);
@@ -1582,10 +1619,10 @@
   }
 
   function renderStats() {
-    const all = S.outages.filter(inWindow);
+    const all = S.outages.filter(inScope);
     const net = all.filter((o) => o.kind === 'network');
     const app = all.filter((o) => o.kind === 'application');
-    const locs = new Set(all.flatMap((o) => o.locations.map((l) => l.name)));
+    const locs = new Set(all.flatMap((o) => o.locations.filter(locInRegion).map((l) => l.name)));
     el.statActive.textContent = all.filter((o) => o.active).length;
     el.statNet.textContent = net.length;
     el.statApp.textContent = app.length;
@@ -2201,6 +2238,7 @@
     const BINS = { 1: 30, 6: 36, 12: 48, 24: 48 }[S.windowH] || 48;
     const bins = Array.from({ length: BINS }, () => ({ network: 0, application: 0 }));
     for (const o of S.outages) {
+      if (!inRegion(o)) continue;
       const i = Math.floor((o.start - (now - span)) / (span / BINS));
       if (i >= 0 && i < BINS) bins[i][o.kind]++;
     }
@@ -2634,6 +2672,51 @@
     if (S.selected && !outageVisible(S.selected)) select(null);
     renderStats(); renderList(); renderTimeline();
   }));
+
+  // Region filter: the pill beside the time window shows the current choice;
+  // tap it for a small menu - All, or tick the regions to show (with how many
+  // outages each has in the window).
+  const regionBtn = document.getElementById('regionBtn'), regionMenu = document.getElementById('regionMenu');
+  const showRegion = () => { regionBtn.textContent = regionLabel(); regionBtn.dataset.on = S.regions ? '1' : ''; showUpdated(); };
+  showRegion();
+  function applyRegions() {
+    try { localStorage.setItem('te-regions', JSON.stringify(S.regions ? [...S.regions] : null)); } catch (_) { /* private mode */ }
+    showRegion();
+    if (S.selected && !outageVisible(S.selected)) select(null);
+    renderStats(); renderList(); renderTimeline();
+    renderRegionMenu();
+  }
+  function renderRegionMenu() {
+    if (regionMenu.hidden) return;
+    const count = (id) => S.outages.filter((o) => inWindow(o) && o.locations.some((l) => (l.region || (l.region = regionOf(l))) === id)).length;
+    regionMenu.innerHTML = `<button class="rm-row rm-all${!S.regions ? ' on' : ''}" data-r="all"><i></i>All regions</button>`
+      + REGIONS.map((r) => `<button class="rm-row${S.regions && S.regions.has(r.id) ? ' on' : ''}" data-r="${r.id}"><i></i>${esc(r.name)}<small>${count(r.id)}</small></button>`).join('');
+  }
+  regionBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); userInput(); sfx('tap');
+    regionMenu.hidden = !regionMenu.hidden;
+    if (!regionMenu.hidden) {
+      renderRegionMenu();
+      const r = regionBtn.getBoundingClientRect();
+      regionMenu.style.top = ((r.bottom + 6) / UIZ) + 'px';
+      regionMenu.style.right = (Math.max(8, innerWidth - r.right) / UIZ) + 'px';
+    }
+  });
+  regionMenu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-r]');
+    if (!b) return;
+    e.stopPropagation(); userInput(); sfx('tap');
+    const id = b.dataset.r;
+    if (id === 'all') S.regions = null;
+    else {
+      const set = new Set(S.regions || []);
+      if (set.has(id)) set.delete(id); else set.add(id);
+      S.regions = set.size && set.size < REGIONS.length ? set : null;
+    }
+    applyRegions();
+  });
+  regionMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+  document.addEventListener('pointerdown', (e) => { if (!regionMenu.hidden && !e.target.closest('#regionMenu, #regionBtn')) regionMenu.hidden = true; });
 
   // Filters: the Apps and Network totals are the buttons (tap the one that's
   // on again for all), plus a small All on the line between them.

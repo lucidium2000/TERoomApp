@@ -829,6 +829,27 @@ line.pv-hit:hover + * , line.pv-hit:hover { stroke: rgba(148, 163, 184, .12); }
   font-size: .68em; font-weight: 700; letter-spacing: .04em; text-transform: none; color: var(--ink-2);
   background: rgba(255, 255, 255, .05); border: 1px solid var(--line); cursor: pointer; white-space: nowrap;
 }
+.region-btn { margin-left: auto; }
+/* Two pills beside the title: keep it on one line. */
+.outages .sec-title { flex-wrap: nowrap; }
+.outages .sec-title .sec-name { white-space: nowrap; }
+.outages .sec-title .win-btn { font-size: .62em; padding: .25em .6em; min-height: 26px; }
+.region-btn + .win-btn { margin-left: .35em; }
+.region-btn[data-on="1"] { color: #a5f3fc; border-color: rgba(22, 189, 235, .5); background: rgba(22, 189, 235, .1); }
+.region-menu {
+  position: fixed; z-index: 130; min-width: 15em; padding: .4em; zoom: var(--ui-zoom);
+  background: rgba(9, 14, 26, .97); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px rgba(0, 0, 0, .55);
+  display: flex; flex-direction: column; gap: .1em;
+}
+.region-menu[hidden] { display: none; }
+.rm-row { display: flex; align-items: center; gap: .6em; width: 100%; padding: .5em .6em; border-radius: 8px; font: inherit; font-size: .86em; color: var(--ink-2); text-align: left; cursor: pointer; background: none; border: 0; min-height: 36px; }
+.rm-row:hover { background: rgba(255, 255, 255, .06); color: var(--ink); }
+.rm-row i { flex: none; width: .95em; height: .95em; border-radius: 4px; border: 1.5px solid var(--ink-3); }
+.rm-all i { border-radius: 50%; }
+.rm-row.on { color: var(--ink); }
+.rm-row.on i { background: var(--app); border-color: var(--app); box-shadow: inset 0 0 0 2px #0b1220; }
+.rm-row small { margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.rm-all { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
 .win-btn:hover { color: var(--ink); border-color: rgba(255, 255, 255, .25); }
 .win-btn[data-h="1"], .win-btn[data-h="6"], .win-btn[data-h="12"] { color: #fde68a; border-color: rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .08); }
 .outages .sec-title::before { background: var(--net); }
