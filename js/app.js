@@ -2619,7 +2619,7 @@
   el.panel.addEventListener('pointerdown', userInput);
 
   // Time window toggle: 24 -> 1 -> 6 -> 12 -> 24 hours (remembered here).
-  // Two buttons, one setting: in the Around the World header and at the
+  // Two buttons, one setting: in the Global Outages header and at the
   // top right of the timeline.
   const winBtns = [document.getElementById('winBtn'), document.getElementById('tlWinBtn')].filter(Boolean);
   const showWindow = () => { winBtns.forEach((b) => { b.textContent = windowLabel(S.windowH); b.dataset.h = String(S.windowH); }); showUpdated(); };
