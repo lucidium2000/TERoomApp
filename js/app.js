@@ -691,6 +691,10 @@
   try { const r = JSON.parse(localStorage.getItem('te-regions') || 'null'); if (Array.isArray(r) && r.length && r.length < REGIONS.length) S.regions = new Set(r); } catch (_) { /* all */ }
   const locInRegion = (l) => !S.regions || S.regions.has(l.region || (l.region = regionOf(l)));
   const inRegion = (o) => !S.regions || o.locations.some(locInRegion);
+  // An outage's locations inside the selected regions (all of them when none
+  // is picked): what the globe, card and list show. byWeight follows the same.
+  const locsOf = (o) => { if (!S.regions) return o.locations; const l = o.locations.filter(locInRegion); return l.length ? l : o.locations; };
+  const weightOf = (o) => (S.regions ? locsOf(o).slice().sort((a, b) => b.n - a.n) : o.byWeight);
   /** In the panel's time window and region. */
   const inScope = (o) => inWindow(o) && inRegion(o);
   const regionLabel = () => (!S.regions ? 'All regions' : S.regions.size === 1 ? REGIONS.find((r) => S.regions.has(r.id)).short : `${S.regions.size} regions`);
@@ -820,7 +824,7 @@
     let best = null, bd = LAYER_NEAR;
     for (const o of S.drawOrder) {
       if (!outageVisible(o)) continue;
-      for (const loc of o.locations) {
+      for (const loc of locsOf(o)) {
         const d = Math.hypot(loc.lon - lon, loc.lat - lat);
         if (d < bd) { bd = d; best = o; }
       }
@@ -921,15 +925,16 @@
     const sel = S.selected;
 
     // Selected outage: great-circle links from its biggest location to the rest.
-    if (sel && sel.locations.length > 1) {
-      const hub = sel.locations.reduce((a, b) => (b.n > a.n ? b : a));
+    const selLocs = sel ? locsOf(sel) : [];
+    if (sel && selLocs.length > 1) {
+      const hub = selLocs.reduce((a, b) => (b.n > a.n ? b : a));
       ctx.save();
       ctx.setLineDash([6 * k, 9 * k]);
       ctx.lineDashOffset = -(now / 40) % 1000;
       ctx.lineCap = 'round';
       for (const [w, a] of [[5, 0.25], [1.6, 0.95]]) {
         ctx.beginPath();
-        for (const loc of sel.locations) {
+        for (const loc of selLocs) {
           if (loc !== hub) proj.arc([hub.lon, hub.lat], [loc.lon, loc.lat]);
         }
         ctx.strokeStyle = `rgba(${RGB[sel.kind]},${a})`; ctx.lineWidth = w * k; ctx.stroke();
@@ -947,7 +952,7 @@
         : (sel && !isSel ? 0.35 : 1);
       const a = (o.active ? 1 : Math.max(0.35, 1 - o.ageMin / (24 * 60))) * dim;
       const sprite = getGlow(o.kind);
-      for (const loc of o.locations) {
+      for (const loc of locsOf(o)) {
         const p = proj.point(loc.lon, loc.lat, loc.v);
         if (!p) continue;
         const r = (3.2 + Math.sqrt(loc.n) * 1.6) * k * (isSel ? 1.35 : 1);
@@ -993,7 +998,7 @@
       ctx.font = `600 ${Math.round(13 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textBaseline = 'middle';
       const placed = [];
-      for (const loc of sel.byWeight) {
+      for (const loc of weightOf(sel)) {
         const p = proj.point(loc.lon, loc.lat, loc.v);
         if (!p) continue;
         const label = loc.label;
@@ -1051,7 +1056,7 @@
     // A location hovered or picked in the card: a bright target ring on its
     // point, and its name, even where labels were thinned out.
     const hi = sel && (S.locHover || S.locPick);
-    if (hi && sel.locations.includes(hi)) {
+    if (hi && locsOf(sel).includes(hi)) {
       const p = proj.point(hi.lon, hi.lat, hi.v);
       if (p) {
         const r = 13 * k, t = (now % 1200) / 1200;
@@ -1120,7 +1125,7 @@
 
   /** Where the camera should sit to frame an outage's locations. */
   function framing(o) {
-    const pts = o.locations.map((l) => [l.lon, l.lat]);
+    const pts = locsOf(o).map((l) => [l.lon, l.lat]);
     const centre = pts.length > 1 ? d3.geoCentroid({ type: 'MultiPoint', coordinates: pts }) : pts[0];
     const spread = Math.max(0, ...pts.map((p) => d3.geoDistance(p, centre)));
     const zoom = Math.max(DEFAULT_ZOOM, Math.min(2.6, 1.05 / (spread + 0.32)));
@@ -1522,7 +1527,7 @@
     // Tour steps are silent (the tour gets one overall synopsis instead);
     // picking an outage yourself gets a short line about it.
     if (!select.quiet && !fromTour) speakOutage(o, false);
-    fetchWeather(o.locations);
+    fetchWeather(locsOf(o));
     if (fromTour) S.tourT0 = performance.now();
     flyTo(o, fromTour ? 2600 : 1800);
 
@@ -1534,19 +1539,19 @@
     const metrics = [
       [fmtTime(o.start), 'Started'],
       [fmtDur(o.durationS), 'Duration'],
-      [o.locations.length, o.locations.length === 1 ? 'Location' : 'Locations'],
+      [locsOf(o).length, locsOf(o).length === 1 ? 'Location' : 'Locations'],
       o.kind === 'network' ? [o.interfaces, 'Interfaces'] : [o.servers, 'Servers'],
     ];
     if (o.asn) metrics.push(['AS' + o.asn, 'Network']);
     el.cardMetrics.innerHTML = metrics.map(([b, s]) => `<div><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
     // Power layer on: a note when a county near this outage is without power.
-    const pwrNear = o.locations.map((l) => nearestPower(l.lon, l.lat)).find(Boolean);
+    const pwrNear = locsOf(o).map((l) => nearestPower(l.lon, l.lat)).find(Boolean);
     const note = document.getElementById('cardNote');
     if (note) {
       note.hidden = !pwrNear;
       note.textContent = pwrNear ? `Power out nearby: ${pwrNear.name}, ${pwrNear.state} \u00B7 ${Math.round(pwrNear.out).toLocaleString('en-US')} customers` : '';
     }
-    const locs = o.locations.slice().sort((a, b) => b.n - a.n);
+    const locs = locsOf(o).slice().sort((a, b) => b.n - a.n);
     // Each location: hover lights up its point on the globe, tap zooms to it.
     S.locHover = null; S.locPick = null; S.cardLocList = locs.slice(0, 8);
     el.cardLocs.innerHTML = S.cardLocList.map((l, i) => `<li data-loc="${i}" title="Show ${esc(l.label || l.name)} on the globe">${esc(l.name)}</li>`).join('')
@@ -1608,7 +1613,7 @@
     const list = S.outages.filter(outageVisible).slice().sort((a, b) => (b.active - a.active) || (b.start - a.start));
     if (!list.length) { el.list.innerHTML = `<li class="empty">No outages in the ${S.windowH === 1 ? 'last hour' : `last ${S.windowH} hours`}.</li>`; return; }
     el.list.innerHTML = list.map((o) => {
-      const where = o.locations.length === 1 ? o.locations[0].name : `${o.locations.length} locations`;
+      const ol = locsOf(o), where = ol.length === 1 ? ol[0].name : `${ol.length} locations`;
       return `<li class="row ${o.kind}${o.active ? ' active' : ''}${o === S.selected ? ' sel' : ''}" data-id="${esc(o.id)}">`
         + `<div class="ico">${iconHtml(o)}</div>`
         + `<div><div class="nm">${esc(o.name)}</div><div class="meta">${esc(where)} · ${fmtDur(o.durationS)}</div></div>`
@@ -2326,7 +2331,7 @@
     const xl = x / UIZ;   // inside the zoomed timeline
     tlScrub.style.left = xl + 'px';
     tlLabel.textContent = `${new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${fmtTime(t)} \u00B7 ${count} outage${count === 1 ? '' : 's'}`
-      + (n && Math.abs(n.start - t) <= scrubWin() ? ` \u00B7 ${n.name}${n.locations[0] ? ', ' + n.locations[0].label : ''}` : '');
+      + (n && Math.abs(n.start - t) <= scrubWin() ? ` \u00B7 ${n.name}${locsOf(n)[0] ? ', ' + locsOf(n)[0].label : ''}` : '');
     // Keep the label on screen near the ends; the line itself stays exact.
     const cw = tlChart.clientWidth, lw = tlLabel.offsetWidth;
     const shift = Math.max(lw / 2 - xl, Math.min(0, cw - xl - lw / 2));
@@ -2683,6 +2688,8 @@
     try { localStorage.setItem('te-regions', JSON.stringify(S.regions ? [...S.regions] : null)); } catch (_) { /* private mode */ }
     showRegion();
     if (S.selected && !outageVisible(S.selected)) select(null);
+    // Still showing: redo its card and framing for just the in-region places.
+    else if (S.selected) { select.quiet = true; try { select(S.selected); } finally { select.quiet = false; } }
     renderStats(); renderList(); renderTimeline();
     renderRegionMenu();
   }
@@ -3784,7 +3791,7 @@
   function updateFloat() {
     const o = S.selected;
     if (!S.free || !o || S.flight) { hideFloat(); return; }
-    const hub = o.byWeight[0];
+    const hub = weightOf(o)[0];
     const p = proj.point(hub.lon, hub.lat, hub.v);
     if (!p) { hideFloat(); return; }
     const w = floatSize.w * UIZ, h = floatSize.h * UIZ, gap = 46, pad = 16;   // on screen
