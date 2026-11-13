@@ -1171,3 +1171,45 @@ body.power-on .map-key { display: flex; }
 .wxc-search li:hover, .wxc-search li.on { background: rgba(22, 189, 235, .14); }
 .wxc-search li small { color: var(--ink-3); margin-left: .4em; }
 .wxc-search li.none { color: var(--ink-3); cursor: default; }
+
+/* ── Outage card: More details ─────────────────────── */
+.card-more-btn {
+  display: inline-flex; align-items: center; gap: .25em; margin-top: .55em; padding: .2em .1em;
+  font-size: .8em; font-weight: 700; letter-spacing: .04em; color: var(--app); opacity: .9;
+}
+.card.network .card-more-btn { color: #ff8a5c; }
+.card-more-btn:hover { opacity: 1; text-decoration: underline; text-underline-offset: 3px; }
+.card-more-btn svg { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s ease; }
+.card-more-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.card-more {
+  grid-column: 1 / -1; margin-top: .9em; padding-top: .9em; border-top: 1px solid var(--line);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1.6em; max-height: 46vh; overflow-y: auto;
+  font-size: .86em; line-height: 1.45; color: var(--ink-2); animation: rise .3s ease;
+}
+.card-more[hidden] { display: none; }
+.card-more h4 { margin: 0 0 .35em; font-size: .78em; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-3); }
+.card-more h4:not(:first-child) { margin-top: .9em; }
+.card-more p { margin: 0; }
+.cm-trend { margin-top: .6em; }
+.cm-trend small { display: block; margin-top: .2em; font-size: .9em; color: var(--ink-2); }
+.cm-spark { display: block; width: 100%; height: 2.6em; }
+.cm-spark .a { fill: currentColor; opacity: .16; }
+.cm-spark .l { fill: none; stroke: currentColor; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.cm-spark circle { fill: currentColor; }
+.cm-spark.network { color: var(--net); }
+.cm-spark.application { color: var(--app); }
+.cm-rel { display: flex; flex-wrap: wrap; gap: .4em; }
+.cm-chip {
+  display: inline-flex; align-items: center; gap: .45em; padding: .3em .7em; border-radius: 999px;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--line); color: var(--ink); font-size: .95em; font-weight: 600;
+}
+.cm-chip i { width: .55em; height: .55em; border-radius: 50%; background: var(--app); }
+.cm-chip.network i { background: var(--net); }
+.cm-chip small { color: var(--ink-3); font-weight: 500; }
+.cm-chip:not([disabled]):hover { background: rgba(255, 255, 255, .12); }
+.cm-chip[disabled] { opacity: .55; cursor: default; }
+.cm-causes { list-style: none; margin: 0; padding: 0; display: grid; gap: .5em; }
+.cm-causes li { padding-left: .8em; border-left: 2px solid rgba(255, 255, 255, .14); }
+.cm-causes b { display: block; color: var(--ink); font-size: .95em; }
+.cm-foot { margin-top: .8em !important; font-size: .85em; color: var(--ink-3); font-style: italic; }
+@media (max-width: 900px) { .card-more { grid-template-columns: 1fr; gap: .8em; } }

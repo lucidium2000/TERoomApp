@@ -28,7 +28,7 @@
   <link rel="manifest" href="site.webmanifest">
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=180">
+  <link rel="stylesheet" href="css/app.css?v=181">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -147,8 +147,10 @@
     </div>
     <div class="card-metrics" id="cardMetrics"></div>
     <p class="card-note" id="cardNote" hidden></p>
+    <button class="card-more-btn" id="cardMoreBtn" aria-expanded="false" aria-controls="cardMore"><span>More details</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg></button>
     </div>
     <ul class="card-locs" id="cardLocs"></ul>
+    <div class="card-more" id="cardMore" hidden></div>
     <div class="card-progress"><i id="cardProgress"></i></div>
   </section>
 
@@ -307,7 +309,7 @@
   <script src="js/glglobe.js?v=29"></script>
   <script src="js/glass.js?v=88"></script>
   <script src="js/logos.js?v=1"></script>
-  <script src="js/app.js?v=227"></script>
+  <script src="js/app.js?v=228"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

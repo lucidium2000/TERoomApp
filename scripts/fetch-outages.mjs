@@ -27,6 +27,14 @@ async function getJson(path, init = {}) {
   return res.json();
 }
 
+// Affected interfaces/servers per 5-minute round over the outage (the card's
+// "More details" sparkline). Only when it's one continuous run of rounds.
+function seriesOf(o) {
+  const t = o.timelineData;
+  if (!t || !Array.isArray(t.values) || !t.values.length || (t.chunks || []).length > 1) return undefined;
+  return t.values.slice(-288);
+}
+
 async function main() {
   const config = await getJson('/ajax/config').catch(() => null);
   const minDur = config?.publicOverviewConfig?.minimumOutageDurationSeconds ?? 200;
@@ -59,6 +67,7 @@ async function main() {
     durationS: o.durationSeconds,
     endRound: o.endRoundId,
     interfaces: (o.interfaces || []).length,
+    series: seriesOf(o),
     locations: Object.values(o.locations || {}).map((l) => ({
       name: l.locName, lat: l.lat, lon: l.lon, n: l.affectedInterfaces ?? 1,
     })),
@@ -81,6 +90,7 @@ async function main() {
       endRound: o.endRoundId,
       servers: (o.servers || []).length,
       domains: o.domainTags || [],
+      series: seriesOf(o),
       locations: Object.entries(o.locations || {}).map(([gid, l]) => ({
         name: l.name, lat: l.latitude, lon: l.longitude, n: perLoc[gid] || 1,
       })),

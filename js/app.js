@@ -1509,6 +1509,159 @@
     return esc((words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase());
   }
 
+  // ── More details: what was seen, how it unfolded, what else was hit, and
+  // likely causes. The public feed has no root cause, so the causes are
+  // hints read from the outage's shape (who, where, how wide, when, how it
+  // moved) and from other outages at the same time and place.
+  const AS_KIND = {
+    cloud: [8075, 15169, 396982, 19527, 16509, 14618, 13335, 20940, 16625, 54113, 32934, 13414, 31898, 36459, 46489, 2906, 714, 22822, 15133, 36351, 14061, 63949, 45102, 132203, 8068, 3598, 40027, 19551, 209242],
+    transit: [3356, 174, 1299, 3257, 6461, 2914, 6453, 6762, 3491, 6939, 701, 5511, 3320, 12956, 4637, 7473, 9002, 2828, 209, 1273, 3549, 7018, 6830, 4826, 9498, 4134, 4837, 1239, 6830, 2497, 4755],
+  };
+  const ISP_RE = /comcast|charter|spectrum|cox|frontier|windstream|centurylink|brightspeed|optimum|altice|mediacom|wow|telus|rogers|bell|shaw|vodafone|virgin|\bbt\b|sky|orange|telefonica|movistar|claro|vivo|tim\b|jio|airtel|telstra|optus|kddi|softbank|ntt docomo|swisscom|kpn|proximus|free|sfr|bouygues|deutsche telekom|telekom|telia|telenor|singtel|starhub|pldt|globe|verizon|at&t|t-mobile|starlink|viasat|hughes/i;
+  function asKind(o) {
+    if (AS_KIND.cloud.includes(o.asn)) return 'cloud';
+    if (AS_KIND.transit.includes(o.asn)) return 'transit';
+    if (ISP_RE.test(`${o.name} ${o.fullName || ''}`)) return 'isp';
+    if (/cloud|hosting|data ?cent|cdn|akamai|fastly|amazon|google|microsoft|oracle|ibm|alibaba|tencent/i.test(`${o.name} ${o.fullName || ''}`)) return 'cloud';
+    return 'net';
+  }
+  const endMs = (o) => o.start + (o.durationS || 0) * 1000;
+  const NEAR = Math.cos(600 / 6371);   // within ~600 km
+  const firstWord = (s) => String(s || '').toLowerCase().split(/[\s(,.-]+/)[0];
+
+  /** Other outages overlapping this one in time, near any of its places
+   *  (or the same company on the network and app side). */
+  function relatedOf(o) {
+    const a0 = o.start - 10 * 60000, a1 = endMs(o) + 10 * 60000, mine = locsOf(o);
+    const out = [];
+    for (const p of S.outages) {
+      if (p === o || p.start > a1 || endMs(p) < a0) continue;
+      const same = p.kind !== o.kind && firstWord(p.name).length > 2 && firstWord(p.name) === firstWord(o.name);
+      let near = null;
+      for (const l of mine) {
+        for (const m of p.locations) {
+          if (l.v[0] * m.v[0] + l.v[1] * m.v[1] + l.v[2] * m.v[2] > NEAR) { near = m; break; }
+        }
+        if (near) break;
+      }
+      if (!same && !near) continue;
+      out.push({ o: p, same, near });
+    }
+    // The same company first, then the other kind (network vs app), then active, then the biggest.
+    const size = (p) => (p.kind === 'network' ? p.interfaces : p.servers) || 0;
+    return out.sort((x, y) => (y.same - x.same) || ((y.o.kind !== o.kind) - (x.o.kind !== o.kind)) || (y.o.active - x.o.active) || (size(y.o) - size(x.o)));
+  }
+
+  /** The 5-minute series: peak, and how it moved (steady, growing, easing, flapping). */
+  function shapeOf(o) {
+    const s = o.series;
+    if (!s || s.length < 2) return null;
+    let peak = 0, pi = 0;
+    s.forEach((v, i) => { if (v > peak) { peak = v; pi = i; } });
+    const n = s.length, last = s[n - 1];
+    const tail = s.slice(-3).reduce((a, b) => a + b, 0) / Math.min(3, n);
+    // Flapping: the count swings by over half its level, back and forth, often.
+    let swings = 0;
+    for (let i = 2; i < n; i++) {
+      const d1 = s[i - 1] - s[i - 2], d2 = s[i] - s[i - 1];
+      if (d1 * d2 < 0 && Math.abs(d2) > 0.5 * Math.max(s[i - 1], 1)) swings++;
+    }
+    let trend = 'steady';
+    if (n >= 6 && swings / (n - 2) > 0.35) trend = 'flapping';
+    else if (o.active && pi >= n - 2 && peak > 1.5 * (s[0] || 1)) trend = 'growing';
+    else if (o.active && tail < 0.5 * peak) trend = 'easing';
+    else if (pi === 0 && last < 0.5 * peak) trend = 'front';
+    return { s, peak, peakAt: o.start + pi * 300000, last, trend };
+  }
+
+  function sparkSvg(sh, kind) {
+    const W = 260, H = 40, s = sh.s, n = s.length, mx = sh.peak || 1;
+    const x = (i) => (n === 1 ? W / 2 : (i / (n - 1)) * W), y = (v) => H - 2 - (v / mx) * (H - 6);
+    const line = s.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+    const pi = s.indexOf(sh.peak);
+    return `<svg class="cm-spark ${kind}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
+      + `<path class="a" d="${line}L${W},${H}L0,${H}Z"/><path class="l" d="${line}"/>`
+      + `<circle cx="${x(pi).toFixed(1)}" cy="${y(sh.peak).toFixed(1)}" r="2.6"/></svg>`;
+  }
+
+  function explain(o) {
+    const locs = locsOf(o), nL = locs.length, net = o.kind === 'network';
+    const unit = net ? 'interface' : 'server', units = (k) => `${k.toLocaleString()} ${unit}${k === 1 ? '' : 's'}`;
+    const where = nL === 1 ? locs[0].label || locs[0].name : `${nL} locations`;
+    const kind = net ? asKind(o) : null;
+    const dur = o.durationS || 0;
+    const sh = shapeOf(o);
+    const rel = relatedOf(o);
+    // Local hour at the main location (from longitude; close enough for "overnight").
+    const hub = weightOf(o)[0];
+    const lh = ((new Date(o.start).getUTCHours() + new Date(o.start).getUTCMinutes() / 60 + hub.lon / 15) % 24 + 24) % 24;
+    const lhTxt = `${Math.floor(lh) % 12 || 12} ${lh < 12 ? 'AM' : 'PM'}`;
+
+    let saw;
+    if (net) {
+      const who = o.fullName && o.fullName !== o.name ? `${o.fullName}` : o.name;
+      saw = `ThousandEyes tests stopped getting through at ${units(o.interfaces || 0)} inside ${esc(who)}${o.asn ? ` (AS${o.asn})` : ''}, in ${esc(where)}. `
+        + 'Traffic reached that network but was dropped at its routers instead of being forwarded.';
+    } else {
+      saw = `${units(o.servers || 0)} behind ${esc(o.name)} stopped answering ThousandEyes tests properly (timeouts or HTTP errors) in ${esc(where)}. `
+        + (rel.some((r) => r.o.kind === 'network') ? 'A network outage overlapped it, though (below).' : 'The network path to them was working, so the problem was at the service.');
+      if (o.domains && o.domains.length) saw += ` Affected: ${o.domains.slice(0, 5).map(esc).join(', ')}${o.domains.length > 5 ? '…' : ''}.`;
+    }
+
+    const causes = [];
+    const relNet = rel.filter((r) => r.o.kind === 'network'), relApp = rel.filter((r) => r.o.kind === 'application');
+    if (net) {
+      if (kind === 'cloud') causes.push(['Provider network', `${esc(o.name)} runs its own backbone and data centers, so anything hosted there or routed through it can be hit. Common causes: a routing or configuration change being rolled out, congestion, or an edge site failing.`]);
+      else if (kind === 'transit') causes.push(['Backbone carrier', `${esc(o.name)} carries traffic between other networks. A cut fiber, a failed router line card or a routing (BGP) change here can break paths for many ISPs and apps at once.`]);
+      else if (kind === 'isp') causes.push(['Access provider', `${esc(o.name)} connects homes and businesses. Typical causes: a fiber cut or power loss at a hub site, equipment failure, or planned maintenance.`]);
+      else causes.push(['Network operator', 'Traffic was dropped inside this network: usually a failed link or router, a routing change, or maintenance.']);
+    } else if (relNet.length) {
+      const r = relNet[0];
+      causes.push(['Network underneath', `${esc(r.o.name)}${r.o.asn ? ` (AS${r.o.asn})` : ''} had a network outage ${r.same ? 'at the same time' : `near ${esc(r.near.label || r.near.name)} at the same time`}. The app may have been unreachable because of it rather than failing itself.`]);
+    }
+    if (nL === 1) causes.push(['One place', `Only ${esc(where)} was affected, which points to a site-level problem (equipment, power or fiber at that ${net ? 'hub' : 'data center or edge node'}) rather than a change made everywhere.`]);
+    else if (nL >= 4) causes.push(['Wide spread', `${nL} locations at once points to something shared: a ${net ? 'routing or configuration change across the network' : 'bad deployment or configuration change, or a shared dependency like sign-in, DNS or storage'}.`]);
+    if (lh < 6 || lh >= 23) causes.push(['Overnight', `It began around ${lhTxt} local time, the usual window for planned maintenance.`]);
+    if (sh && sh.trend === 'flapping') causes.push(['Coming and going', `The number of ${unit}s affected kept rising and falling. That pattern fits congestion, a flapping link or routes that keep changing.`]);
+    else if (sh && sh.trend === 'growing') causes.push(['Still spreading', `More ${unit}s are affected now than when it started, so the problem is still growing.`]);
+    if (dur <= 600 && !o.active) causes.push(['Brief', 'It cleared within about 10 minutes. That fits a quick failover or routes settling after a change.']);
+    else if (dur >= 2 * 3600) causes.push(['Long-running', `Over ${Math.floor(dur / 3600)} hours: usually a harder failure (hardware, a fiber repair) or a fix still being worked on.`]);
+    if (net && relApp.length) causes.push(['Knock-on', `Apps had trouble in the same area at the same time (${relApp.slice(0, 3).map((r) => esc(r.o.name)).join(', ')}). This network may be why.`]);
+
+    let trendTxt = '';
+    if (sh) {
+      const pk = `Peaked at ${units(sh.peak)} at ${fmtTime(sh.peakAt)}`;
+      trendTxt = { growing: `${pk}, still climbing.`, easing: `${pk}; now ${sh.last.toLocaleString()} — easing.`, flapping: `${pk}; it came and went in waves.`, front: `${pk}, right at the start, then fell away.` }[sh.trend]
+        || `${pk}; ${o.active ? `now ${sh.last.toLocaleString()}` : 'held fairly steady until it cleared'}.`;
+    }
+    // One chip per company and kind ("Microsoft ×3"), opening the most relevant one.
+    const chips = [];
+    for (const r of rel) {
+      const c = chips.find((q) => q.o.kind === r.o.kind && q.o.name === r.o.name);
+      if (c) { c.n++; c.active = c.active || r.o.active; } else chips.push({ ...r, n: 1, active: r.o.active });
+    }
+    return { saw, sh, trendTxt, causes: causes.slice(0, 4), rel: chips.slice(0, 5) };
+  }
+
+  S.moreOpen = false;
+  function renderMore(o) {
+    const box = document.getElementById('cardMore'), btn = document.getElementById('cardMoreBtn');
+    btn.setAttribute('aria-expanded', String(S.moreOpen));
+    btn.querySelector('span').textContent = S.moreOpen ? 'Fewer details' : 'More details';
+    box.hidden = !S.moreOpen;
+    if (!S.moreOpen || !o) return;
+    const x = explain(o);
+    S.moreRel = x.rel.map((r) => r.o);
+    box.innerHTML = '<div class="cm-col">'
+      + `<h4>What ThousandEyes saw</h4><p>${x.saw}</p>`
+      + (x.sh ? `<div class="cm-trend">${sparkSvg(x.sh, o.kind)}<small>${esc(x.trendTxt)}</small></div>` : '')
+      + (x.rel.length ? '<h4>At the same time</h4><div class="cm-rel">' + x.rel.map((r, i) => `<button class="cm-chip ${r.o.kind}" data-rel="${i}"${outageVisible(r.o) ? '' : ' disabled title="Hidden by the current filters"'}>`
+        + `<i></i>${esc(r.o.name)}${r.n > 1 ? ` \u00D7${r.n}` : ''}<small>${r.o.kind === 'network' ? 'network' : 'app'}${r.near ? ' · ' + esc(r.near.label || r.near.name) : ''}${r.active ? ' · active' : ''}</small></button>`).join('') + '</div>' : '')
+      + '</div><div class="cm-col">'
+      + '<h4>Possible causes</h4><ul class="cm-causes">' + x.causes.map(([t, d]) => `<li><b>${t}</b>${d}</li>`).join('') + '</ul>'
+      + '<p class="cm-foot">Hints from the outage’s pattern and timing, not a confirmed root cause.</p></div>';
+  }
+
   function select(o, { fromTour = false } = {}) {
     if (o && closePowerCard) closePowerCard();
     if (o && S.pathOpen) closePath();
@@ -1556,6 +1709,8 @@
     S.locHover = null; S.locPick = null; S.cardLocList = locs.slice(0, 8);
     el.cardLocs.innerHTML = S.cardLocList.map((l, i) => `<li data-loc="${i}" title="Show ${esc(l.label || l.name)} on the globe">${esc(l.name)}</li>`).join('')
       + (locs.length > 8 ? `<li>+${locs.length - 8} more</li>` : '');
+    if (fromTour) S.moreOpen = false;
+    renderMore(o);
     el.card.hidden = false;
     fillFloat(o, metrics, locs);
     // Restart the entrance animation.
@@ -2739,6 +2894,17 @@
   }));
 
   el.cardClose.addEventListener('click', () => { userInput(); select(null); });
+  document.getElementById('cardMoreBtn').addEventListener('click', () => {
+    userInput(); sfx('tap');
+    S.moreOpen = !S.moreOpen; renderMore(S.selected);
+  });
+  document.getElementById('cardMore').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rel]');
+    const p = b && S.moreRel && S.moreRel[+b.dataset.rel];
+    if (!p) return;
+    if (!outageVisible(p)) return;   // hidden by the current filters: shown, not opened
+    userInput(); select(p);
+  });
   const cardLoc = (e) => { const li = e.target.closest('[data-loc]'); return li ? S.cardLocList[+li.dataset.loc] : null; };
   el.cardLocs.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') S.locHover = cardLoc(e); });
   el.cardLocs.addEventListener('pointerleave', () => { S.locHover = null; });
