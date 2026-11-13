@@ -1213,3 +1213,19 @@ body.power-on .map-key { display: flex; }
 .cm-causes b { display: block; color: var(--ink); font-size: .95em; }
 .cm-foot { margin-top: .8em !important; font-size: .85em; color: var(--ink-3); font-style: italic; }
 @media (max-width: 900px) { .card-more { grid-template-columns: 1fr; gap: .8em; } }
+/* Past 24 hours: the same provider's episodes */
+.hs-tag { display: inline-block; margin-left: .5em; padding: .1em .55em; border-radius: 999px; font-size: .95em; letter-spacing: .08em; vertical-align: .05em; }
+.hs-tag.new { color: #4ade80; background: rgba(74, 222, 128, .12); }
+.hs-tag.repeat { color: var(--ink-2); background: rgba(255, 255, 255, .08); }
+.hs-tag.recurring { color: #fbbf24; background: rgba(251, 191, 36, .14); }
+.hs-tag.ongoing { color: #ff6b6b; background: rgba(255, 107, 107, .15); }
+.hs { margin: .4em 0 .45em; }
+.hs-track { position: relative; height: 1.9em; border-bottom: 1px solid var(--line); background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), rgba(255, 255, 255, .05) calc(25% - 1px) 25%); }
+.hs-m { position: absolute; bottom: 0; min-width: 3px; padding: 0; border-radius: 2px 2px 0 0; background: var(--app); opacity: .45; transition: opacity .15s ease; }
+.hs.network .hs-m { background: var(--net); }
+.hs-m:not([disabled]):hover { opacity: .85; }
+.hs-m.on { opacity: 1; box-shadow: 0 0 0 1.5px #fff, 0 0 10px currentColor; z-index: 1; }
+.hs-m.act:not(.on) { opacity: .75; }
+.hs-m[disabled] { cursor: default; }
+.hs-ax { display: flex; justify-content: space-between; font-size: .78em; color: var(--ink-3); margin-top: .15em; }
+.hs-txt { margin: 0; }

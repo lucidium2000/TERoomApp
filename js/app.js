@@ -151,7 +151,7 @@
     flight: null, touring: false, tourIdx: -1, tourT0: 0,
     land: null, borders: null, stars: null, w: 0, h: 0,
   };
-  if (qs.get('debug') === '1') window.__S = S;   // ?debug=1: app state in the console
+  if (qs.get('debug') === '1') { window.__S = S; window.__hist = (o) => historyOf(o); }   // ?debug=1: app state in the console
 
   // Resampling tolerance of 1px is invisible on 110m data and roughly halves projection work.
   const projection = d3.geoOrthographic().clipAngle(90).precision(1);
@@ -1555,7 +1555,7 @@
   /** The 5-minute series: peak, and how it moved (steady, growing, easing, flapping). */
   function shapeOf(o) {
     const s = o.series;
-    if (!s || s.length < 2) return null;
+    if (!s || s.length < 3) return null;   // a round or two: nothing to chart
     let peak = 0, pi = 0;
     s.forEach((v, i) => { if (v > peak) { peak = v; pi = i; } });
     const n = s.length, last = s[n - 1];
@@ -1584,6 +1584,66 @@
       + `<circle cx="${x(pi).toFixed(1)}" cy="${y(sh.peak).toFixed(1)}" r="2.6"/></svg>`;
   }
 
+  /** The same provider's other outages in the last 24 hours (same AS for a
+   *  network, same app otherwise), and what they say about this one: a new
+   *  problem, a repeat, a recurring one, or the same fault coming back. */
+  function historyOf(o) {
+    const same = (p) => p.kind === o.kind && (p.name === o.name || (o.kind === 'network' && o.asn && p.asn === o.asn));   // a provider can run several ASes
+    const eps = S.outages.filter(same).sort((a, b) => a.start - b.start);
+    const i = eps.indexOf(o), prior = eps.slice(0, i), after = eps.slice(i + 1);
+    const size = (p) => (p.kind === 'network' ? p.interfaces : p.servers) || 0;
+    const names = new Set(locsOf(o).map((l) => l.name));
+    const sharedEps = prior.filter((p) => p.locations.some((l) => names.has(l.name)));
+    // The place the earlier ones hit most often, among this outage's places.
+    const hits = new Map();
+    for (const p of sharedEps) for (const l of p.locations) if (names.has(l.name)) hits.set(l.label || l.name, (hits.get(l.label || l.name) || 0) + 1);
+    const topPlace = [...hits].sort((a, b) => b[1] - a[1])[0];
+    const last = prior[prior.length - 1];
+    const gapMin = last ? Math.max(0, (o.start - endMs(last)) / 60000) : Infinity;
+    const starts = eps.map((p) => p.start);
+    const every = eps.length > 2 ? (starts[starts.length - 1] - starts[0]) / (eps.length - 1) / 60000 : null;
+    const recent = eps.slice(Math.max(0, i - 2), i + 1).map(size);
+    const growing = recent.length === 3 && recent[0] < recent[1] && recent[1] < recent[2];
+    const n = eps.length, nm = esc(o.name), what = o.kind === 'network' && !/network$/i.test(o.name) ? 'network outage' : 'outage';
+    const mins = (m) => (m < 60 ? `${Math.max(1, Math.round(m))} min` : `${(m / 60).toFixed(m < 600 ? 1 : 0).replace(/\.0$/, '')} h`);
+
+    let tag, text;
+    if (n === 1) {
+      tag = 'new';
+      text = `The only ${nm} ${what} in the last 24 hours. Nothing earlier to tie it to, so it looks like a new problem.`;
+    } else if (last && gapMin <= 60) {
+      tag = 'ongoing';
+      text = `Likely the same problem coming back: the previous ${nm} ${what} ended just ${mins(gapMin)} before this one started${sharedEps.includes(last) ? ', in the same place' : ''}.`;
+    } else if (n >= 4) {
+      tag = 'recurring';
+      text = `${n} ${nm} ${what}s in 24 hours, about one every ${mins(every)}. A pattern like that usually means an underlying fault that hasn't been fixed.`;
+    } else {
+      tag = 'repeat';
+      text = i > 0 ? `${nm} had ${prior.length === 1 ? 'another' : prior.length} ${what}${prior.length === 1 ? '' : 's'} in the last 24 hours${last ? `, the last ending ${mins(gapMin)} before this one` : ''}.`
+        : `${nm} has had ${after.length} more since.`;
+    }
+    const extra = [];
+    if (topPlace && n > 1 && tag !== 'new') extra.push(prior.length === 1 ? `That one hit ${esc(topPlace[0])} too.` : topPlace[1] === prior.length && prior.length > 1 ? `${prior.length === 2 ? 'Both' : 'All ' + prior.length} earlier ones hit ${esc(topPlace[0])} too.` : `${topPlace[1]} of the earlier ones hit ${esc(topPlace[0])} too.`);
+    if (growing) extra.push('Each of the last three has been bigger than the one before.');
+    if (after.length && i > 0) extra.push(`It came back ${after.length === 1 ? 'once more' : after.length + ' more times'} after this one${after.some((p) => p.active) ? ', and is active now' : ''}.`);
+    return { tag, text: [text, ...extra].join(' '), eps, i, n };
+  }
+
+  const HIST_TAG = { new: 'New', repeat: 'Repeat', recurring: 'Recurring', ongoing: 'Ongoing' };
+  /** 24 hours, with a mark for each episode: width = duration, height = size. */
+  function histStrip(h, o) {
+    const t1 = dataNow(), t0 = t1 - 24 * 3600e3, span = t1 - t0;
+    const size = (p) => (p.kind === 'network' ? p.interfaces : p.servers) || 1;
+    const mx = Math.max(...h.eps.map(size));
+    const marks = h.eps.map((p, k) => {
+      const x = Math.max(0, (p.start - t0) / span * 100), w = Math.max(0.7, Math.min(100 - x, (p.durationS || 0) * 1000 / span * 100));
+      const ht = 30 + 70 * Math.sqrt(size(p) / mx);
+      const tip = `${fmtTime(p.start)} · ${fmtDur(p.durationS || 0)} · ${size(p).toLocaleString()} ${p.kind === 'network' ? 'interfaces' : 'servers'} · ${locsOf(p).length === 1 ? (locsOf(p)[0].label || locsOf(p)[0].name) : locsOf(p).length + ' locations'}`;
+      return `<button class="hs-m${k === h.i ? ' on' : ''}${p.active ? ' act' : ''}" data-ep="${k}" style="left:${x.toFixed(2)}%;width:${w.toFixed(2)}%;height:${ht.toFixed(0)}%" title="${esc(tip)}"${outageVisible(p) ? '' : ' disabled'}></button>`;
+    }).join('');
+    return `<div class="hs ${o.kind}"><div class="hs-track">${marks}</div><div class="hs-ax"><span>24h ago</span><span>12h</span><span>now</span></div></div>`;
+  }
+
   function explain(o) {
     const locs = locsOf(o), nL = locs.length, net = o.kind === 'network';
     const unit = net ? 'interface' : 'server', units = (k) => `${k.toLocaleString()} ${unit}${k === 1 ? '' : 's'}`;
@@ -1592,6 +1652,7 @@
     const dur = o.durationS || 0;
     const sh = shapeOf(o);
     const rel = relatedOf(o);
+    const hist = historyOf(o);
     // Local hour at the main location (from longitude; close enough for "overnight").
     const hub = weightOf(o)[0];
     const lh = ((new Date(o.start).getUTCHours() + new Date(o.start).getUTCMinutes() / 60 + hub.lon / 15) % 24 + 24) % 24;
@@ -1626,6 +1687,7 @@
     else if (sh && sh.trend === 'growing') causes.push(['Still spreading', `More ${unit}s are affected now than when it started, so the problem is still growing.`]);
     if (dur <= 600 && !o.active) causes.push(['Brief', 'It cleared within about 10 minutes. That fits a quick failover or routes settling after a change.']);
     else if (dur >= 2 * 3600) causes.push(['Long-running', `Over ${Math.floor(dur / 3600)} hours: usually a harder failure (hardware, a fiber repair) or a fix still being worked on.`]);
+    if (hist.tag === 'ongoing' || hist.tag === 'recurring') causes.splice(1, 0, ['Unresolved fault', `${esc(o.name)} keeps having ${net ? 'network ' : ''}outages today. Repeats like this usually come from one underlying problem (a flapping link, a failing device, a fix that didn't hold) rather than separate incidents.`]);
     if (net && relApp.length) causes.push(['Knock-on', `Apps had trouble in the same area at the same time (${relApp.slice(0, 3).map((r) => esc(r.o.name)).join(', ')}). This network may be why.`]);
 
     let trendTxt = '';
@@ -1640,7 +1702,7 @@
       const c = chips.find((q) => q.o.kind === r.o.kind && q.o.name === r.o.name);
       if (c) { c.n++; c.active = c.active || r.o.active; } else chips.push({ ...r, n: 1, active: r.o.active });
     }
-    return { saw, sh, trendTxt, causes: causes.slice(0, 4), rel: chips.slice(0, 5) };
+    return { saw, sh, trendTxt, causes: causes.slice(0, 4), rel: chips.slice(0, 5), hist };
   }
 
   S.moreOpen = false;
@@ -1652,11 +1714,14 @@
     if (!S.moreOpen || !o) return;
     const x = explain(o);
     S.moreRel = x.rel.map((r) => r.o);
+    S.moreEps = x.hist.eps;
     box.innerHTML = '<div class="cm-col">'
       + `<h4>What ThousandEyes saw</h4><p>${x.saw}</p>`
       + (x.sh ? `<div class="cm-trend">${sparkSvg(x.sh, o.kind)}<small>${esc(x.trendTxt)}</small></div>` : '')
       + (x.rel.length ? '<h4>At the same time</h4><div class="cm-rel">' + x.rel.map((r, i) => `<button class="cm-chip ${r.o.kind}" data-rel="${i}"${outageVisible(r.o) ? '' : ' disabled title="Hidden by the current filters"'}>`
         + `<i></i>${esc(r.o.name)}${r.n > 1 ? ` \u00D7${r.n}` : ''}<small>${r.o.kind === 'network' ? 'network' : 'app'}${r.near ? ' · ' + esc(r.near.label || r.near.name) : ''}${r.active ? ' · active' : ''}</small></button>`).join('') + '</div>' : '')
+      + `<h4>Past 24 hours <span class="hs-tag ${x.hist.tag}">${HIST_TAG[x.hist.tag]}</span></h4>`
+      + histStrip(x.hist, o) + `<p class="hs-txt">${x.hist.text}</p>`
       + '</div><div class="cm-col">'
       + '<h4>Possible causes</h4><ul class="cm-causes">' + x.causes.map(([t, d]) => `<li><b>${t}</b>${d}</li>`).join('') + '</ul>'
       + '<p class="cm-foot">Hints from the outage’s pattern and timing, not a confirmed root cause.</p></div>';
@@ -2899,8 +2964,8 @@
     S.moreOpen = !S.moreOpen; renderMore(S.selected);
   });
   document.getElementById('cardMore').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-rel]');
-    const p = b && S.moreRel && S.moreRel[+b.dataset.rel];
+    const b = e.target.closest('[data-rel],[data-ep]');
+    const p = b && (b.dataset.ep != null ? S.moreEps && S.moreEps[+b.dataset.ep] : S.moreRel && S.moreRel[+b.dataset.rel]);
     if (!p) return;
     if (!outageVisible(p)) return;   // hidden by the current filters: shown, not opened
     userInput(); select(p);
