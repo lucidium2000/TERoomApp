@@ -1705,6 +1705,31 @@
     return { saw, sh, trendTxt, causes: causes.slice(0, 4), rel: chips.slice(0, 5), hist };
   }
 
+  // Where to confirm it: a news search for the last day, the provider's own
+  // status page when it has one, and the public outage map this data is from.
+  const STATUS = [
+    [/office ?365|microsoft 365|outlook|teams|sharepoint|onedrive/i, 'https://status.cloud.microsoft'],
+    [/azure|microsoft/i, 'https://azure.status.microsoft/status'],
+    [/google|gsuite|gmail|youtube/i, 'https://www.google.com/appsstatus/dashboard/'],
+    [/amazon|aws/i, 'https://health.aws.amazon.com/health/status'],
+    [/cloudflare/i, 'https://www.cloudflarestatus.com'], [/akamai/i, 'https://www.akamaistatus.com'],
+    [/fastly/i, 'https://www.fastlystatus.com'], [/webex/i, 'https://status.webex.com'],
+    [/zoom/i, 'https://status.zoom.us'], [/slack/i, 'https://slack-status.com'],
+    [/github/i, 'https://www.githubstatus.com'], [/salesforce/i, 'https://status.salesforce.com'],
+    [/atlassian|jira|confluence/i, 'https://status.atlassian.com'], [/okta/i, 'https://status.okta.com'],
+    [/dropbox/i, 'https://status.dropbox.com'], [/\bbox\b/i, 'https://status.box.com'],
+    [/oracle/i, 'https://ocistatus.oraclecloud.com'], [/servicenow/i, 'https://status.servicenow.com'],
+  ];
+  function checkLinks(o) {
+    // "Microsoft Office365" -> "Microsoft": how the news would name it.
+    const who = String(o.name).replace(/\s*\(.*\)$/, '')
+      .replace(/\b(office ?365|online|workspace|corporation|corp|inc|llc|ltd|province network|network|services?)\b\.?/gi, '').replace(/\s+/g, ' ').trim() || o.name;
+    const news = 'https://news.google.com/search?q=' + encodeURIComponent(`${who} outage when:1d`) + '&hl=en-US&gl=US&ceid=US:en';
+    const st = (STATUS.find(([re]) => re.test(o.name)) || [])[1];
+    const a = (href, t) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${t}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>`;
+    return [a(news, 'News today'), st && a(st, `${esc(who)} status`), a('https://www.thousandeyes.com/outages/', 'ThousandEyes outage map')].filter(Boolean).join('<i>\u00B7</i>');
+  }
+
   S.moreOpen = false;
   function renderMore(o) {
     const box = document.getElementById('cardMore'), btn = document.getElementById('cardMoreBtn');
@@ -1724,7 +1749,8 @@
       + histStrip(x.hist, o) + `<p class="hs-txt">${x.hist.text}</p>`
       + '</div><div class="cm-col">'
       + '<h4>Possible causes</h4><ul class="cm-causes">' + x.causes.map(([t, d]) => `<li><b>${t}</b>${d}</li>`).join('') + '</ul>'
-      + '<p class="cm-foot">Hints from the outage’s pattern and timing, not a confirmed root cause.</p></div>';
+      + '<p class="cm-foot">Hints from the outage’s pattern and timing, not a confirmed root cause.</p>'
+      + `<p class="cm-links">${checkLinks(o)}</p></div>`;
   }
 
   function select(o, { fromTour = false } = {}) {

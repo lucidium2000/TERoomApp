@@ -1229,3 +1229,8 @@ body.power-on .map-key { display: flex; }
 .hs-m[disabled] { cursor: default; }
 .hs-ax { display: flex; justify-content: space-between; font-size: .78em; color: var(--ink-3); margin-top: .15em; }
 .hs-txt { margin: 0; }
+.cm-links { margin-top: .35em !important; font-size: .85em; display: flex; flex-wrap: wrap; gap: .2em .5em; align-items: center; }
+.cm-links i { color: var(--ink-3); font-style: normal; }
+.cm-links a { color: var(--app); text-decoration: none; display: inline-flex; align-items: center; gap: .2em; font-weight: 600; }
+.cm-links a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.cm-links svg { width: .95em; height: .95em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
