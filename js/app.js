@@ -1720,6 +1720,15 @@
     [/dropbox/i, 'https://status.dropbox.com'], [/\bbox\b/i, 'https://status.box.com'],
     [/oracle/i, 'https://ocistatus.oraclecloud.com'], [/servicenow/i, 'https://status.servicenow.com'],
   ];
+  // The paid Internet Insights view at this outage's round (needs a
+  // ThousandEyes login). The filter is the view's default scope ("affected
+  // test or in catalog"), lz-compressed the way the app writes it.
+  const TE_FILTERS = 'N4IgZglgNgLgpgJwM4gFygIYActQgYwxggHsA7AERIFsMIyAVDAczQG0BdAGhG1wKKkyAeQCuMFnADK%2BEljjsQAQQBiKgKIBhBuooB9HVIZ7hAJT0BJAHJ7NShkoAywgOIhuvJGXYeYCDGCQ%2BGISzNKy8oqqGtq6BupGJubWtvZOru4AvplAA';
+  function teView(o) {
+    const round = Math.floor(o.start / 300000) * 300;   // 5-minute rounds, in seconds
+    const [scenario, metric] = o.kind === 'network' ? ['outageNetwork', 'interfaces'] : ['outageApplication', 'servers'];
+    return `https://app.thousandeyes.com/internet-insights/views/?roundId=${round}&metric=${metric}&scenarioId=${scenario}&filters=${TE_FILTERS}`;
+  }
   function checkLinks(o) {
     // "Microsoft Office365" -> "Microsoft": how the news would name it.
     const who = String(o.name).replace(/\s*\(.*\)$/, '')
@@ -1727,7 +1736,7 @@
     const news = 'https://news.google.com/search?q=' + encodeURIComponent(`${who} outage when:1d`) + '&hl=en-US&gl=US&ceid=US:en';
     const st = (STATUS.find(([re]) => re.test(o.name)) || [])[1];
     const a = (href, t) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${t}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>`;
-    return [a(news, 'News today'), st && a(st, `${esc(who)} status`), a('https://www.thousandeyes.com/outages/', 'ThousandEyes outage map')].filter(Boolean).join('<i>\u00B7</i>');
+    return [a(news, 'News today'), st && a(st, `${esc(who)} status`), a(teView(o), 'Open in ThousandEyes')].filter(Boolean).join('<i>\u00B7</i>');
   }
 
   S.moreOpen = false;
