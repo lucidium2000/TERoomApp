@@ -1726,7 +1726,7 @@
   const TE_FILTERS = 'N4IgZglgNgLgpgJwM4gFygIYActQgYwxggHsA7AERIFsMIyAVDAczQG0BdAGhG1wKKkyAeQCuMFnADK%2BEljjsQAQQBiKgKIBhBuooB9HVIZ7hAJT0BJAHJ7NShkoAywgOIhuvJGXYeYCDGCQ%2BGISzNKy8oqqGtq6BupGJubWtvZOru4AvplAA';
   function teView(o) {
     const round = Math.floor(o.start / 300000) * 300;   // 5-minute rounds, in seconds
-    const [scenario, metric] = o.kind === 'network' ? ['outageNetwork', 'interfaces'] : ['outageApplication', 'servers'];
+    const [scenario, metric] = o.kind === 'network' ? ['outageTraffic', 'interfaces'] : ['outageApplication', 'servers'];
     return `https://app.thousandeyes.com/internet-insights/views/?roundId=${round}&metric=${metric}&scenarioId=${scenario}&filters=${TE_FILTERS}`;
   }
   function checkLinks(o) {
