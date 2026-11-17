@@ -2984,7 +2984,7 @@
         land: topojson.feature(world, world.objects.land),
         coast: topojson.mesh(world, world.objects.land),
         borders: topojson.mesh(world, world.objects.countries, (a, b) => a !== b),
-        texWidth: num('tex', 8192),
+        texWidth: num('tex', /firefox/i.test(navigator.userAgent) ? 4096 : 8192),   // Firefox drops the 8192 land texture on some GPUs
       });
       S.texW = r.texW; S.segments = r.segments;
     });
