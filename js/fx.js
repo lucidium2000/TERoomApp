@@ -53,21 +53,23 @@
     // Satellites and aurora share one button (under Power), remembered on the
     // device. Their data loads only once they're first turned on.
     const sky = on.sats || on.aurora;
-    let skyOn = active;   // the FX preview starts with them on, the regular view off
-    try { const v = localStorage.getItem('te-sky'); if (v !== null) skyOn = v === '1'; } catch (_) { /* default */ }
+    const skyOn = remembered('te-sky', active);   // ?fx=1 starts with them on, the regular view off
     const want = { sats: on.sats, aurora: on.aurora };
     const lazy = {};
+    const once = (f) => { let done = false; return () => { if (!done) { done = true; f(); } }; };
     const setSky = (v) => {
       F.enable({ sats: want.sats && v, aurora: want.aurora && v });
       if (v) { if (want.sats && lazy.sats) lazy.sats(); if (want.aurora && lazy.aurora) lazy.aurora(); }
     };
-    F.enable({ ...on, sats: false, aurora: false });
-    if (sky) skyButton(skyOn, (v) => {
-      setSky(v);
-      try { localStorage.setItem('te-sky', v ? '1' : '0'); } catch (_) { /* private mode */ }
-    });
+    F.enable({ ...on, sats: false, aurora: false, cables: false });
+    const skyBtn = sky ? toggleButton(document.getElementById('powerBtn'), 'sky-btn', 'sky', 'Satellites',
+      'Starlink satellites and the aurora: tap to show or hide', skyOn, (v) => { setSky(v); remember('te-sky', v); }) : null;
+    // Subsea cables: their own button, below Satellites; off until turned on.
+    const cablesOn = remembered('te-cables', active);
+    if (on.cables) toggleButton(skyBtn || document.getElementById('powerBtn'), 'cable-btn', 'cable', 'Subsea cables',
+      'Undersea internet cables (orange where one lands near an active outage): tap to show or hide', cablesOn,
+      (v) => { F.enable({ cables: v }); if (v) lazy.cables(); remember('te-cables', v); });
     if (active) chip(on);
-    const once = (f) => { let done = false; return () => { if (!done) { done = true; f(); } }; };
 
     if (on.lights) {
       const img = new Image();
@@ -106,7 +108,7 @@
       load(); setInterval(load, 5 * 60000);
     }
 
-    if (on.cables) {
+    if (on.cables) lazy.cables = once(() => {
       let ends = [];
       fetch('vendor/cables.json').then((r) => r.json()).then((d) => {
         F.setCables(d.cables);
@@ -124,7 +126,8 @@
         F.setCableHot(set);
       };
       setInterval(hot, 60000);
-    }
+    });
+    if (on.cables && cablesOn) { F.enable({ cables: true }); lazy.cables(); }
 
     if (on.sats) {
       const KEY = 'te-fx-starlink';
@@ -164,18 +167,25 @@
   }
 
   /** "Satellites: on/off" under the Power button: Starlink and the aurora together. */
-  function skyButton(initial, set) {
-    const pwr = document.getElementById('powerBtn');
-    if (!pwr) return;
+  const ICON = {
+    sky: '<path d="M4 12a8 8 0 0 1 16 0M7.5 12a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="12" r="1.6"/>',
+    cable: '<path d="M3 15c3 0 3-4 6-4s3 4 6 4 3-4 6-4"/><circle cx="3" cy="15" r="1.4"/><circle cx="21" cy="11" r="1.4"/>',
+  };
+  /** A toggle in the column under Power: "<label>: on/off". */
+  function toggleButton(after, cls, icon, label, title, initial, set) {
+    if (!after) return null;
     const b = document.createElement('button');
-    b.className = 'radar-btn power-btn sky-btn';
-    b.title = 'Starlink satellites and the aurora: tap to show or hide';
-    b.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 16 0M7.5 12a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="12" r="1.6"/></svg><span></span>';
-    const show = (v) => { b.setAttribute('aria-pressed', String(v)); b.querySelector('span').textContent = v ? 'Satellites: on' : 'Satellites: off'; };
+    b.className = 'radar-btn power-btn ' + cls;
+    b.title = title;
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[icon]}</svg><span></span>`;
+    const show = (v) => { b.setAttribute('aria-pressed', String(v)); b.querySelector('span').textContent = `${label}: ${v ? 'on' : 'off'}`; };
     let v = initial; show(v);
     b.addEventListener('click', (e) => { e.stopPropagation(); v = !v; show(v); set(v); });
-    pwr.after(b);
+    after.after(b);
+    return b;
   }
+  const remembered = (key, dflt) => { try { const v = localStorage.getItem(key); return v === null ? dflt : v === '1'; } catch (_) { return dflt; } };
+  const remember = (key, v) => { try { localStorage.setItem(key, v ? '1' : '0'); } catch (_) { /* private mode */ } };
 
   /** A small "FX preview" chip, so it's clear which version this is; tap for credits. */
   function chip(on) {

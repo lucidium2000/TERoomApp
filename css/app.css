@@ -1252,3 +1252,5 @@ body.power-on .map-key { display: flex; }
 .fx-credits small { color: #64748b; margin-top: .3em; }
 .wxbar .sky-btn { margin-top: .3em; }
 .wxbar .sky-btn[aria-pressed="true"] { color: #c4f1ff; background: rgba(56, 189, 248, .14); border-color: rgba(56, 189, 248, .5); }
+.wxbar .cable-btn { margin-top: .3em; }
+.wxbar .cable-btn[aria-pressed="true"] { color: #bae6fd; background: rgba(14, 165, 233, .16); border-color: rgba(14, 165, 233, .55); }
