@@ -470,6 +470,7 @@ void main() {
     let statesOn = false;   // state lines without the radar (the power layer)
 
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const FIREFOX = /firefox/i.test(navigator.userAgent);
     let renderer = '';
     try {
       const dbg = gl.getExtension('WEBGL_debug_renderer_info');
@@ -491,9 +492,27 @@ void main() {
           g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
           const proj = d3.geoEquirectangular().scale(W / (2 * Math.PI)).translate([W / 2, H / 2]).precision(0.1);
           g.fillStyle = '#fff'; g.beginPath(); d3.geoPath(proj, g)(land); g.fill();
+          // Firefox (real GPU) can hand back a blank canvas this big without
+          // an error, so the globe went plain once the map loaded. Check a few
+          // inland points; if they're empty, try the next size down.
+          const inland = [[20, 5], [100, 60], [-100, 40], [-60, -10], [135, -25]];
+          const hits = inland.filter(([lo, la]) => { const [x, y] = proj([lo, la]); return g.getImageData(x | 0, y | 0, 1, 1).data[0] > 127; }).length;
+          if (hits < 3) throw new Error('land canvas came out blank at ' + W);
           gl.activeTexture(gl.TEXTURE0);
           gl.bindTexture(gl.TEXTURE_2D, landTex);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, c);
+          if (FIREFOX) {
+            // Upload from pixel data in strips instead of straight from the
+            // canvas (Firefox's canvas-to-texture path drops it on some GPUs).
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, W, H, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
+            const S = 256, row = new Uint8Array(W * S);
+            for (let y0 = 0; y0 < H; y0 += S) {
+              const d = g.getImageData(0, y0, W, S).data;
+              for (let i = 0, j = 0; i < row.length; i++, j += 4) row[i] = d[j];
+              gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W, S, gl.LUMINANCE, gl.UNSIGNED_BYTE, row);
+            }
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, c);
+          }
           gl.generateMipmap(gl.TEXTURE_2D);   // power-of-two sizes, so WebGL1 allows it
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
           if (ext.aniso) {
