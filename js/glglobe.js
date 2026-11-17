@@ -409,7 +409,8 @@ void main() {
     let fxProgs = null;
     try {
       // The FX shader is the regular one plus extras; if a device can't build it, keep the regular one.
-      if (fxTex) { try { quadProg = program(gl, QUAD_VS, '#define FX 1\n' + QUAD_FS); } catch (e) { console.warn('[globe] FX globe shader failed', e); fxTex = false; } }
+      // The define goes after the #extension lines: some browsers (Firefox) only honour them first.
+      if (fxTex) { try { quadProg = program(gl, QUAD_VS, QUAD_FS.replace('precision highp float;', '#define FX 1\nprecision highp float;')); } catch (e) { console.warn('[globe] FX globe shader failed', e); fxTex = false; } }
       if (!quadProg) quadProg = program(gl, QUAD_VS, QUAD_FS);
       lineProg = program(gl, LINE_VS, LINE_FS);
       if (FX) {
