@@ -986,8 +986,8 @@
     fetch('vendor/places.json').then((r) => r.json()).then((d) => {
       // Most important first, so they win when labels collide.
       S.places.data = {
-        countries: d.countries.map(([n, lon, lat, r]) => ({ n: n.toUpperCase(), lon, lat, r })).sort((a, b) => a.r - b.r),
-        states: d.states.map(([n, lon, lat, r]) => ({ n, lon, lat, r })).sort((a, b) => a.r - b.r),
+        countries: d.countries.map(([n, lon, lat, r, c]) => ({ n: n.toUpperCase(), lon, lat, r, c })).sort((a, b) => a.r - b.r),
+        states: d.states.map(([n, lon, lat, r, c]) => ({ n, lon, lat, r, c })).sort((a, b) => a.r - b.r),
       };
     }).catch((e) => console.warn('[places]', e)).finally(() => { S.places.loading = false; });
   }
@@ -1000,10 +1000,14 @@
     let n = 0;
     ctx.save();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    // Once a country's states are showing, its own name goes (it would sit on top of them).
+    const stBias = -0.2, perCountry = new Map();
+    for (const pl of P.data.states) if (pl.r <= z + stBias && proj.point(pl.lon, pl.lat)) perCountry.set(pl.c, (perCountry.get(pl.c) || 0) + 1);
     const put = (list, max, style) => {
       ctx.font = style.font;
       for (const pl of list) {
         if (pl.r > z + style.bias || n >= max) continue;
+        if (style.country && (perCountry.get(pl.c) || 0) >= 2) continue;
         const p = proj.point(pl.lon, pl.lat);
         if (!p) continue;
         const w = ctx.measureText(pl.n).width + style.spacing * pl.n.length, h = style.h;
@@ -1015,9 +1019,9 @@
       }
     };
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${(1.2 * k).toFixed(1)}px`;
-    put(P.data.countries, 70, { font: font(700, 10), h: 13 * k, color: 'rgba(226,232,240,0.78)', spacing: 0, bias: 0 });
+    put(P.data.countries, 70, { font: font(700, 10), h: 13 * k, color: 'rgba(226,232,240,0.78)', spacing: 0, bias: 0, country: true });
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
-    put(P.data.states, 130, { font: font(500, 9.5), h: 12 * k, color: 'rgba(148,163,184,0.85)', spacing: 0, bias: -0.2 });
+    put(P.data.states, 130, { font: font(500, 9.5), h: 12 * k, color: 'rgba(148,163,184,0.85)', spacing: 0, bias: stBias });
     ctx.restore();
   }
   const placesBtn = document.getElementById('placesBtn');
@@ -1078,13 +1082,19 @@
     const rank = new Map(pwr.markers.map((a, i) => [a.fips, i]));
     const wide = view.zoom < 2;
     const marks = pwr.markers.slice().sort((a, b) => a.out - b.out);
+    // Muted (see-through, softer colours) so power never shouts over the
+    // internet outages; the one pointed at or selected comes up to full.
+    const tP = performance.now();
+    const ptrP = [S.mouse, S.handPt].find((m) => m && tP - m.t < 4000);
     for (const a of marks) {
       const p = proj.point(a.lon, a.lat);
       if (!p) continue;
       const isSel = sel && sel.fips === a.fips;
+      const near = ptrP && Math.hypot(ptrP.x - p[0], ptrP.y - p[1]) < 16;
+      ctx.globalAlpha = isSel || near ? 1 : 0.5;
       const net = nearestInternet(a.lon, a.lat);
       const big = a.out >= 2000 || a.pct >= 5;
-      const fill = isSel ? '#fde68a' : big ? '#fb7185' : '#fbbf24';
+      const fill = isSel ? '#fde68a' : big ? '#e8899a' : '#d9b55a';
       if (wide && !isSel && !net && rank.get(a.fips) >= 15) {
         ctx.beginPath(); ctx.arc(p[0], p[1], 2.8 * k, 0, 2 * Math.PI);
         ctx.fillStyle = fill; ctx.fill();
@@ -1119,6 +1129,7 @@
       ctx.restore();
       S.hits.push({ x: p[0], y: p[1], r: Math.max(20, r * 2), pwr: a });
     }
+    ctx.globalAlpha = 1;
     const placed = [];
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
