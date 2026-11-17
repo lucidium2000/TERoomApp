@@ -117,7 +117,23 @@
     if (!glr) return;
     try { fn(); } catch (e) { disableGL(what, e); }
   }
-  glCanvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); disableGL('context lost'); });
+  // The browser can drop the WebGL context (GPU memory pressure, sleep, a
+  // background tab - Firefox does this more readily). Rather than staying on
+  // the plain 2D globe, reload once the page is showing; at most 3 times in
+  // 10 minutes, so a device that keeps losing it settles on 2D.
+  glCanvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    disableGL('context lost');
+    let n = [];
+    try { n = JSON.parse(sessionStorage.getItem('te-gl-reloads') || '[]').filter((t) => Date.now() - t < 600000); } catch (_) { /* */ }
+    if (n.length >= 3) return;
+    const go = () => {
+      try { sessionStorage.setItem('te-gl-reloads', JSON.stringify([...n, Date.now()])); } catch (_) { /* */ }
+      location.reload();
+    };
+    if (document.visibilityState === 'visible') setTimeout(go, 1500);
+    else document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(go, 500); });
+  });
 
   /** Surface unexpected errors on screen - room devices have no console. */
   function reportError(e, where) {
@@ -1082,8 +1098,8 @@
     const rank = new Map(pwr.markers.map((a, i) => [a.fips, i]));
     const wide = view.zoom < 2;
     const marks = pwr.markers.slice().sort((a, b) => a.out - b.out);
-    // Muted (see-through, softer colours) so power never shouts over the
-    // internet outages; the one pointed at or selected comes up to full.
+    // Kept a little small so power never shouts over the internet outages;
+    // the one pointed at or selected comes up to full size.
     const tP = performance.now();
     const ptrP = [S.mouse, S.handPt].find((m) => m && tP - m.t < 4000);
     for (const a of marks) {
@@ -1091,18 +1107,18 @@
       if (!p) continue;
       const isSel = sel && sel.fips === a.fips;
       const near = ptrP && Math.hypot(ptrP.x - p[0], ptrP.y - p[1]) < 16;
-      ctx.globalAlpha = isSel || near ? 1 : 0.5;
+      const sz = isSel || near ? 1 : 0.75;   // a little smaller unless pointed at or selected
       const net = nearestInternet(a.lon, a.lat);
       const big = a.out >= 2000 || a.pct >= 5;
-      const fill = isSel ? '#fde68a' : big ? '#e8899a' : '#d9b55a';
+      const fill = isSel ? '#fde68a' : big ? '#fb7185' : '#fbbf24';
       if (wide && !isSel && !net && rank.get(a.fips) >= 15) {
-        ctx.beginPath(); ctx.arc(p[0], p[1], 2.8 * k, 0, 2 * Math.PI);
+        ctx.beginPath(); ctx.arc(p[0], p[1], 2.8 * k * sz, 0, 2 * Math.PI);
         ctx.fillStyle = fill; ctx.fill();
         ctx.lineWidth = 1.2 * k; ctx.strokeStyle = 'rgba(5,7,13,0.85)'; ctx.stroke();
         S.hits.push({ x: p[0], y: p[1], r: 14, pwr: a });
         continue;
       }
-      const r = Math.max(6 * k, Math.min(12.5 * k, (5 + Math.sqrt(a.out) * 0.11) * k)) * (isSel ? 1.3 : 1);
+      const r = Math.max(6 * k, Math.min(12.5 * k, (5 + Math.sqrt(a.out) * 0.11) * k)) * (isSel ? 1.3 : 1) * sz;
       if (isSel || net || a.out >= 800) {
         const period = isSel ? 1400 : 2800;
         const t = ((((now + (a.lon * 37 | 0)) % period) + period) % period) / period;
@@ -1129,7 +1145,6 @@
       ctx.restore();
       S.hits.push({ x: p[0], y: p[1], r: Math.max(20, r * 2), pwr: a });
     }
-    ctx.globalAlpha = 1;
     const placed = [];
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
