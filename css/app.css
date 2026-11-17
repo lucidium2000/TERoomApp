@@ -1254,3 +1254,5 @@ body.power-on .map-key { display: flex; }
 .wxbar .sky-btn[aria-pressed="true"] { color: #c4f1ff; background: rgba(56, 189, 248, .14); border-color: rgba(56, 189, 248, .5); }
 .wxbar .cable-btn { margin-top: .3em; }
 .wxbar .cable-btn[aria-pressed="true"] { color: #bae6fd; background: rgba(14, 165, 233, .16); border-color: rgba(14, 165, 233, .55); }
+.wxbar .places-btn { margin-top: .3em; }
+.wxbar .places-btn[aria-pressed="true"] { color: #e2e8f0; background: rgba(148, 163, 184, .18); border-color: rgba(203, 213, 225, .5); }

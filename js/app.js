@@ -458,6 +458,7 @@
     if (glr) {
       ctx.clearRect(0, 0, S.w, S.h);
       perfMark('gl');
+      drawPlaces(Math.max(0.7, Math.min(1.6, R / 430)));
       drawOutages(now, R);
       drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
       drawQuakeTag(Math.max(0.7, Math.min(1.6, R / 430)));
@@ -496,6 +497,7 @@
     ctx.strokeStyle = 'rgba(56,189,248,0.45)'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.arc(L.cx, L.cy, R, 0, 2 * Math.PI); ctx.stroke();
 
+    drawPlaces(Math.max(0.7, Math.min(1.6, R / 430)));
     drawOutages(now, R);
     drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
     perfMark('markers');
@@ -974,6 +976,68 @@
     ctx.restore();
   }
 
+  // ── Place names (the Place names button): countries, then states and
+  // provinces as you zoom in, from Natural Earth's label points and ranks ──
+  S.places = { on: false, data: null };
+  try { S.places.on = localStorage.getItem('te-places') === '1'; } catch (_) { /* off */ }
+  function loadPlaces() {
+    if (S.places.data || S.places.loading) return;
+    S.places.loading = true;
+    fetch('vendor/places.json').then((r) => r.json()).then((d) => {
+      // Most important first, so they win when labels collide.
+      S.places.data = {
+        countries: d.countries.map(([n, lon, lat, r]) => ({ n: n.toUpperCase(), lon, lat, r })).sort((a, b) => a.r - b.r),
+        states: d.states.map(([n, lon, lat, r]) => ({ n, lon, lat, r })).sort((a, b) => a.r - b.r),
+      };
+    }).catch((e) => console.warn('[places]', e)).finally(() => { S.places.loading = false; });
+  }
+  function drawPlaces(k) {
+    const P = S.places;
+    if (!P.on || !P.data) return;
+    // Natural Earth ranks say at which (web map) zoom a name appears; whole globe ~ 2-3.
+    const z = 3 + Math.log2(Math.max(0.5, view.zoom)) * 1.3;
+    const boxes = [], font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    let n = 0;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    const put = (list, max, style) => {
+      ctx.font = style.font;
+      for (const pl of list) {
+        if (pl.r > z + style.bias || n >= max) continue;
+        const p = proj.point(pl.lon, pl.lat);
+        if (!p) continue;
+        const w = ctx.measureText(pl.n).width + style.spacing * pl.n.length, h = style.h;
+        const b = { x0: p[0] - w / 2 - 3, x1: p[0] + w / 2 + 3, y0: p[1] - h / 2, y1: p[1] + h / 2 };
+        if (boxes.some((q) => b.x0 < q.x1 && b.x1 > q.x0 && b.y0 < q.y1 && b.y1 > q.y0)) continue;
+        boxes.push(b); n++;
+        ctx.lineWidth = 3 * k; ctx.strokeStyle = 'rgba(4,8,16,0.75)'; ctx.strokeText(pl.n, p[0], p[1]);
+        ctx.fillStyle = style.color; ctx.fillText(pl.n, p[0], p[1]);
+      }
+    };
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${(1.2 * k).toFixed(1)}px`;
+    put(P.data.countries, 70, { font: font(700, 10), h: 13 * k, color: 'rgba(226,232,240,0.78)', spacing: 0, bias: 0 });
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    put(P.data.states, 130, { font: font(500, 9.5), h: 12 * k, color: 'rgba(148,163,184,0.85)', spacing: 0, bias: -0.2 });
+    ctx.restore();
+  }
+  const placesBtn = document.getElementById('placesBtn');
+  function showPlacesBtn() {
+    if (!placesBtn) return;
+    placesBtn.setAttribute('aria-pressed', String(S.places.on));
+    placesBtn.querySelector('span').textContent = S.places.on ? 'Place names: on' : 'Place names: off';
+  }
+  if (placesBtn) {
+    showPlacesBtn();
+    if (S.places.on) loadPlaces();
+    placesBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); userInput(); sfx('tap');
+      S.places.on = !S.places.on;
+      try { localStorage.setItem('te-places', S.places.on ? '1' : '0'); } catch (_) { /* private mode */ }
+      if (S.places.on) loadPlaces();
+      showPlacesBtn();
+    });
+  }
+
   // ── US power outages on the globe (merged from a contributor's version) ──
   // Amber bolt badges (not circles, not a heatmap) so power never blends into
   // the internet dots or the radar. Only drawn while the Power toggle is on.
@@ -1058,7 +1122,16 @@
     const placed = [];
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    const labelSet = pwr.markers.filter((a, i) => i < 5 || (sel && a.fips === sel.fips));
+    // Labels only for the county being pointed at (mouse or hand cursor) or tapped.
+    const t = performance.now();
+    const ptr = [S.mouse, S.handPt].find((m) => m && t - m.t < 4000);
+    let hov = null, hd = Infinity;
+    if (ptr) for (const h of S.hits) {
+      if (!h.pwr) continue;
+      const d = Math.hypot(h.x - ptr.x, h.y - ptr.y);
+      if (d < Math.max(12, h.r * 0.6) && d < hd) { hd = d; hov = h.pwr; }
+    }
+    const labelSet = pwr.markers.filter((a) => (sel && a.fips === sel.fips) || (hov && a.fips === hov.fips));
     for (const a of labelSet) {
       const p = proj.point(a.lon, a.lat);
       if (!p) continue;
