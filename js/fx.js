@@ -91,6 +91,7 @@
       lazy.aurora = once(() => { load(); setInterval(load, 30 * 60000); });
     }
 
+    let quakeList = [];
     if (on.quakes) {
       let seen = null;
       const load = async () => {
@@ -98,9 +99,9 @@
         if (!d || !Array.isArray(d.features)) return;
         const list = d.features.filter((f) => f.geometry && f.properties).map((f) => ({
           id: f.id, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], mag: f.properties.mag || 2.5,
-          time: f.properties.time, place: f.properties.place || '',
+          time: f.properties.time, place: f.properties.place || '', depth: f.geometry.coordinates[2],
         }));
-        F.setQuakes(list);
+        F.setQuakes(list); quakeList = list;
         // A strong new one gets a toast (not the ones already there at load).
         if (seen && toast) for (const q of list) if (!seen.has(q.id) && q.mag >= 6) toast(`M${q.mag.toFixed(1)} earthquake: ${q.place}`, 'quake');
         seen = new Set(list.map((q) => q.id));
@@ -151,6 +152,8 @@
     setSky(sky && skyOn);
 
     return {
+      /** Earthquakes on the globe now (for hover cards). */
+      quakes: () => (on.quakes ? quakeList : []),
       /** A new outage arrived: a streak onto its main location. */
       newOutage(o) {
         if (!on.comets || !o || !o.locations || !o.locations.length) return;

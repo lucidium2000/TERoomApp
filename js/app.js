@@ -460,6 +460,7 @@
       perfMark('gl');
       drawOutages(now, R);
       drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
+      drawQuakeTag(Math.max(0.7, Math.min(1.6, R / 430)));
       perfMark('markers');
       return;
     }
@@ -765,6 +766,54 @@
     ctx.restore();
     if (focus) roomTag(x + R + 9 * k, y, k);
   }
+  /** The earthquake under the pointer (mouse or hand cursor), or tapped in the
+   *  last few seconds: a ring on it and a small card (magnitude, where, when, depth). */
+  function quakeAt(x, y, r) {
+    let best = null, bd = r;
+    for (const q of (FXI && FXI.quakes()) || []) {
+      const p = proj.point(q.lon, q.lat);
+      if (!p) continue;
+      const d = Math.hypot(p[0] - x, p[1] - y);
+      if (d < bd) { bd = d; best = { q, p }; }
+    }
+    return best;
+  }
+  function drawQuakeTag(k) {
+    if (!FXI) return;
+    const t = performance.now();
+    let hit = null;
+    if (S.quakePick && t < S.quakePick.until) {
+      const p = proj.point(S.quakePick.q.lon, S.quakePick.q.lat);
+      if (p) hit = { q: S.quakePick.q, p };
+    }
+    for (const m of [S.mouse, S.handPt]) if (!hit && m && t - m.t < 4000) hit = quakeAt(m.x, m.y, 16 * k);
+    if (!hit) return;
+    const { q, p: [x, y] } = hit;
+    const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const ago = (Date.now() - q.time) / 60000;
+    const when = ago < 60 ? `${Math.max(1, Math.round(ago))} min ago` : `${Math.round(ago / 60)} h ago`;
+    const head = `EARTHQUAKE \u00B7 M${q.mag.toFixed(1)}`;
+    const place = q.place || `${q.lat.toFixed(1)}, ${q.lon.toFixed(1)}`;
+    const sub = `${when} \u00B7 ${fmtTime(q.time)}${isFinite(q.depth) ? ` \u00B7 ${Math.round(q.depth)} km deep` : ''}`;
+    ctx.save();
+    ctx.lineWidth = 1.4 * k; ctx.strokeStyle = 'rgba(253,224,71,0.9)';
+    ctx.beginPath(); ctx.arc(x, y, 9 * k, 0, 2 * Math.PI); ctx.stroke();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = font(800, 9.5); const w1 = ctx.measureText(head).width;
+    ctx.font = font(600, 13); const w2 = ctx.measureText(place).width;
+    ctx.font = font(500, 11); const w3 = ctx.measureText(sub).width;
+    const pad = 9 * k, bw = Math.max(w1, w2, w3) + pad * 2, bh = 56 * k;
+    let bx = x + 16 * k; if (bx + bw > S.w - 8) bx = x - 16 * k - bw;
+    const top = Math.max(8, Math.min(S.h - bh - 8, y - bh / 2));
+    ctx.fillStyle = 'rgba(5,7,13,0.9)';
+    ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(bx, top, bw, bh, 8 * k); else ctx.rect(bx, top, bw, bh); ctx.fill();
+    ctx.lineWidth = 1 * k; ctx.strokeStyle = 'rgba(253,224,71,0.5)'; ctx.stroke();
+    ctx.font = font(800, 9.5); ctx.fillStyle = '#fde047'; ctx.fillText(head, bx + pad, top + 12 * k);
+    ctx.font = font(600, 13); ctx.fillStyle = '#e6edf7'; ctx.fillText(place, bx + pad, top + 28 * k);
+    ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8'; ctx.fillText(sub, bx + pad, top + 44 * k);
+    ctx.restore();
+  }
+
   /** Hovered (mouse or hand cursor) or tapped in the last few seconds. */
   function roomFocus() {
     const q = S.roomPt, t = performance.now();
@@ -2847,6 +2896,15 @@
         return;
       }
       S.roomPick = 0;
+      // Tap on an earthquake: its card for a few seconds.
+      const qh = quakeAt(e.clientX, e.clientY, 18);
+      if (qh) {
+        S.quakePick = { q: qh.q, until: performance.now() + 8000 };
+        sfx('select');
+        down = null; S.dragging = false;
+        return;
+      }
+      S.quakePick = null;
       // Tap: the nearest internet outage, else a power county (when that
       // layer's on), else clear the selection.
       let bestNet = null, bestPwr = null, bdN = Infinity, bdP = Infinity;
