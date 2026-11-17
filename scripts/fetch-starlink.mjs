@@ -6,7 +6,8 @@
 // same set more often than that, so the Action fetches it once per run.
 //
 // Usage: node scripts/fetch-starlink.mjs [outfile]   (default: data/starlink.json)
-// Output: { generatedAt, source, sats: [[epochSec, revPerDay, ecc, incDeg, raanDeg, argpDeg, meanAnomDeg], ...] }
+// Output: { generatedAt, source, sats: [[epochSec, revPerDay, ecc, incDeg, raanDeg, argpDeg, meanAnomDeg, name], ...],
+//           stations: [same, for the ISS and Tiangong] }
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -27,11 +28,22 @@ for (const u of URLS) {
 }
 if (!Array.isArray(all)) { console.error('no Starlink data; keeping the last copy'); process.exit(1); }
 const r = (x, d) => Math.round(x * 10 ** d) / 10 ** d;
+const row = (s) => [Math.round(Date.parse(s.EPOCH + 'Z') / 1000), r(s.MEAN_MOTION, 6), r(s.ECCENTRICITY, 6),
+  r(s.INCLINATION, 4), r(s.RA_OF_ASC_NODE, 4), r(s.ARG_OF_PERICENTER, 4), r(s.MEAN_ANOMALY, 4), String(s.OBJECT_NAME || '').trim()];
 const sats = all
   .filter((s) => s.MEAN_MOTION > 11 && s.MEAN_MOTION < 17 && s.ECCENTRICITY < 0.02)   // in orbit, not re-entering
-  .map((s) => [Math.round(Date.parse(s.EPOCH + 'Z') / 1000), r(s.MEAN_MOTION, 6), r(s.ECCENTRICITY, 6),
-    r(s.INCLINATION, 4), r(s.RA_OF_ASC_NODE, 4), r(s.ARG_OF_PERICENTER, 4), r(s.MEAN_ANOMALY, 4)]);
+  .map(row);
+// The crewed stations: the ISS (25544) and China's Tiangong core module (48274).
+let stations = [];
+try {
+  const res = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=json', { headers: { 'User-Agent': 'TERoomApp (globe visual)' } });
+  if (res.ok) {
+    const st = await res.json();
+    const pick = { 25544: 'ISS', 48274: 'Tiangong' };
+    stations = st.filter((s) => pick[s.NORAD_CAT_ID]).map((s) => { const x = row(s); x[7] = pick[s.NORAD_CAT_ID]; return x; });
+  } else console.warn('stations: HTTP ' + res.status);
+} catch (e) { console.warn('stations: ' + e.message); }
 if (sats.length < 1000) { console.error('only ' + sats.length + ' satellites; keeping the last copy'); process.exit(1); }
 await mkdir(dirname(OUT), { recursive: true });
-await writeFile(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), source: 'CelesTrak (celestrak.org)', sats }));
-console.log(`Wrote ${OUT}: ${sats.length} Starlink satellites`);
+await writeFile(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), source: 'CelesTrak (celestrak.org)', sats, stations }));
+console.log(`Wrote ${OUT}: ${sats.length} Starlink satellites, ${stations.length} stations`);

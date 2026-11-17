@@ -58,6 +58,7 @@
     const lazy = {};
     const once = (f) => { let done = false; return () => { if (!done) { done = true; f(); } }; };
     const setSky = (v) => {
+      skyOnNow = v;
       F.enable({ sats: want.sats && v, aurora: want.aurora && v });
       if (v) { if (want.sats && lazy.sats) lazy.sats(); if (want.aurora && lazy.aurora) lazy.aurora(); }
     };
@@ -130,6 +131,24 @@
     });
     if (on.cables && cablesOn) { F.enable({ cables: true }); lazy.cables(); }
 
+    // Satellites on the CPU too (hover cards, orbits, stations, "overhead"):
+    // the same circular-orbit model the GPU flies them with.
+    let names = [], stations = [], satCache = null;
+    const gpRow = (s) => [Date.parse(s.EPOCH + 'Z') / 1000, s.MEAN_MOTION, s.ECCENTRICITY, s.INCLINATION, s.RA_OF_ASC_NODE, s.ARG_OF_PERICENTER, s.MEAN_ANOMALY, String(s.OBJECT_NAME || '').trim()];
+    const posOf = (arr, k, ref, ms, du = 0) => {
+      const t = ms / 1000 - ref, g = F.gmst(ms);
+      const O = arr[k + 2] + arr[k + 3] * t - g, u = arr[k + 4] + arr[k + 5] * t + du, ci = Math.cos(arr[k + 1]), si = Math.sin(arr[k + 1]);
+      const cO = Math.cos(O), sO = Math.sin(O), cu = Math.cos(u), su = Math.sin(u), r = arr[k + 6];
+      return [r * (cO * cu - sO * su * ci), r * (sO * cu + cO * su * ci), r * su * si];
+    };
+    const litAt = (p, sun) => { const sd = p[0] * sun[0] + p[1] * sun[1] + p[2] * sun[2]; return sd > 0 || Math.hypot(p[0] - sd * sun[0], p[1] - sd * sun[1], p[2] - sd * sun[2]) > 1; };
+    const info = (arr, k, p, sun, name) => {
+      const RE = 6378.137, r = arr[k + 6], n = arr[k];
+      return { name, altKm: (r - 1) * RE, kmh: r * RE * n * 3600, incDeg: arr[k + 1] * 180 / Math.PI, periodMin: 2 * Math.PI / n / 60, lit: litAt(p, sun) };
+    };
+    const skyShown = () => skyOnNow && on.sats;
+    let skyOnNow = false;
+
     if (on.sats) {
       const KEY = 'te-fx-starlink';
       const load = async () => {
@@ -140,18 +159,76 @@
           if (!d) {
             const all = await firstJson(['https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=json']);
             if (Array.isArray(all)) {
-              d = { sats: all.filter((s) => s.MEAN_MOTION > 11 && s.MEAN_MOTION < 17 && s.ECCENTRICITY < 0.02).map((s) => [Date.parse(s.EPOCH + 'Z') / 1000, s.MEAN_MOTION, s.ECCENTRICITY, s.INCLINATION, s.RA_OF_ASC_NODE, s.ARG_OF_PERICENTER, s.MEAN_ANOMALY]) };
+              d = { sats: all.filter((s) => s.MEAN_MOTION > 11 && s.MEAN_MOTION < 17 && s.ECCENTRICITY < 0.02).map(gpRow) };
               try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), d })); } catch (_) { /* too big or private mode */ }
             }
           }
         }
-        if (d && Array.isArray(d.sats)) F.setSats(d.sats);
+        if (d && Array.isArray(d.sats)) {
+          F.setSats(d.sats);
+          names = d.sats.map((r) => r[7] || '');
+          satCache = null;
+        }
+        // The crewed stations: in the published file, else CelesTrak's stations group.
+        let st = d && Array.isArray(d.stations) && d.stations.length ? d.stations : null;
+        if (!st) {
+          try { const c = JSON.parse(localStorage.getItem(KEY + '-st') || 'null'); if (c && Date.now() - c.at < 6 * 3600e3) st = c.st; } catch (_) { /* */ }
+          if (!st) {
+            const all = await firstJson(['https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=json']);
+            const pick = { 25544: 'ISS', 48274: 'Tiangong' };
+            if (Array.isArray(all)) {
+              st = all.filter((x) => pick[x.NORAD_CAT_ID]).map((x) => { const r = gpRow(x); r[7] = pick[x.NORAD_CAT_ID]; return r; });
+              try { localStorage.setItem(KEY + '-st', JSON.stringify({ at: Date.now(), st })); } catch (_) { /* */ }
+            }
+          }
+        }
+        if (st && st.length) { const e = F.elements(st); stations = st.map((r, i) => ({ name: r[7], arr: e.arr.subarray(i * 8, i * 8 + 8), ref: e.ref })); }
       };
       lazy.sats = once(() => { load(); setInterval(load, 6 * 3600e3); });
     }
     setSky(sky && skyOn);
 
     return {
+      /** Satellites shown right now? */
+      skyOn: () => skyShown(),
+      /** Every satellite's world position now (Earth radii), refreshed at most every 150 ms. */
+      satPositions() {
+        if (!skyShown()) return null;
+        const e = F.satEls();
+        if (!e.arr) return null;
+        const t = performance.now();
+        if (satCache && t - satCache.t < 150) return satCache.pos;
+        const ms = Date.now(), pos = new Float32Array(e.n * 3);
+        for (let i = 0; i < e.n; i++) { const p = posOf(e.arr, i * 8, e.ref, ms); pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2]; }
+        satCache = { t, pos };
+        return pos;
+      },
+      /** One satellite's card details. */
+      satInfo(i, sun) { const e = F.satEls(); const p = posOf(e.arr, i * 8, e.ref, Date.now()); return info(e.arr, i * 8, p, sun, names[i] || 'Starlink satellite'); },
+      /** Points around a satellite's whole orbit, as it is now. */
+      satOrbit(i, N = 120) { const e = F.satEls(), ms = Date.now(), out = []; for (let j = 0; j <= N; j++) out.push(posOf(e.arr, i * 8, e.ref, ms, (j / N) * 2 * Math.PI)); return out; },
+      /** The crewed stations: where they are, a trail of the last half orbit, and their details. */
+      stations(sun) {
+        if (!skyShown()) return [];
+        const ms = Date.now();
+        return stations.map((s) => {
+          const pos = posOf(s.arr, 0, s.ref, ms), per = 2 * Math.PI / s.arr[0] * 1000;
+          const trail = []; for (let j = 30; j >= 0; j--) trail.push(posOf(s.arr, 0, s.ref, ms - (j / 30) * per * 0.45));
+          return { name: s.name, pos, trail, info: info(s.arr, 0, pos, sun, s.name), orbit: () => { const o = []; for (let j = 0; j <= 120; j++) o.push(posOf(s.arr, 0, s.ref, ms, (j / 120) * 2 * Math.PI)); return o; } };
+        });
+      },
+      /** Starlink satellites at least minEl degrees above the horizon at a place (Starlink serves from 25 degrees up). */
+      overhead(lat, lon, minEl = 25) {
+        const pos = this.satPositions();
+        if (!pos) return null;
+        const g = uv(lon, lat), s = Math.sin(minEl * Math.PI / 180);
+        let n = 0;
+        for (let i = 0; i < pos.length; i += 3) {
+          const dx = pos[i] - g[0], dy = pos[i + 1] - g[1], dz = pos[i + 2] - g[2];
+          if ((dx * g[0] + dy * g[1] + dz * g[2]) / Math.hypot(dx, dy, dz) > s) n++;
+        }
+        return n;
+      },
       /** Earthquakes on the globe now (for hover cards). */
       quakes: () => (on.quakes ? quakeList : []),
       /** A new outage arrived: a streak onto its main location. */

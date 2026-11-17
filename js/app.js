@@ -461,6 +461,7 @@
       drawOutages(now, R);
       drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
       drawQuakeTag(Math.max(0.7, Math.min(1.6, R / 430)));
+      drawSpace(Math.max(0.7, Math.min(1.6, R / 430)));
       perfMark('markers');
       return;
     }
@@ -814,6 +815,109 @@
     ctx.restore();
   }
 
+  // ── Satellites (the Satellites button): the crewed stations, and a card and
+  // the whole orbit for whichever satellite is under the pointer ──────────
+  /** A point in space (world axes, Earth radii) on screen, as the WebGL camera
+   *  sees it; null when it's behind the Earth or the viewer. */
+  function proj3(w) {
+    if (!cam) return null;
+    const v = [w[0] * cam.e[0] + w[1] * cam.e[1] + w[2] * cam.e[2], w[0] * cam.n[0] + w[1] * cam.n[1] + w[2] * cam.n[2], w[0] * cam.c[0] + w[1] * cam.c[1] + w[2] * cam.c[2]];
+    const E = cam.E, C = cam.C, Rw = cam.Rw;
+    const h = [C[0] + Rw * v[0], C[1] - Rw * v[1], C[2] - Rw * v[2]];
+    if (h[2] <= E[2] + 1) return null;
+    const d = [h[0] - E[0], h[1] - E[1], h[2] - E[2]], oc = [E[0] - C[0], E[1] - C[1], E[2] - C[2]];
+    const a = d[0] * d[0] + d[1] * d[1] + d[2] * d[2], b = oc[0] * d[0] + oc[1] * d[1] + oc[2] * d[2];
+    const disc = b * b - a * (oc[0] * oc[0] + oc[1] * oc[1] + oc[2] * oc[2] - Rw * Rw * 0.999);
+    if (disc > 0) { const t = (-b - Math.sqrt(disc)) / a; if (t > 0 && t < 1) return null; }
+    const sc = -E[2] / (h[2] - E[2]);
+    return [E[0] + (h[0] - E[0]) * sc, E[1] + (h[1] - E[1]) * sc];
+  }
+  /** A polyline through points in space, skipping the parts hidden behind the Earth. */
+  function strokeSpace(pts, style, width, alphaOf) {
+    let prev = null;
+    ctx.lineWidth = width; ctx.lineCap = 'round';
+    pts.forEach((w, i) => {
+      const p = proj3(w);
+      if (p && prev) {
+        ctx.strokeStyle = alphaOf ? style.replace('ALPHA', alphaOf(i).toFixed(3)) : style;
+        ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
+      }
+      prev = p;
+    });
+  }
+  function spaceCard(x, y, k, head, accent, lines) {
+    const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.save();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = font(800, 9.5); let w = ctx.measureText(head).width;
+    ctx.font = font(600, 13); w = Math.max(w, ctx.measureText(lines[0]).width);
+    ctx.font = font(500, 11); for (const l of lines.slice(1)) w = Math.max(w, ctx.measureText(l).width);
+    const pad = 9 * k, bw = w + pad * 2, bh = (26 + 16 * lines.length) * k;
+    let bx = x + 16 * k; if (bx + bw > S.w - 8) bx = x - 16 * k - bw;
+    const top = Math.max(8, Math.min(S.h - bh - 8, y - bh / 2));
+    ctx.fillStyle = 'rgba(5,7,13,0.9)';
+    ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(bx, top, bw, bh, 8 * k); else ctx.rect(bx, top, bw, bh); ctx.fill();
+    ctx.lineWidth = 1 * k; ctx.strokeStyle = accent.replace('ALPHA', '0.5'); ctx.stroke();
+    ctx.font = font(800, 9.5); ctx.fillStyle = accent.replace('ALPHA', '1'); ctx.fillText(head, bx + pad, top + 12 * k);
+    ctx.font = font(600, 13); ctx.fillStyle = '#e6edf7'; ctx.fillText(lines[0], bx + pad, top + 28 * k);
+    ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8';
+    lines.slice(1).forEach((l, i) => ctx.fillText(l, bx + pad, top + (44 + 16 * i) * k));
+    ctx.restore();
+  }
+  const satLines = (inf, extra) => [
+    ...(extra ? [extra] : []),
+    `${Math.round(inf.altKm).toLocaleString()} km up \u00B7 ${Math.round(inf.kmh / 100) * 100 >= 1000 ? (Math.round(inf.kmh / 100) * 100).toLocaleString() : Math.round(inf.kmh)} km/h`,
+    `One lap every ${Math.round(inf.periodMin)} min \u00B7 ${inf.incDeg.toFixed(1)}\u00B0 orbit \u00B7 ${inf.lit ? 'in sunlight' : "in Earth's shadow"}`,
+  ];
+  function drawSpace(k) {
+    if (!FXI || !cam || !FXI.skyOn()) return;
+    const sunLL = subsolar(Date.now()), sun = unitVec(sunLL.lon, sunLL.lat);
+    const t = performance.now();
+    const ptr = [S.mouse, S.handPt].find((m) => m && t - m.t < 4000);
+    ctx.save();
+    // Stations: a trail of the last part of the orbit, a bright marker and a name.
+    const sts = FXI.stations(sun);
+    let hover = null;
+    for (const st of sts) {
+      strokeSpace(st.trail, 'rgba(250,204,21,ALPHA)', 1.6 * k, (i) => 0.05 + 0.55 * (i / st.trail.length));
+      const p = proj3(st.pos);
+      if (!p) continue;
+      ctx.fillStyle = 'rgba(250,204,21,0.25)'; ctx.beginPath(); ctx.arc(p[0], p[1], 7 * k, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = '#fde68a'; ctx.beginPath(); ctx.arc(p[0], p[1], 3 * k, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = `700 ${Math.round(11 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textBaseline = 'middle'; ctx.lineWidth = 3 * k; ctx.strokeStyle = 'rgba(4,8,16,0.8)';
+      ctx.strokeText(st.name, p[0] + 9 * k, p[1]); ctx.fillStyle = '#fde68a'; ctx.fillText(st.name, p[0] + 9 * k, p[1]);
+      if (ptr && Math.hypot(ptr.x - p[0], ptr.y - p[1]) < 16 * k) hover = { st, p };
+    }
+    if (hover) {
+      strokeSpace(hover.st.orbit(), 'rgba(250,204,21,0.45)', 1.2 * k);
+      const crew = hover.st.name === 'ISS' ? 'International Space Station \u00B7 crewed' : "China's space station \u00B7 crewed";
+      spaceCard(hover.p[0], hover.p[1], k, `SPACE STATION \u00B7 ${hover.st.name.toUpperCase()}`, 'rgba(250,204,21,ALPHA)', satLines(hover.st.info, crew));
+      ctx.restore();
+      return;
+    }
+    // A Starlink satellite under the pointer: its whole orbit, and a card.
+    if (ptr) {
+      const pos = FXI.satPositions();
+      let best = -1, bd = 10 * k, bp = null;
+      if (pos) for (let i = 0; i < pos.length; i += 3) {
+        const p = proj3([pos[i], pos[i + 1], pos[i + 2]]);
+        if (!p) continue;
+        const d = Math.hypot(ptr.x - p[0], ptr.y - p[1]);
+        if (d < bd) { bd = d; best = i / 3; bp = p; }
+      }
+      S.spaceHit = best >= 0 ? { i: best, p: bp } : null;
+      if (best >= 0) {
+        strokeSpace(FXI.satOrbit(best), 'rgba(125,211,252,0.5)', 1.1 * k);
+        ctx.strokeStyle = 'rgba(186,230,253,0.95)'; ctx.lineWidth = 1.3 * k;
+        ctx.beginPath(); ctx.arc(bp[0], bp[1], 6 * k, 0, 2 * Math.PI); ctx.stroke();
+        const inf = FXI.satInfo(best, sun);
+        spaceCard(bp[0], bp[1], k, 'STARLINK SATELLITE', 'rgba(125,211,252,ALPHA)', satLines(inf, inf.name));
+      }
+    }
+    ctx.restore();
+  }
+
   /** Hovered (mouse or hand cursor) or tapped in the last few seconds. */
   function roomFocus() {
     const q = S.roomPt, t = performance.now();
@@ -837,7 +941,11 @@
     const wxW = w ? 10 * k + 18 * k + 4 * k + tempW : 0;
     const isp = room.org ? `via ${room.org}${room.asn ? ` (AS${room.asn})` : ''}` : '';
     ctx.font = font(500, 11); const ispW = isp ? ctx.measureText(isp).width : 0;
-    const pad = 9 * k, bw = Math.max(capW, placeW + wxW, ispW) + pad * 2, bh = (isp ? 56 : 40) * k, top = y - bh / 2;
+    // With the Satellites layer on: how many Starlink satellites are high enough to serve this spot.
+    if (FXI && FXI.skyOn() && (!S.ovh || performance.now() - S.ovh.t > 10000)) S.ovh = { t: performance.now(), n: FXI.overhead(room.lat, room.lon) };
+    const ovh = FXI && FXI.skyOn() && S.ovh && S.ovh.n != null ? `${S.ovh.n} Starlink satellites overhead now` : '';
+    ctx.font = font(500, 11); const ovhW = ovh ? ctx.measureText(ovh).width + 14 * k : 0;
+    const pad = 9 * k, bw = Math.max(capW, placeW + wxW, ispW, ovhW) + pad * 2, bh = ((isp ? 56 : 40) + (ovh ? 16 : 0)) * k, top = y - bh / 2;
     ctx.fillStyle = 'rgba(5,7,13,0.88)';
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x, top, bw, bh, 8 * k); else ctx.rect(x, top, bw, bh);
@@ -857,6 +965,11 @@
     if (isp) {
       ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8';
       ctx.fillText(isp, x + pad, top + 44 * k);
+    }
+    if (ovh) {
+      const oy = top + (isp ? 60 : 44) * k;
+      ctx.fillStyle = '#7dd3fc'; ctx.beginPath(); ctx.arc(x + pad + 3.5 * k, oy, 2.4 * k, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = font(500, 11); ctx.fillStyle = '#bae6fd'; ctx.fillText(ovh, x + pad + 12 * k, oy);
     }
     ctx.restore();
   }

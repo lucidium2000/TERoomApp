@@ -692,6 +692,17 @@ void main() {
       /** Satellites: [[epochSec, revPerDay, ecc, incDeg, raanDeg, argpDeg, meanAnomDeg], ...]. */
       setSats(list) {
         if (!fxProgs) return;
+        const { arr, ref } = fxApi.elements(list);
+        fx.satEl = arr; fx.satRef = ref; fx.satCount = list.length;
+        fx.satBuf = fx.satBuf || gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.satBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+      },
+      /** The loaded satellites' elements (8 floats each, as the shader reads them) and their time base. */
+      satEls: () => ({ arr: fx.satEl || null, ref: fx.satRef, n: fx.satCount }),
+      gmst,
+      /** Elements -> per satellite [n, inc, node0, node drift, arg. of latitude0, its rate, radius (Earth radii), 0] at t = now. */
+      elements(list) {
         const MU = 398600.4418, RE = 6378.137, J2 = 1.08263e-3, now = Date.now() / 1000;
         const arr = new Float32Array(list.length * 8);
         let k = 0;
@@ -703,10 +714,7 @@ void main() {
           const u0 = ((argpD + maD) * RADd + uDot * dt) % (2 * Math.PI), O0 = (raanD * RADd + raanDot * dt) % (2 * Math.PI);
           arr.set([n, inc, O0, raanDot, u0, uDot, a / RE, 0], k); k += 8;
         }
-        fx.satRef = now; fx.satCount = list.length;
-        fx.satBuf = fx.satBuf || gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, fx.satBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+        return { arr, ref: now };
       },
       /** Earthquakes: [{ lon, lat, mag, time }]. */
       setQuakes(list) { fx.quakes = list || []; },
