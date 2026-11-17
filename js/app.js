@@ -96,7 +96,10 @@
   // 2D canvas draws everything and is opaque, so the browser skips blending it.
   const glCanvas = $('gl');
   let glr = null;
-  try { glr = qs.get('renderer') !== '2d' && window.createGlobeGL ? window.createGlobeGL(glCanvas) : null; } catch (e) { reportError(e, 'WebGL init'); }
+  // ?fx: the FX preview (js/fx.js) - extra layers compiled into the renderer only then.
+  // The regular view uses it only for the Satellites button (Starlink + aurora).
+  const FX_ON = !!(window.FXMode && qs.get('fx') !== '0');
+  try { glr = qs.get('renderer') !== '2d' && window.createGlobeGL ? window.createGlobeGL(glCanvas, FX_ON ? { fx: true } : undefined) : null; } catch (e) { reportError(e, 'WebGL init'); }
   if (!glr) glCanvas.style.display = 'none';
   // Opaque when 2D draws everything (the browser skips blending). If WebGL is
   // dropped later the 2D path paints an opaque sky itself, so it still works.
@@ -151,7 +154,9 @@
     flight: null, touring: false, tourIdx: -1, tourT0: 0,
     land: null, borders: null, stars: null, w: 0, h: 0,
   };
-  if (qs.get('debug') === '1') { window.__S = S; window.__hist = (o) => historyOf(o); }   // ?debug=1: app state in the console
+  let FXI = null;   // the FX preview, when ?fx is on and WebGL is up
+  if (FX_ON && glr) { try { FXI = window.FXMode.start({ glr, toast: (m) => toast(m), getOutages: () => S.outages }); } catch (e) { console.warn('[fx]', e); } }
+  if (qs.get('debug') === '1') { window.__S = S; window.__hist = (o) => historyOf(o); window.__fx = FXI; window.__glr = glr; window.__view = view; }   // ?debug=1: app state in the console
 
   // Resampling tolerance of 1px is invisible on 110m data and roughly halves projection work.
   const projection = d3.geoOrthographic().clipAngle(90).precision(1);
@@ -2689,6 +2694,7 @@
     if (!firstLoad && fresh.length) {
       const o = fresh.sort((a, b) => b.start - a.start)[0];
       toast(`New ${o.kind} outage: ${o.name} · ${o.locations[0].name}`);
+      if (FXI) FXI.newOutage(o);
       sfx('alert');
       if (now() - S.lastInput > 10000 || S.touring) { select.quiet = true; select(o, { fromTour: S.touring }); select.quiet = false; }
       speakOutage(o, true);

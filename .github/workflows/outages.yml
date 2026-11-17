@@ -6,7 +6,8 @@ name: Refresh outage data
 #
 # It also renders the narration to audio (speech/, scripts/speech/render.mjs)
 # for devices too slow to make speech themselves, like the Desk Pro, and
-# keeps a backup copy of the US power data (power.json).
+# keeps a backup copy of the US power data (power.json), and refreshes the
+# Starlink orbits once per run (starlink.json) for the Satellites button.
 #
 # GitHub's cron is best-effort, and for a small repository it really fires
 # only every few hours, not every 5 minutes. So each run keeps going: it
@@ -74,9 +75,11 @@ jobs:
           if git fetch -q --depth=1 origin data 2>/dev/null; then
             git --work-tree="$PREV" checkout FETCH_HEAD -- speech 2>/dev/null || true
             git --work-tree="$PREV" checkout FETCH_HEAD -- power.json 2>/dev/null || true
+            git --work-tree="$PREV" checkout FETCH_HEAD -- starlink.json 2>/dev/null || true
           fi
           if [ -d "$PREV/speech" ]; then cp -r "$PREV/speech" "$OUT/speech"; fi
           if [ -f "$PREV/power.json" ]; then cp "$PREV/power.json" "$OUT/power.json"; fi
+          if [ -f "$PREV/starlink.json" ]; then cp "$PREV/starlink.json" "$OUT/starlink.json"; fi
           ls "$OUT/speech" 2>/dev/null | wc -l | xargs echo "previous speech files:"
 
       - name: Refresh every few minutes
@@ -98,6 +101,8 @@ jobs:
               # US power: optional, every other round (MassOutage asks for no
               # more than one request every 5 minutes).
               if [ $((round % 2)) -eq 1 ]; then node scripts/fetch-power.mjs "$OUT/power.json" || echo "power fetch failed (kept the last copy)"; fi
+              # Starlink orbits (the Satellites button): once per run; CelesTrak updates a few times a day.
+              if [ "$round" -eq 1 ]; then node scripts/fetch-starlink.mjs "$OUT/starlink.json" || echo "starlink fetch failed (kept the last copy)"; fi
               push "Outage data $(date -u +%Y-%m-%dT%H:%MZ)" || echo "::warning::data push failed"
               # Speech: only new or changed lines; allowed to fail.
               rm -rf "$OUT/speech.new"

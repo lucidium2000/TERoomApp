@@ -1234,3 +1234,21 @@ body.power-on .map-key { display: flex; }
 .cm-links a { color: var(--app); text-decoration: none; display: inline-flex; align-items: center; gap: .2em; font-weight: 600; }
 .cm-links a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .cm-links svg { width: .95em; height: .95em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
+
+/* FX preview (?fx=1): a small marker that this is the preview, with credits */
+.fx-chip {
+  position: fixed; left: 50%; top: 10px; transform: translateX(-50%); z-index: 30;
+  padding: .25em .7em; border-radius: 999px; font-size: 11px; letter-spacing: .06em; color: #c4b5fd;
+  background: rgba(30, 20, 60, .55); border: 1px solid rgba(196, 181, 253, .35); backdrop-filter: blur(6px);
+}
+.fx-chip b { color: #fff; }
+.fx-credits {
+  position: fixed; left: 50%; top: 38px; transform: translateX(-50%); z-index: 31;
+  display: grid; gap: .3em; padding: .8em 1em; border-radius: 12px; font-size: 12px; color: #cbd5e1;
+  background: rgba(10, 16, 30, .92); border: 1px solid rgba(255, 255, 255, .12); min-width: 16em;
+}
+.fx-credits[hidden] { display: none; }
+.fx-credits b { color: #fff; }
+.fx-credits small { color: #64748b; margin-top: .3em; }
+.wxbar .sky-btn { margin-top: .3em; }
+.wxbar .sky-btn[aria-pressed="true"] { color: #c4f1ff; background: rgba(56, 189, 248, .14); border-color: rgba(56, 189, 248, .5); }

@@ -64,6 +64,11 @@ uniform vec4 uDetBox[5];  // each region: west, south, east, north
 uniform vec4 uDetRect[5]; // where it sits in the atlas: u0, v0, u1, v1
 uniform float uDetHasA[5], uDetHasB[5];   // this frame / the next has that region yet
 uniform float uDetOn;
+#ifdef FX
+uniform sampler2D uLights; // city lights at night (NASA Black Marble, luminance)
+uniform sampler2D uAur;    // aurora probability (NOAA SWPC OVATION, 360x181)
+uniform vec4 uFx;          // lights on, aurora on, sun glint on, time (s)
+#endif
 
 const float PI = 3.14159265;
 
@@ -136,10 +141,41 @@ void main() {
     float grat = max(gridLine(latDeg, 15.0, pxLat) * step(abs(latDeg), 76.0), gridLine(lonDeg, 15.0, pxLon) * step(abs(latDeg), 80.0));
     g = mix(g, vec3(0.580, 0.639, 0.722), grat * 0.16);
 
-    g = mix(g, vec3(0.141, 0.204, 0.294), landAt(uv));          // land #24344b
+    float landV = landAt(uv);
+    g = mix(g, vec3(0.141, 0.204, 0.294), landV);               // land #24344b
+
+#ifdef FX
+    // Sun glint: the sun's reflection off open water, where it would really be.
+    if (uFx.z > 0.0) {
+      vec3 vv = normalize(uEye - hit);
+      vec3 hv = normalize(uSun + uRot * vec3(vv.x, -vv.y, -vv.z));
+      float hd = max(dot(w, hv), 0.0);
+      g += vec3(1.0, 0.94, 0.82) * (pow(hd, 110.0) * 0.32 + pow(hd, 14.0) * 0.045) * (1.0 - landV) * smoothstep(-0.05, 0.3, dot(w, uSun)) * uFx.z;
+    }
+#endif
 
     // Night: a smooth terminator, darkest about 18 degrees past it.
     g *= 1.0 - 0.5 * smoothstep(0.09, -0.3, dot(w, uSun));
+
+#ifdef FX
+    float nightF = smoothstep(0.06, -0.22, dot(w, uSun));
+    // City lights fade in as the terminator passes.
+    if (uFx.x > 0.0 && nightF > 0.0) {
+      float lt = texture2D(uLights, uv).r;
+      g += (vec3(1.0, 0.72, 0.36) * lt * lt * 1.25 + vec3(1.0, 0.82, 0.55) * lt * 0.10) * nightF * uFx.x;
+    }
+    // Aurora: green curtains (violet where strongest) that drift and flicker.
+    if (uFx.y > 0.0) {
+      float A = texture2D(uAur, uv).r;
+      if (A > 0.004) {
+        float t = uFx.w;
+        float curtain = 0.55 + 0.45 * sin(lonDeg * 0.9 + t * 0.6 + 3.0 * sin(lonDeg * 0.13 - t * 0.21));
+        float flick = 0.85 + 0.15 * sin(t * 2.1 + lonDeg * 1.7 + latDeg * 0.9);
+        vec3 ac = mix(vec3(0.15, 1.0, 0.55), vec3(0.62, 0.38, 1.0), smoothstep(0.35, 0.95, A));
+        g += ac * smoothstep(0.0, 0.45, A) * curtain * flick * 0.3 * mix(0.2, 1.0, nightF) * uFx.y;
+      }
+    }
+#endif
 
     // Weather radar, over day and night alike (storms matter at night too).
     // Textures are premultiplied (no light fringes where rain meets clear).
@@ -236,6 +272,108 @@ void main() {
   gl_FragColor = vec4(uColor.rgb * night, uColor.a * fade);
 }`;
 
+  // ── FX preview (?fx=1) ─────────────────────────────────────────────────
+  // Shared: put a world-space point (unit sphere = the surface) on the glass,
+  // hidden when the Earth is in the way.
+  const FX_PLACE = `
+uniform mat3 uRot;
+uniform vec2 uRes;
+uniform vec3 uEye, uCtr;
+uniform float uRw;
+vec4 place(vec3 wp, out float vis) {
+  vec3 v = wp * uRot;
+  vec3 h = uCtr + uRw * vec3(v.x, -v.y, -v.z);
+  vec3 d = h - uEye, oc = uEye - uCtr;
+  float a = dot(d, d), b = dot(oc, d), c = dot(oc, oc) - uRw * uRw * 0.999;
+  float disc = b * b - a * c;
+  vis = h.z > uEye.z + 1.0 ? 1.0 : 0.0;   // never behind the viewer's eye
+  if (disc > 0.0) { float t = (-b - sqrt(disc)) / a; if (t > 0.0 && t < 1.0) vis = 0.0; }
+  float s = -uEye.z / (h.z - uEye.z);
+  vec2 p = uEye.xy + (h.xy - uEye.xy) * s;
+  return vec4(p.x / uRes.x * 2.0 - 1.0, 1.0 - p.y / uRes.y * 2.0, 0.0, 1.0);
+}`;
+
+  // Undersea cables: faint lines with pulses of light running along them;
+  // cables landing near an active outage turn orange and pulse faster.
+  const CABLE_VS = `
+attribute vec3 aP;
+attribute float aD, aH;
+${FX_PLACE}
+varying float vZ, vD, vH;
+void main() {
+  float vis;
+  gl_Position = place(aP, vis);
+  vec3 v = aP * uRot;
+  vec3 h = uCtr + uRw * vec3(v.x, -v.y, -v.z);
+  vZ = dot(vec3(v.x, -v.y, -v.z), normalize(uEye - h));
+  vD = aD; vH = aH;
+}`;
+  const CABLE_FS = `
+precision highp float;
+uniform float uT;
+varying float vZ, vD, vH;
+void main() {
+  if (vZ < 0.0) discard;
+  float fade = smoothstep(0.0, 0.05, vZ);
+  float p = fract(vD * 3.0 - uT * (0.045 + vH * 0.08));
+  float head = smoothstep(0.93, 0.995, p) * (1.0 - smoothstep(0.995, 1.0, p));
+  float tail = smoothstep(0.6, 0.99, p) * 0.3;
+  vec3 base = mix(vec3(0.24, 0.72, 0.95), vec3(1.0, 0.48, 0.22), vH);
+  float a = 0.2 + vH * 0.25 + head * 0.8 + tail * 0.35;
+  gl_FragColor = vec4(base * (0.8 + head * 0.9 + tail * 0.4) + vec3(head * 0.45), a * fade);
+}`;
+
+  // Points (soft dots or rings) and lines, with their own colour and size.
+  const PT_VS = `
+attribute vec3 aP;
+attribute vec4 aC;
+attribute float aS;
+${FX_PLACE}
+varying vec4 vC;
+void main() {
+  float vis;
+  gl_Position = place(aP, vis);
+  vC = vec4(aC.rgb, aC.a * vis);
+  gl_PointSize = aS;
+}`;
+  const PT_FS = `
+precision mediump float;
+uniform float uMode;   // 0 soft dot, 1 ring, 2 line
+varying vec4 vC;
+void main() {
+  if (vC.a <= 0.003) discard;
+  float a = vC.a;
+  if (uMode < 1.5) {
+    float d = length(gl_PointCoord - 0.5) * 2.0;
+    if (d > 1.0) discard;
+    a *= uMode < 0.5 ? pow(1.0 - d, 1.6) : smoothstep(0.62, 0.86, d) * (1.0 - smoothstep(0.9, 1.0, d));
+  }
+  gl_FragColor = vec4(vC.rgb, a);
+}`;
+
+  // Satellites flown on the GPU from their orbital elements (circular orbits
+  // with the Earth's-oblateness drift of the node), lit only in sunlight.
+  const SAT_VS = `
+attribute vec4 aA;   // mean motion (rad/s), inclination, node at t=0, node drift (rad/s)
+attribute vec4 aB;   // argument of latitude at t=0, its rate (rad/s), orbit radius (Earth radii), spare
+uniform float uT, uGmst, uPx;
+uniform vec3 uSun;
+${FX_PLACE}
+varying vec4 vC;
+void main() {
+  float O = aA.z + aA.w * uT - uGmst;
+  float u = aB.x + aB.y * uT;
+  float ci = cos(aA.y), si = sin(aA.y), cO = cos(O), sO = sin(O), cu = cos(u), su = sin(u);
+  vec3 p = vec3(cO * cu - sO * su * ci, sO * cu + cO * su * ci, su * si) * aB.z;
+  float vis;
+  gl_Position = place(p, vis);
+  float sd = dot(p, uSun);
+  float lit = (sd > 0.0 || length(p - sd * uSun) > 1.0) ? 1.0 : 0.0;
+  vC = vec4(mix(vec3(0.42, 0.52, 0.68), vec3(0.86, 0.95, 1.0), lit), vis * mix(0.16, 0.8, lit));
+  gl_PointSize = mix(1.7, 2.5, lit) * uPx;
+  if (vis < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+}`;
+
   function compile(gl, type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
@@ -252,7 +390,8 @@ void main() {
     return p;
   }
 
-  window.createGlobeGL = function (canvas) {
+  window.createGlobeGL = function (canvas, gopts) {
+    const FX = !!(gopts && gopts.fx);
     let gl = null;
     // antialias: MSAA keeps the 1px vector coastlines smooth.
     const opts = { alpha: false, antialias: true, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' };
@@ -265,9 +404,18 @@ void main() {
       aniso: gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic'),
     };
     let quadProg, lineProg;
+    // FX needs two more texture units (lights, aurora) than the regular 8.
+    let fxTex = FX && gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) >= 10;
+    let fxProgs = null;
     try {
-      quadProg = program(gl, QUAD_VS, QUAD_FS);
+      // The FX shader is the regular one plus extras; if a device can't build it, keep the regular one.
+      if (fxTex) { try { quadProg = program(gl, QUAD_VS, '#define FX 1\n' + QUAD_FS); } catch (e) { console.warn('[globe] FX globe shader failed', e); fxTex = false; } }
+      if (!quadProg) quadProg = program(gl, QUAD_VS, QUAD_FS);
       lineProg = program(gl, LINE_VS, LINE_FS);
+      if (FX) {
+        try { fxProgs = { cable: program(gl, CABLE_VS, CABLE_FS), pt: program(gl, PT_VS, PT_FS), sat: program(gl, SAT_VS, PT_FS) }; }
+        catch (e) { console.warn('[globe] FX shaders failed', e); fxProgs = null; }
+      }
     } catch (e) {
       console.warn('[globe] WebGL shader failed, using 2D', e);
       return null;
@@ -289,6 +437,11 @@ void main() {
     gl.uniform1i(Q.uRegB, 5);
     gl.uniform1i(Q.uDet, 6);
     gl.uniform1i(Q.uDetB, 7);
+    if (fxTex) {
+      for (const n of ['uLights', 'uAur', 'uFx']) Q[n] = gl.getUniformLocation(quadProg, n);
+      gl.uniform1i(Q.uLights, 8);
+      gl.uniform1i(Q.uAur, 9);
+    }
 
     function makeTex(unit) {
       const t = gl.createTexture();
@@ -302,6 +455,7 @@ void main() {
       return t;
     }
     const landTex = makeTex(0), starTex = makeTex(1);
+    const lightsTex = fxTex ? makeTex(8) : null, aurTex = fxTex ? makeTex(9) : null;
     // Radar frames: one texture per image, kept while that image is shown, so
     // a loop that grows a frame at a time uploads each frame only once.
     const blankTex = makeTex(2);
@@ -455,6 +609,216 @@ void main() {
     /** Show frame a, crossfading toward frame b by t (0..1). */
     function setRadarPos(a, b, t) { radarCur = a; radarNext = b; radarMix = t; }
 
+    // ── FX preview state ────────────────────────────────────────────────
+    const fx = {
+      on: { lights: false, aurora: false, glint: false, cables: false, quakes: false, sats: false, comets: false },
+      t0: performance.now(),
+      cableBuf: null, cableHotBuf: null, cableCount: 0, cableOf: null, cableN: 0,
+      satBuf: null, satCount: 0, satRef: 0,
+      quakes: [], comets: [],
+      dynBuf: null,
+    };
+    const C = {}, Pt = {}, Sa = {};
+    if (fxProgs) {
+      C.aP = gl.getAttribLocation(fxProgs.cable, 'aP'); C.aD = gl.getAttribLocation(fxProgs.cable, 'aD'); C.aH = gl.getAttribLocation(fxProgs.cable, 'aH');
+      for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uT']) C[n] = gl.getUniformLocation(fxProgs.cable, n);
+      Pt.aP = gl.getAttribLocation(fxProgs.pt, 'aP'); Pt.aC = gl.getAttribLocation(fxProgs.pt, 'aC'); Pt.aS = gl.getAttribLocation(fxProgs.pt, 'aS');
+      for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uMode']) Pt[n] = gl.getUniformLocation(fxProgs.pt, n);
+      Sa.aA = gl.getAttribLocation(fxProgs.sat, 'aA'); Sa.aB = gl.getAttribLocation(fxProgs.sat, 'aB');
+      for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uT', 'uGmst', 'uPx', 'uSun', 'uMode']) Sa[n] = gl.getUniformLocation(fxProgs.sat, n);
+    }
+    const RADd = Math.PI / 180;
+    const uv3 = (lo, la, r = 1) => { const l = lo * RADd, p = la * RADd, c = Math.cos(p); return [r * c * Math.cos(l), r * c * Math.sin(l), r * Math.sin(p)]; };
+    /** Greenwich sidereal angle (radians) at ms. */
+    const gmst = (ms) => { const d = ms / 86400000 + 2440587.5 - 2451545.0; return (((280.46061837 + 360.98564736629 * d) % 360) + 360) % 360 * RADd; };
+
+    const fxApi = {
+      available: !!fxProgs, textures: fxTex,
+      enable(flags) { Object.assign(fx.on, flags); },
+      /** City lights: an equirectangular image (white = lit). */
+      setLights(img) {
+        if (!fxTex) return;
+        gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, lightsTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      },
+      /** Aurora: 360x181 bytes, row 0 = 90N, column 0 = 180W. */
+      setAurora(bytes) {
+        if (!fxTex) return;
+        gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, aurTex);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 360, 181, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, bytes);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      },
+      /** Cables: [[name, [lon, lat, lon, lat, ...]], ...]. Long segments follow the great circle. */
+      setCables(list) {
+        if (!fxProgs) return;
+        const P = [], D = [], of = [];
+        list.forEach(([, flat], ci) => {
+          let dist = Math.random() * 3, prev = null;
+          const pts = [];
+          for (let i = 0; i + 1 < flat.length; i += 2) pts.push(uv3(flat[i], flat[i + 1]));
+          for (let i = 0; i + 1 < pts.length; i++) {
+            const a = pts[i], b = pts[i + 1];
+            const ang = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
+            const n = Math.max(1, Math.ceil(ang / (1.5 * RADd)));
+            for (let k = 0; k < n; k++) {
+              const s0 = Math.sin(ang), f = (t) => (s0 < 1e-6 ? [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+                : (() => { const wa = Math.sin((1 - t) * ang) / s0, wb = Math.sin(t * ang) / s0; return [a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb]; })());
+              const p0 = f(k / n), p1 = f((k + 1) / n);
+              P.push(...p0, ...p1); D.push(dist, dist + ang / n); dist += ang / n; of.push(ci, ci);
+            }
+            prev = b;
+          }
+        });
+        fx.cableCount = P.length / 3; fx.cableOf = Int32Array.from(of); fx.cableN = list.length;
+        fx.cableBuf = fx.cableBuf || gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.cableBuf);
+        const inter = new Float32Array(fx.cableCount * 4);
+        for (let i = 0; i < fx.cableCount; i++) { inter[i * 4] = P[i * 3]; inter[i * 4 + 1] = P[i * 3 + 1]; inter[i * 4 + 2] = P[i * 3 + 2]; inter[i * 4 + 3] = D[i]; }
+        gl.bufferData(gl.ARRAY_BUFFER, inter, gl.STATIC_DRAW);
+        fxApi.setCableHot(new Set());
+      },
+      /** Which cables (by index) run near an active outage. */
+      setCableHot(hot) {
+        if (!fxProgs || !fx.cableOf) return;
+        const h = new Float32Array(fx.cableCount);
+        for (let i = 0; i < fx.cableCount; i++) if (hot.has(fx.cableOf[i])) h[i] = 1;
+        fx.cableHotBuf = fx.cableHotBuf || gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.cableHotBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, h, gl.STATIC_DRAW);
+      },
+      /** Satellites: [[epochSec, revPerDay, ecc, incDeg, raanDeg, argpDeg, meanAnomDeg], ...]. */
+      setSats(list) {
+        if (!fxProgs) return;
+        const MU = 398600.4418, RE = 6378.137, J2 = 1.08263e-3, now = Date.now() / 1000;
+        const arr = new Float32Array(list.length * 8);
+        let k = 0;
+        for (const [ep, rev, e, incD, raanD, argpD, maD] of list) {
+          const n = rev * 2 * Math.PI / 86400, a = Math.cbrt(MU / (n * n)), inc = incD * RADd, ci = Math.cos(inc);
+          const q = 1.5 * J2 * (RE / (a * (1 - e * e))) ** 2;
+          const raanDot = -q * n * ci, argpDot = 0.5 * q * n * (5 * ci * ci - 1), maDot = n * (1 + 0.5 * q * Math.sqrt(1 - e * e) * (3 * ci * ci - 1));
+          const dt = now - ep, uDot = maDot + argpDot;
+          const u0 = ((argpD + maD) * RADd + uDot * dt) % (2 * Math.PI), O0 = (raanD * RADd + raanDot * dt) % (2 * Math.PI);
+          arr.set([n, inc, O0, raanDot, u0, uDot, a / RE, 0], k); k += 8;
+        }
+        fx.satRef = now; fx.satCount = list.length;
+        fx.satBuf = fx.satBuf || gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.satBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+      },
+      /** Earthquakes: [{ lon, lat, mag, time }]. */
+      setQuakes(list) { fx.quakes = list || []; },
+      /** A streak from space onto a point (a new outage), then a flash. */
+      _state: fx,
+      _dbg: () => ({ Pt: Object.fromEntries(Object.entries(Pt).map(([k, v]) => [k, v === null ? null : typeof v === 'number' ? v : 'loc'])), Sa: Object.fromEntries(Object.entries(Sa).map(([k, v]) => [k, v === null ? null : typeof v === 'number' ? v : 'loc'])) }),
+      comet(lon, lat, rgb) { if (fx.comets.length < 6) fx.comets.push({ lon, lat, rgb: rgb || [1, 0.6, 0.3], t0: performance.now(), dir: Math.random() * Math.PI * 2 }); },
+    };
+
+    const maxAttr = Math.min(16, gl.getParameter(gl.MAX_VERTEX_ATTRIBS));
+    const clearAttribs = () => { for (let i = 0; i < maxAttr; i++) gl.disableVertexAttribArray(i); };
+    function setCommon(U, rot, p) {
+      clearAttribs();
+      gl.uniformMatrix3fv(U.uRot, false, rot);
+      gl.uniform2f(U.uRes, canvas.width, canvas.height);
+      gl.uniform3f(U.uEye, p.eye[0], p.eye[1], p.eye[2]);
+      gl.uniform3f(U.uCtr, p.ctr[0], p.ctr[1], p.ctr[2]);
+      gl.uniform1f(U.uRw, p.Rw);
+    }
+    /** Interleaved [x, y, z, r, g, b, a, size] vertices through the point/line program. */
+    function drawDyn(data, mode, prim, rot, p) {
+      if (!data.length) return;
+      gl.useProgram(fxProgs.pt);
+      setCommon(Pt, rot, p);
+      gl.uniform1f(Pt.uMode, mode);
+      fx.dynBuf = fx.dynBuf || gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, fx.dynBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(Pt.aP); gl.vertexAttribPointer(Pt.aP, 3, gl.FLOAT, false, 32, 0);
+      gl.enableVertexAttribArray(Pt.aC); gl.vertexAttribPointer(Pt.aC, 4, gl.FLOAT, false, 32, 12);
+      gl.enableVertexAttribArray(Pt.aS); gl.vertexAttribPointer(Pt.aS, 1, gl.FLOAT, false, 32, 28);
+      gl.drawArrays(prim, 0, data.length / 8);
+    }
+    function renderFx(rot, p) {
+      const tS = (performance.now() - fx.t0) / 1000, px = p.px || 1;
+      gl.enable(gl.BLEND);
+      // Cables.
+      if (fx.on.cables && fx.cableBuf && fx.cableHotBuf) {
+        gl.useProgram(fxProgs.cable);
+        setCommon(C, rot, p);
+        gl.uniform1f(C.uT, tS % 100000);
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.cableBuf);
+        gl.enableVertexAttribArray(C.aP); gl.vertexAttribPointer(C.aP, 3, gl.FLOAT, false, 16, 0);
+        gl.enableVertexAttribArray(C.aD); gl.vertexAttribPointer(C.aD, 1, gl.FLOAT, false, 16, 12);
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.cableHotBuf);
+        gl.enableVertexAttribArray(C.aH); gl.vertexAttribPointer(C.aH, 1, gl.FLOAT, false, 0, 0);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.drawArrays(gl.LINES, 0, fx.cableCount);
+      }
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);   // glows add up
+      // Earthquakes: a dot, and rings that ripple out every few seconds (fainter with age).
+      if (fx.on.quakes && fx.quakes.length) {
+        const dots = [], rings = [], nowMs = Date.now();
+        for (const q of fx.quakes) {
+          const age = Math.max(0, (nowMs - q.time) / 3600000), fade = Math.max(0.25, 1 - age / 30);
+          const [x, y, z] = uv3(q.lon, q.lat, 1.001), m = Math.max(2.5, q.mag);
+          dots.push(x, y, z, 1, 0.86, 0.45, 0.75 * fade, (3 + m * 1.4) * px);
+          const per = 3.2, ph = ((tS + (q.time % 9973) / 1000) % per) / per;
+          rings.push(x, y, z, 1, 0.84, 0.42, (1 - ph) * 0.85 * fade, (6 + (m - 2) * 9 * ph + ph * 10) * px);
+        }
+        drawDyn(dots, 0, gl.POINTS, rot, p);
+        drawDyn(rings, 1, gl.POINTS, rot, p);
+      }
+      // Starlink.
+      if (fx.on.sats && fx.satBuf && fx.satCount) {
+        gl.useProgram(fxProgs.sat);
+        setCommon(Sa, rot, p);
+        gl.uniform1f(Sa.uT, Date.now() / 1000 - fx.satRef);
+        gl.uniform1f(Sa.uGmst, gmst(Date.now()));
+        gl.uniform1f(Sa.uPx, px);
+        gl.uniform1f(Sa.uMode, 0);
+        gl.uniform3f(Sa.uSun, p.sun[0], p.sun[1], p.sun[2]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.satBuf);
+        gl.enableVertexAttribArray(Sa.aA); gl.vertexAttribPointer(Sa.aA, 4, gl.FLOAT, false, 32, 0);
+        gl.enableVertexAttribArray(Sa.aB); gl.vertexAttribPointer(Sa.aB, 4, gl.FLOAT, false, 32, 16);
+        gl.drawArrays(gl.POINTS, 0, fx.satCount);
+      }
+      // Comets: 1.3 s in from space, a bright head and a fading tail, then a flash.
+      if (fx.on.comets && fx.comets.length) {
+        const nowP = performance.now(), lines = [], heads = [], flashes = [];
+        fx.comets = fx.comets.filter((c) => nowP - c.t0 < 3000);
+        for (const c of fx.comets) {
+          const T = (nowP - c.t0) / 1700;
+          const end = uv3(c.lon, c.lat, 1.0);
+          // Start 22 degrees away, a third of an Earth radius up.
+          const sLon = c.lon + 22 * Math.cos(c.dir), sLat = Math.max(-80, Math.min(80, c.lat + 16 * Math.sin(c.dir)));
+          const at = (u) => { const e = u * u * (3 - 2 * u) * 0.6 + u * 0.4, lo = sLon + (c.lon - sLon) * e, la = sLat + (c.lat - sLat) * e; return uv3(lo, la, 1.002 + 0.33 * (1 - e)); };
+          const [r, g, b] = c.rgb;
+          if (T < 1) {
+            const N = 26;
+            for (let i = 0; i < N; i++) {
+              const u0 = Math.max(0, T - 0.4 * (1 - i / N)), u1 = Math.max(0, T - 0.4 * (1 - (i + 1) / N));
+              const a0 = (i / N) ** 2, a1 = ((i + 1) / N) ** 2;
+              lines.push(...at(u0), r, g, b, a0 * 0.9, 1, ...at(u1), r, g, b, a1 * 0.9, 1);
+            }
+            heads.push(...at(T), 1, 0.95, 0.85, 1, 11 * px);
+            heads.push(...at(T), r, g, b, 0.5, 26 * px);   // glow around the head
+          } else {
+            const f = Math.min(1, T - 1);
+            flashes.push(...end, r, g, b, (1 - f) * 0.9, (8 + 60 * f) * px);
+            heads.push(...end, 1, 0.95, 0.85, (1 - f), (14 - 8 * f) * px);
+          }
+        }
+        drawDyn(lines, 2, gl.LINES, rot, p);
+        drawDyn(heads, 0, gl.POINTS, rot, p);
+        drawDyn(flashes, 1, gl.POINTS, rot, p);
+      }
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.disable(gl.BLEND);
+      clearAttribs();   // the regular passes enable only what they use
+    }
+
     function resize(w, h) {
       canvas.width = w; canvas.height = h;
       gl.viewport(0, 0, w, h);
@@ -497,6 +861,8 @@ void main() {
       gl.uniform3f(Q.uSun, p.sun[0], p.sun[1], p.sun[2]);
       gl.uniform2f(Q.uStarOff, p.starX, p.starY);
       gl.uniform1f(Q.uPx, p.px);
+      if (fxTex) gl.uniform4f(Q.uFx, fx.on.lights ? 1 : 0, fx.on.aurora ? 1 : 0, fx.on.glint ? 1 : 0, ((performance.now() - fx.t0) / 1000) % 10000);
+      if (fxTex) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, lightsTex); gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, aurTex); }
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
       // 2. Coastlines, then borders, as vector lines.
@@ -528,8 +894,9 @@ void main() {
         gl.drawArrays(gl.LINES, 0, stateCount);
       }
       gl.disable(gl.BLEND);
+      if (fxProgs) renderFx(rot, p);
     }
 
-    return { setWorld, setStates, setStars, setRadar, setRadarFrames, setRadarPos, setStatesOn: (on) => { statesOn = !!on; }, render, resize, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
+    return { setWorld, setStates, setStars, setRadar, setRadarFrames, setRadarPos, setStatesOn: (on) => { statesOn = !!on; }, render, resize, fx: FX ? fxApi : null, info: { renderer, maxTex, deriv: ext.deriv, lod: ext.lod, aniso: !!ext.aniso } };
   };
 })();
