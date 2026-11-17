@@ -20,8 +20,8 @@
   const qs = new URLSearchParams(location.search);
   const raw = (qs.get('fx') || '').toLowerCase();
   const active = !!raw && raw !== '0' && raw !== 'off';
-  // Without ?fx, only the Satellites button (Starlink + aurora), off until tapped.
-  const pick = !active ? ['sats', 'aurora'] : raw === '1' || raw === 'all' || raw === 'on' ? ALL : raw.split(',').filter((k) => ALL.includes(k));
+  // Everything by default (Satellites waits for its button); ?fx=lights,cables picks some.
+  const pick = !active ? ALL : raw === '1' || raw === 'all' || raw === 'on' ? ALL : raw.split(',').filter((k) => ALL.includes(k));
 
   const CREDITS = [
     ['lights', 'City lights: NASA Black Marble'],
