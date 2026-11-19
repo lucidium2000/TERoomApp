@@ -18,6 +18,9 @@
   const RAD = Math.PI / 180, RE = 6371000;
   const MAX_AGE = 30 * 60;   // s: older than this, the tag says the data is delayed
   const HIDE_AGE = 3 * 3600;   // s: older than this, no planes at all
+  const ALL = qs.get('flights') === 'all';
+  const CRUISE_M = 6000;   // m, about 20,000 ft
+  const AIRLINE = /^[A-Z]{3}\d/;
   const MAX_PROJECT = 20 * 60;   // s: never move a plane further than this past its fix
 
   // ── Data ────────────────────────────────────────────────────────────────
@@ -37,7 +40,10 @@
       const j = await r.json();
       if (!snap || j.t !== snap.t) {
         snap = j;
-        planes = j.f.map(([id, cs, lon, lat, alt, spd, trk, vr, path]) => ({
+        // Airliners at cruise only (an airline's 3-letter code + flight number, above ~20,000 ft),
+        // so the map shows the main routes rather than every light aircraft; ?flights=all for everything.
+        const list = ALL ? j.f : j.f.filter((p) => p[4] >= CRUISE_M && AIRLINE.test(p[1] || ''));
+        planes = list.map(([id, cs, lon, lat, alt, spd, trk, vr, path]) => ({
           id, cs, alt, spd, trk, vr, lon, lat, path: path || [],
           lo: lon * RAD, sb: Math.sin(trk * RAD), cb: Math.cos(trk * RAD),
           sla: Math.sin(lat * RAD), cla: Math.cos(lat * RAD),
@@ -83,7 +89,7 @@
     if (!snap) { tag.innerHTML = '<b>Live flights</b> &middot; loading&hellip;'; return; }
     const age = Math.max(0, Date.now() / 1000 - snap.t), min = Math.round(age / 60);
     const when = age > MAX_AGE ? 'data delayed' : min < 1 ? 'positions just now' : `positions from ${min} min ago, projected forward`;
-    tag.innerHTML = `<b>Live flights</b> &middot; ${snap.n.toLocaleString()} aircraft &middot; ${when} &middot; OpenSky Network`;
+    tag.innerHTML = `<b>Live flights</b> &middot; ${planes.length.toLocaleString()} ${ALL ? 'aircraft' : 'airliners at cruise'} &middot; ${when} &middot; OpenSky Network`;
   }
   function show() {
     showTag();
