@@ -37,9 +37,13 @@
   show();
 
   // ── The sleigh and team, pre-drawn: 6 gallop frames ───────────────────
-  const SW = 250, SH = 92, OX = 52, OY = 58, SC = 2;   // sprite size, sleigh centre, pixel scale
+  const SW = 250, SH = 92, OX = 52, OY = 58, SC = 3;   // sprite size, sleigh centre, pixel scale
   const FRAMES = 6;
   let sprites = null;
+  // The ThousandEyes logo on the side of the sleigh (sprites are rebuilt once it loads).
+  const logo = new Image();
+  logo.onload = () => { sprites = null; };
+  logo.src = 'assets/te-logo.png';
 
   function reindeer(g, bx, by, ph, lead) {
     const leg = (x0, y0, a, col) => { g.strokeStyle = col; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + 10 * Math.cos(a), y0 + 10 * Math.sin(a)); g.stroke(); };
@@ -121,8 +125,16 @@
         if (dir === 'L') { t.translate(SW * SC, 0); t.scale(-SC, SC); } else t.scale(SC, SC);
         t.translate(OX, OY); team(t, f);
         t.setTransform(SC, 0, 0, SC, 0, 0);
-        t.font = '800 8px system-ui, sans-serif'; t.fillStyle = '#fde68a'; t.textAlign = 'center'; t.textBaseline = 'middle';
-        t.fillText('TE', dir === 'L' ? SW - OX + 6 : OX - 6, OY + 1.5);
+        // Logo plaque, never mirrored so it always reads the right way round.
+        const cx = dir === 'L' ? SW - OX + 3 : OX - 3, pw = 60, ph = 13.5;
+        t.fillStyle = '#0b1424'; t.strokeStyle = '#facc15'; t.lineWidth = 0.9;
+        t.beginPath();
+        if (t.roundRect) t.roundRect(cx - pw / 2, OY - 5, pw, ph, 3); else t.rect(cx - pw / 2, OY - 5, pw, ph);
+        t.fill(); t.stroke();
+        if (logo.complete && logo.naturalWidth) {
+          const lw = pw - 5, lh = lw * logo.naturalHeight / logo.naturalWidth;
+          t.drawImage(logo, cx - lw / 2, OY - 5 + (ph - lh) / 2, lw, lh);
+        }
         const c = document.createElement('canvas'); c.width = SW * SC; c.height = SH * SC;
         const g = c.getContext('2d');
         g.shadowColor = 'rgba(253,230,138,.55)'; g.shadowBlur = 10 * SC;   // soft glow, baked in
