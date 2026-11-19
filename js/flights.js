@@ -1,6 +1,6 @@
 // Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
-/* Flights button: live aircraft over and around the US from the OpenSky
- * Network. A GitHub Action (.github/workflows/flights.yml) publishes a
+/* Flights button: major airlines' flights at cruise, worldwide, from the
+ * OpenSky Network, thinned where the sky is crowded. A GitHub Action (.github/workflows/flights.yml) publishes a
  * snapshot to the `flights` branch every 15 minutes (3 with an OpenSky API
  * client); between snapshots each plane is moved along its own reported track
  * and speed, so the picture keeps flowing, and each plane draws the path it
@@ -19,8 +19,16 @@
   const MAX_AGE = 30 * 60;   // s: older than this, the tag says the data is delayed
   const HIDE_AGE = 3 * 3600;   // s: older than this, no planes at all
   const ALL = qs.get('flights') === 'all';
-  const CRUISE_M = 6000;   // m, about 20,000 ft
-  const AIRLINE = /^[A-Z]{3}\d/;
+  // Thinning: in each CELL-degree square, keep about PER_CELL planes. Which ones is
+  // decided by a hash of the aircraft's id, so the same planes stay from one
+  // snapshot to the next (no flicker, paths stay whole).
+  const CELL = 2, PER_CELL = 2.5;
+  const hash01 = (id) => { let h = 2166136261; for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
+  function thin(list) {
+    const count = new Map(), key = (p) => Math.floor(p[2] / CELL) + ',' + Math.floor(p[3] / CELL);
+    for (const p of list) { const k = key(p); count.set(k, (count.get(k) || 0) + 1); }
+    return list.filter((p) => hash01(p[0]) < PER_CELL / count.get(key(p)));
+  }
   const MAX_PROJECT = 20 * 60;   // s: never move a plane further than this past its fix
 
   // ── Data ────────────────────────────────────────────────────────────────
@@ -40,9 +48,8 @@
       const j = await r.json();
       if (!snap || j.t !== snap.t) {
         snap = j;
-        // Airliners at cruise only (an airline's 3-letter code + flight number, above ~20,000 ft),
-        // so the map shows the main routes rather than every light aircraft; ?flights=all for everything.
-        const list = ALL ? j.f : j.f.filter((p) => p[4] >= CRUISE_M && AIRLINE.test(p[1] || ''));
+        // The data is already major airlines at cruise; thin out crowded skies (?flights=all keeps all).
+        const list = ALL ? j.f : thin(j.f);
         planes = list.map(([id, cs, lon, lat, alt, spd, trk, vr, path]) => ({
           id, cs, alt, spd, trk, vr, lon, lat, path: path || [],
           lo: lon * RAD, sb: Math.sin(trk * RAD), cb: Math.cos(trk * RAD),
@@ -89,7 +96,7 @@
     if (!snap) { tag.innerHTML = '<b>Live flights</b> &middot; loading&hellip;'; return; }
     const age = Math.max(0, Date.now() / 1000 - snap.t), min = Math.round(age / 60);
     const when = age > MAX_AGE ? 'data delayed' : min < 1 ? 'positions just now' : `positions from ${min} min ago, projected forward`;
-    tag.innerHTML = `<b>Live flights</b> &middot; ${planes.length.toLocaleString()} ${ALL ? 'aircraft' : 'airliners at cruise'} &middot; ${when} &middot; OpenSky Network`;
+    tag.innerHTML = `<b>Live flights</b> &middot; ${planes.length.toLocaleString()} major-airline flights &middot; ${when} &middot; OpenSky Network`;
   }
   function show() {
     showTag();

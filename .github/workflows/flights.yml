@@ -1,12 +1,12 @@
 name: Refresh flight data
 
-# Live aircraft over the US from the OpenSky Network, for the globe's Flights
-# button. OpenSky allows other websites no CORS, so this publishes a trimmed
+# Major airlines' flights at cruise, worldwide, from the OpenSky Network, for
+# the globe's Flights button. OpenSky allows other websites no CORS, so this publishes a trimmed
 # snapshot (scripts/fetch-flights.mjs) to the `flights` branch, which the
 # globe reads from raw.githubusercontent.com. Between snapshots the globe moves
 # each plane along its own reported track and speed.
 #
-# Anonymous OpenSky use is 400 credits a day and a US-wide request costs 4, so
+# Anonymous OpenSky use is 400 credits a day and a worldwide request costs 4, so
 # without an API client it refreshes every 15 minutes. Add repository secrets
 # OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET (a free OpenSky account > API
 # client) and it refreshes every 3 minutes instead.
