@@ -232,12 +232,14 @@
     if (orbit) { p = at(th); q = at(th + 0.03); }
     else {
       const u = (t % PERIOD) / (PERIOD * 0.55);   // crossing takes 55% of a lap, then a gap
-      const xy = (v) => [w + 220 * k - v * (w + 440 * k), h * (0.34 - 0.09 * Math.sin(v * Math.PI))];
+      // Low enough under the tagline banner that his speech bubble fits above his head.
+      const bn = bannerBox(), minY = (bn ? bn.bottom : 0) + 135 * k;
+      const xy = (v) => [w + 220 * k - v * (w + 440 * k), Math.max(minY, h * (0.34 - 0.09 * Math.sin(v * Math.PI)))];
       if (u <= 1) { p = xy(u); q = xy(u + 0.002); }
     }
     const now = performance.now();
     drawTrail(ctx, k, now);
-    if (!p || !q) { ribbon.length = 0; return; }
+    if (!p || !q) { ribbon.length = 0; hush(false); return; }
     const dx = q[0] - p[0], dy = q[1] - p[1];
     const flip = dx < 0;
     const ang = (flip ? -1 : 1) * Math.atan2(dy, Math.abs(dx)) * 0.6;   // bank a little, never nose-dive
@@ -263,10 +265,10 @@
     const u = (t % PERIOD) / PERIOD, from = orbit ? 0.15 : 0.18, say = u > from && u < from + 0.2;
     if (say) {
       const age = (u - from) * PERIOD, pop = Math.min(1, age / 220);
-      const [hx, hy] = toScreen(2, -52), [, by] = toScreen(2, 40);
+      const [hx, hy] = toScreen(2, -52);
       const line = SAYINGS[ORDER[Math.floor(t / PERIOD) % ORDER.length]];
-      hoHoHo(ctx, hx, hy, k * (0.6 + 0.4 * pop) * (pop < 1 ? 1 + 0.15 * Math.sin(pop * Math.PI) : 1), Math.min(1, (0.2 * PERIOD - age) / 400), line, w, by);
-    }
+      hoHoHo(ctx, hx, hy, k * (0.6 + 0.4 * pop) * (pop < 1 ? 1 + 0.15 * Math.sin(pop * Math.PI) : 1), Math.min(1, (0.2 * PERIOD - age) / 400), line, w);
+    } else hush(false);
   }
 
   const ribbon = [];
@@ -321,8 +323,20 @@
   for (let i = ORDER.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ORDER[i], ORDER[j]] = [ORDER[j], ORDER[i]]; }
 
   /** A speech bubble: "Ho ho ho!" in bold, then the saying wrapped to a few short lines. */
-  let bannerEl = null;
-  function hoHoHo(ctx, x, y, k, alpha, line, W, yBelow) {
+  // The tagline banner's box (null when hidden), and fading it while Santa talks over it.
+  let bannerEl = null, hushed = false;
+  function bannerBox() {
+    bannerEl = bannerEl || document.querySelector('.holiday-banner');
+    if (!bannerEl || bannerEl.hidden) return null;
+    const r = bannerEl.getBoundingClientRect();
+    return r.height ? r : null;
+  }
+  function hush(v) {
+    if (v === hushed || !bannerEl) return;
+    hushed = v; bannerEl.classList.toggle('hush', v);
+  }
+
+  function hoHoHo(ctx, x, y, k, alpha, line, W) {
     if (alpha <= 0) return;
     const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
     ctx.save();
@@ -341,13 +355,10 @@
     for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
     ctx.font = bold; tw = Math.max(tw, ctx.measureText(head).width);
     const pad = 9 * k, lh = 15 * k, w = tw + pad * 2, h = 24 * k + lines.length * lh;
-    // No room above Santa (the screen top or the tagline banner)? Then below the sleigh, pointing up.
-    bannerEl = bannerEl || document.querySelector('.holiday-banner');
-    const r = bannerEl && !bannerEl.hidden ? bannerEl.getBoundingClientRect() : null;
-    const top = Math.max(6, r && r.height ? r.bottom + 4 : 0);
-    const flip = yBelow != null && y - h - 4 < top;
-    const bt = flip ? yBelow + 7 * k : y - h;          // bubble top
-    const tipY = flip ? yBelow : y, baseY = flip ? bt : y;   // pointer: tip at Santa, base on the bubble
+    // Always over his head: if that reaches the tagline banner, fade the banner while he talks.
+    const bn = bannerBox();
+    hush(!!bn && y - h - 4 < bn.bottom && x + w / 2 > bn.left && x - w / 2 < bn.right);
+    const bt = Math.max(4, y - h);   // bubble top
     // Keep the bubble on screen; the pointer stays on Santa.
     let bx = x - w / 2;
     if (W) bx = Math.max(6, Math.min(W - w - 6, bx));
@@ -355,7 +366,7 @@
     ctx.fillStyle = '#fffbeb'; ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 1.5 * k;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(bx, bt, w, h, 10 * k); else ctx.rect(bx, bt, w, h);
-    ctx.moveTo(px - 4 * k, baseY); ctx.lineTo(px + 1 * k, tipY + (flip ? 0 : 7 * k)); ctx.lineTo(px + 5 * k, baseY);
+    ctx.moveTo(px - 4 * k, bt + h); ctx.lineTo(px + 1 * k, bt + h + 7 * k); ctx.lineTo(px + 5 * k, bt + h);
     ctx.fill(); ctx.stroke();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const cx = bx + w / 2;

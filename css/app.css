@@ -1273,6 +1273,8 @@ body.power-on .map-key { display: flex; }
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 .holiday-banner[hidden] { display: none; }
+.holiday-banner { transition: opacity .4s ease; }
+.holiday-banner.hush { opacity: 0; }   /* while Santa's speech bubble is over it */
 .holiday-banner svg { flex: none; width: 1.6em; height: 1.6em; fill: #fde68a; filter: drop-shadow(0 0 6px rgba(253, 230, 138, .8)); }
 .holiday-banner p { margin: 0; font-size: 13px; line-height: 1.4; color: #e2e8f0; }
 .holiday-banner b { color: #fde68a; font-weight: 700; }
