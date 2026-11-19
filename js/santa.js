@@ -85,20 +85,46 @@
     g.strokeStyle = 'rgba(120,53,15,.9)'; g.lineWidth = 0.9;
     g.beginPath(); deer.forEach((d) => { g.moveTo(9, -15); g.quadraticCurveTo((9 + d.x) / 2, -18, d.x + 14, d.y - 9); }); g.stroke();
     deer.forEach((d, i) => reindeer(g, d.x, d.y, d.ph, i === 3));
-    // gift sack (ThousandEyes orange)
+    // the load: a ThousandEyes-orange sack and a couple of presents
     g.fillStyle = '#f15e22';
-    g.beginPath(); g.ellipse(-22, -13, 10, 9, -0.2, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#c2410c'; g.beginPath(); g.ellipse(-25, -22, 3.5, 2.4, -0.3, 0, Math.PI * 2); g.fill();
-    // Santa
-    g.fillStyle = '#dc2626'; g.beginPath(); g.ellipse(-3, -13, 8.5, 10, 0, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = '#dc2626'; g.lineWidth = 3.4; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(1, -15); g.lineTo(8, -15); g.stroke();   // arm
-    g.fillStyle = '#1f2937'; g.beginPath(); g.arc(9, -15, 1.9, 0, Math.PI * 2); g.fill();   // mitten
-    g.fillStyle = '#fde2c8'; g.beginPath(); g.arc(1, -25.5, 3.9, 0, Math.PI * 2); g.fill();   // face
-    g.fillStyle = '#f8fafc'; g.beginPath(); g.ellipse(2.5, -20.5, 4.5, 4.8, 0.2, 0, Math.PI * 2); g.fill();   // beard
-    g.fillStyle = '#dc2626'; g.beginPath(); g.moveTo(-4, -28.5); g.lineTo(5, -29); g.quadraticCurveTo(-2, -37, -10, -34); g.closePath(); g.fill();   // hat
-    g.fillStyle = '#f8fafc'; g.fillRect(-4.5, -30, 10, 2.4);
-    g.beginPath(); g.arc(-10.5, -33.5, 2.2, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(-25, -15, 10, 9.5, -0.2, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#c2410c'; g.beginPath(); g.ellipse(-28, -24.5, 3.5, 2.4, -0.3, 0, Math.PI * 2); g.fill();
+    const gift = (x, y, sz, col, rib) => {
+      g.fillStyle = col; g.fillRect(x, y, sz, sz);
+      g.fillStyle = rib; g.fillRect(x + sz / 2 - 0.9, y, 1.8, sz); g.fillRect(x, y + sz / 2 - 0.9, sz, 1.8);
+      g.strokeStyle = rib; g.lineWidth = 1.1; g.beginPath(); g.ellipse(x + sz / 2 - 2, y - 1.2, 2, 1.2, 0.4, 0, 6.3); g.ellipse(x + sz / 2 + 2, y - 1.2, 2, 1.2, -0.4, 0, 6.3); g.stroke();
+    };
+    gift(-35, -14, 9, '#16a34a', '#fde047');
+    gift(-21, -12, 7, '#2563eb', '#f8fafc');
+    // Santa, a size up: waving with one hand, reins in the other
+    const wave = ph0;
+    g.save(); g.translate(-2, -6); g.scale(1.35, 1.35); g.translate(2, 6);
+    const arm = (x0, y0, x1, y1) => {
+      g.strokeStyle = '#dc2626'; g.lineWidth = 3.4; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      g.fillStyle = '#1f2937'; g.beginPath(); g.arc(x1, y1, 1.9, 0, Math.PI * 2); g.fill();
+    };
+    const wa = -2.0 + 0.45 * Math.sin(wave);   // waving arm angle
+    arm(-5, -20, -5 + 9 * Math.cos(wa), -20 + 9 * Math.sin(wa));
+    g.fillStyle = '#dc2626'; g.beginPath(); g.ellipse(-2, -14, 9.5, 10.5, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#f8fafc'; g.fillRect(5.2, -22, 2.2, 16);   // coat trim
+    g.fillStyle = '#111827'; g.fillRect(-11, -11.5, 19, 3);   // belt
+    g.strokeStyle = '#facc15'; g.lineWidth = 1; g.strokeRect(1.5, -12.3, 4, 4.6);   // buckle
+    arm(3, -17, 10, -15);   // reins hand
+    g.fillStyle = '#fde2c8'; g.beginPath(); g.arc(1.5, -26.5, 4.4, 0, Math.PI * 2); g.fill();   // face
+    g.fillStyle = 'rgba(244,114,182,.75)'; g.beginPath(); g.arc(4, -25.3, 1.4, 0, Math.PI * 2); g.fill();   // rosy cheek
+    g.fillStyle = '#f8fafc';
+    g.beginPath(); g.moveTo(-2.5, -25); g.quadraticCurveTo(1, -23, 7, -24); g.quadraticCurveTo(7, -17, 2, -15.5); g.quadraticCurveTo(-3, -18, -2.5, -25); g.fill();   // beard
+    g.beginPath(); g.ellipse(4.6, -24.4, 2.4, 1.1, -0.2, 0, Math.PI * 2); g.fill();   // moustache
+    g.fillStyle = '#1f2937'; g.beginPath(); g.arc(3.4, -27.6, 0.75, 0, Math.PI * 2); g.fill();   // eye
+    g.fillStyle = '#f8fafc'; g.fillRect(2.2, -29.4, 2.6, 0.8);   // eyebrow
+    g.fillStyle = '#f87171'; g.beginPath(); g.arc(6, -26, 1.1, 0, Math.PI * 2); g.fill();   // nose
+    const bob = 1.2 * Math.sin(wave + 1);
+    g.fillStyle = '#dc2626'; g.beginPath(); g.moveTo(-4, -30); g.lineTo(6.5, -30.5); g.quadraticCurveTo(0, -39, -11, -35 + bob); g.closePath(); g.fill();   // hat
+    g.fillStyle = '#f8fafc';
+    if (g.roundRect) { g.beginPath(); g.roundRect(-4.8, -31.8, 12, 3.2, 1.5); g.fill(); } else g.fillRect(-4.8, -31.8, 12, 3.2);
+    g.beginPath(); g.arc(-11.5, -34.5 + bob, 2.5, 0, Math.PI * 2); g.fill();   // pompom
+    g.restore();
     // sleigh body
     g.fillStyle = '#b91c1c';
     g.beginPath();
@@ -106,6 +132,7 @@
     g.quadraticCurveTo(32, 7, 31, -6); g.quadraticCurveTo(30, -11, 24, -9); g.lineTo(-24, -6);
     g.quadraticCurveTo(-26, -17, -38, -16); g.closePath(); g.fill();
     g.strokeStyle = '#facc15'; g.lineWidth = 1.4; g.stroke();
+    g.lineWidth = 1; g.beginPath(); g.arc(-33, -9, 3, 0.3, Math.PI * 1.8); g.stroke();   // scroll on the back
     // runners
     g.strokeStyle = '#facc15'; g.lineWidth = 1.8;
     g.beginPath();
@@ -126,14 +153,14 @@
         t.translate(OX, OY); team(t, f);
         t.setTransform(SC, 0, 0, SC, 0, 0);
         // Logo plaque, never mirrored so it always reads the right way round.
-        const cx = dir === 'L' ? SW - OX + 3 : OX - 3, pw = 60, ph = 13.5;
-        t.fillStyle = '#0b1424'; t.strokeStyle = '#facc15'; t.lineWidth = 0.9;
+        const cx = dir === 'L' ? SW - OX + 1 : OX - 1, pw = 38, ph = 8.5;
+        t.fillStyle = '#0b1424'; t.strokeStyle = '#facc15'; t.lineWidth = 0.7;
         t.beginPath();
-        if (t.roundRect) t.roundRect(cx - pw / 2, OY - 5, pw, ph, 3); else t.rect(cx - pw / 2, OY - 5, pw, ph);
+        if (t.roundRect) t.roundRect(cx - pw / 2, OY - 2.5, pw, ph, 2.5); else t.rect(cx - pw / 2, OY - 2.5, pw, ph);
         t.fill(); t.stroke();
         if (logo.complete && logo.naturalWidth) {
-          const lw = pw - 5, lh = lw * logo.naturalHeight / logo.naturalWidth;
-          t.drawImage(logo, cx - lw / 2, OY - 5 + (ph - lh) / 2, lw, lh);
+          const lw = pw - 3.5, lh = lw * logo.naturalHeight / logo.naturalWidth;
+          t.drawImage(logo, cx - lw / 2, OY - 2.5 + (ph - lh) / 2, lw, lh);
         }
         const c = document.createElement('canvas'); c.width = SW * SC; c.height = SH * SC;
         const g = c.getContext('2d');
@@ -208,33 +235,83 @@
       const xy = (v) => [w + 220 * k - v * (w + 440 * k), h * (0.34 - 0.09 * Math.sin(v * Math.PI))];
       if (u <= 1) { p = xy(u); q = xy(u + 0.002); }
     }
-    // sparkle trail (screen space), drawn even after the sleigh has gone round the back
     const now = performance.now();
-    while (sparks.length && now - sparks[0].t > 1600) sparks.shift();
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const s of sparks) {
-      const a = 1 - (now - s.t) / 1600;
-      ctx.fillStyle = `rgba(253,224,71,${(0.75 * a).toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(s.x, s.y + (1 - a) * 10 * k, (0.6 + 1.6 * a) * k, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
-    if (!p || !q) return;
+    drawTrail(ctx, k, now);
+    if (!p || !q) { ribbon.length = 0; return; }
     const dx = q[0] - p[0], dy = q[1] - p[1];
     const flip = dx < 0;
     const ang = (flip ? -1 : 1) * Math.atan2(dy, Math.abs(dx)) * 0.6;   // bank a little, never nose-dive
-    const s = k * 0.85 * (orbit ? 0.75 + 0.35 * Math.sin(th) : 1.05);   // bigger as it comes toward you
+    const s = k * (orbit ? 0.78 + 0.37 * Math.sin(th) : 1.1);   // bigger as it comes toward you
     const f = Math.floor(now / 85) % FRAMES;
+    const x = p[0], y = p[1] + Math.sin(now / 320) * 2.5 * k;   // a gentle bob
+    const cs = Math.cos(ang), sn = Math.sin(ang);
+    const toScreen = (lx, ly) => [x + (flip ? -lx : lx) * s * cs - ly * s * sn, y + (flip ? -lx : lx) * s * sn + ly * s * cs];
     ctx.save();
-    ctx.translate(p[0], p[1]);
+    ctx.translate(x, y);
     ctx.rotate(ang);
     ctx.drawImage(sprites[flip ? 'L' : 'R'][f], -(flip ? SW - OX : OX) * s, -OY * s, SW * s, SH * s);
     ctx.restore();
-    // emit sparks from the back of the runners
-    const bx = (flip ? 38 : -38) * s, by = 15 * s, cs = Math.cos(ang), sn = Math.sin(ang);
-    const ex = p[0] + bx * cs - by * sn, ey = p[1] + bx * sn + by * cs;
-    for (let i = 0; i < 2; i++) sparks.push({ x: ex + (Math.random() - 0.5) * 6 * k, y: ey + (Math.random() - 0.5) * 4 * k, t: now });
-    if (sparks.length > 220) sparks.splice(0, sparks.length - 220);
+    // trail from the back of the runners: a glowing ribbon plus sparkles
+    const [ex, ey] = toScreen(-38, 15);
+    ribbon.push({ x: ex, y: ey, t: now });
+    const COLS = ['253,224,71', '255,255,255', '253,224,71', '248,113,113', '74,222,128', '125,211,252'];
+    for (let i = 0; i < 3; i++) {
+      sparks.push({ x: ex + (Math.random() - 0.5) * 8 * k, y: ey + (Math.random() - 0.5) * 6 * k, t: now, c: COLS[(Math.random() * COLS.length) | 0], star: Math.random() < 0.12, vy: 4 + Math.random() * 14 });
+    }
+    if (sparks.length > 260) sparks.splice(0, sparks.length - 260);
+    // "Ho ho ho!" once a lap, while he's out in front
+    const u = (t % PERIOD) / PERIOD, say = orbit ? u > 0.17 && u < 0.3 : u > 0.2 && u < 0.33;
+    if (say) {
+      const age = (u - (orbit ? 0.17 : 0.2)) * PERIOD, pop = Math.min(1, age / 220);
+      const [hx, hy] = toScreen(2, -52);
+      hoHoHo(ctx, hx, hy, k * (0.6 + 0.4 * pop) * (pop < 1 ? 1 + 0.15 * Math.sin(pop * Math.PI) : 1), Math.min(1, (0.13 * PERIOD - age) / 300));
+    }
+  }
+
+  const ribbon = [];
+  function drawTrail(ctx, k, now) {
+    while (sparks.length && now - sparks[0].t > 1800) sparks.shift();
+    while (ribbon.length && now - ribbon[0].t > 900) ribbon.shift();
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let i = 1; i < ribbon.length; i++) {
+      const a = 1 - (now - ribbon[i].t) / 900;
+      ctx.strokeStyle = `rgba(253,224,71,${(0.35 * a).toFixed(3)})`;
+      ctx.lineWidth = (1 + 5 * a) * k;
+      ctx.beginPath(); ctx.moveTo(ribbon[i - 1].x, ribbon[i - 1].y); ctx.lineTo(ribbon[i].x, ribbon[i].y); ctx.stroke();
+    }
+    for (const sp of sparks) {
+      const a = 1 - (now - sp.t) / 1800;
+      const px = sp.x, py = sp.y + (1 - a) * sp.vy * k;
+      ctx.fillStyle = `rgba(${sp.c},${(0.85 * a).toFixed(3)})`;
+      if (sp.star) {
+        const R = (2 + 3.5 * a) * k * (0.7 + 0.3 * Math.sin(now / 90 + sp.x));
+        ctx.beginPath();
+        for (let j = 0; j < 8; j++) { const an = (j / 8) * Math.PI * 2, rr = j % 2 ? R * 0.22 : R; ctx[j ? 'lineTo' : 'moveTo'](px + rr * Math.cos(an), py + rr * Math.sin(an)); }
+        ctx.closePath(); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.arc(px, py, (0.5 + 1.5 * a) * k, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function hoHoHo(ctx, x, y, k, alpha) {
+    if (alpha <= 0) return;
+    const txt = 'Ho ho ho!';
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.font = `800 ${Math.round(13 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const w = ctx.measureText(txt).width + 16 * k, h = 22 * k;
+    ctx.fillStyle = '#fffbeb'; ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 1.5 * k;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h, w, h, 10 * k); else ctx.rect(x - w / 2, y - h, w, h);
+    ctx.moveTo(x - 4 * k, y); ctx.lineTo(x + 1 * k, y + 7 * k); ctx.lineTo(x + 5 * k, y);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b91c1c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, x, y - h / 2 + 0.5 * k);
+    ctx.restore();
   }
 
   window.Santa = {
