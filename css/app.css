@@ -1288,3 +1288,6 @@ body.power-on .map-key { display: flex; }
 }
 .flights-tag[hidden] { display: none; }
 .flights-tag b { color: #7dd3fc; }
+
+/* Flights: pointer over a plane or its card (a link to Google's flight tracker) */
+html.flight-hot, html.flight-hot * { cursor: pointer !important; }

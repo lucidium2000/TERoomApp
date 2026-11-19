@@ -125,6 +125,55 @@
   window.addEventListener('pointermove', setPtr, { passive: true, capture: true });
   window.addEventListener('pointerdown', setPtr, { passive: true, capture: true });
 
+  // ── Google flight tracker link ──────────────────────────────────────────
+  // Callsigns are ICAO (DAL123); Google knows flights by IATA code (DL123).
+  const IATA = {
+    AAL: 'AA', DAL: 'DL', UAL: 'UA', ASA: 'AS', JBU: 'B6', ACA: 'AC', WJA: 'WS', AMX: 'AM', BAW: 'BA', VIR: 'VS',
+    EIN: 'EI', AFR: 'AF', KLM: 'KL', DLH: 'LH', SWR: 'LX', AUA: 'OS', SAS: 'SK', FIN: 'AY', IBE: 'IB', TAP: 'TP',
+    ITY: 'AZ', THY: 'TK', UAE: 'EK', QTR: 'QR', ETD: 'EY', SVA: 'SV', ETH: 'ET', SAA: 'SA', SIA: 'SQ', CPA: 'CX',
+    QFA: 'QF', ANZ: 'NZ', VOZ: 'VA', ANA: 'NH', JAL: 'JL', KAL: 'KE', AAR: 'OZ', CCA: 'CA', CES: 'MU', CSN: 'CZ',
+    CAL: 'CI', EVA: 'BR', THA: 'TG', MAS: 'MH', GIA: 'GA', AIC: 'AI', TAM: 'LA', LAN: 'LA', AVA: 'AV', CMP: 'CM',
+  };
+  function flightNo(cs) {
+    const m = /^([A-Z]{3})0*(\d+)$/.exec(cs || '');
+    return m && IATA[m[1]] ? IATA[m[1]] + m[2] : '';
+  }
+  function trackerUrl(p) {
+    const q = flightNo(p.cs) || p.cs || p.id;
+    return 'https://www.google.com/search?q=' + encodeURIComponent(q + ' flight');
+  }
+  // From / to: looked up once per callsign when a plane is first hovered, from adsbdb.com
+  // (a free, open route database keyed by callsign; it's the scheduled route, so now and
+  // then out of date). Only the callsign is sent.
+  const routes = new Map();   // callsign -> { from, to, airline } | 'loading' | null
+  function route(cs) {
+    if (!cs) return null;
+    if (routes.has(cs)) return routes.get(cs);
+    routes.set(cs, 'loading');
+    fetch('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(cs), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const fr = j && j.response && j.response.flightroute;
+        const ap = (a) => a && { code: a.iata_code || a.icao_code, city: a.municipality || a.name || '' };
+        routes.set(cs, fr && fr.origin && fr.destination ? { from: ap(fr.origin), to: ap(fr.destination), airline: (fr.airline && fr.airline.name) || '' } : null);
+      })
+      .catch(() => routes.set(cs, null));
+    return 'loading';
+  }
+
+  // The plane under the pointer and its card, from the last frame: a click on either opens the tracker.
+  let hot = null;
+  const inRect = (x, y, r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  window.addEventListener('click', (e) => {
+    if (!on || !hot) return;
+    const onCard = inRect(e.clientX, e.clientY, hot.rect);
+    const onPlane = (e.clientX - hot.x) ** 2 + (e.clientY - hot.y) ** 2 < (e.pointerType === 'touch' ? 22 : 12) ** 2;
+    // Touch: the first tap shows the card, tapping the card opens it. Mouse: the plane or the card.
+    if (!(onCard || (onPlane && e.pointerType !== 'touch'))) return;
+    e.stopPropagation(); e.preventDefault();
+    window.open(trackerUrl(hot.p), '_blank', 'noopener');
+  }, true);
+
   // A small plane icon, drawn once (pointing right).
   let icon = null;
   function planeIcon() {
@@ -240,7 +289,17 @@
       for (let j = 0; j < vis.length; j++) { const d = (visXY[2 * j] - ptr.x) ** 2 + (visXY[2 * j + 1] - ptr.y) ** 2; if (d < best) { best = d; bi = vis[j]; } }
       if (bi >= 0) { at(planes[bi], dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]); if (s) { hit = bi; hx = s[0]; hy = s[1]; } }
     }
-    if (hit >= 0) { trace(ctx, proj, planes[hit], dt, k); card(ctx, hx, hy, planes[hit], k); }
+    // Keep the card while the pointer is on it or on its way there (other planes under it don't steal it).
+    const near = hot && { x: hot.rect.x - 16, y: hot.rect.y - 16, w: hot.rect.w + 32, h: hot.rect.h + 32 };
+    if (live && hot && hit !== hot.i && inRect(ptr.x, ptr.y, near) && planes[hot.i] === hot.p) {
+      at(hot.p, dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
+      if (s) { hit = hot.i; hx = s[0]; hy = s[1]; }
+    }
+    if (hit >= 0) {
+      trace(ctx, proj, planes[hit], dt, k);
+      hot = { i: hit, p: planes[hit], x: hx, y: hy, rect: card(ctx, hx, hy, planes[hit], k) };
+    } else hot = null;
+    document.documentElement.classList.toggle('flight-hot', !!hot && !!ptr && !ptr.touch);
     ctx.restore();
   }
 
@@ -261,22 +320,28 @@
     }
     ctx.stroke();
   }
-  function hide() { if (gl) gl.setFlights(null); }
+  function hide() { if (gl) gl.setFlights(null); hot = null; document.documentElement.classList.remove('flight-hot'); }
 
   function card(ctx, x, y, p, k) {
     const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     const ft = Math.round(p.alt * 3.281 / 100) * 100, kt = Math.round(p.spd * 1.944);
     const climb = p.vr > 1.5 ? ' · climbing' : p.vr < -1.5 ? ' · descending' : '';
-    const head = p.cs || p.id.toUpperCase();
+    const rt = route(p.cs);
+    const head = (p.cs || p.id.toUpperCase()) + (rt && rt !== 'loading' && rt.airline ? ` · ${rt.airline}` : '');
     const known = p.path.length ? ` · path: last ${Math.max(1, Math.round(p.path[0] / 60))} min` : '';
+    const lr = rt === 'loading' ? 'Looking up route…' : rt ? `${rt.from.code} ${rt.from.city}  →  ${rt.to.code} ${rt.to.city}` : 'Route not known';
     const l1 = `${ft.toLocaleString()} ft · ${kt} kt · heading ${Math.round(p.trk)}°${climb}${known}`;
+    const l2 = `Track ${flightNo(p.cs) || p.cs || p.id} on Google ↗`;
     ctx.strokeStyle = 'rgba(253,224,71,.95)'; ctx.lineWidth = 1.6 * k;
     ctx.beginPath(); ctx.arc(x, y, 8 * k, 0, Math.PI * 2); ctx.stroke();
     ctx.font = font(800, 12); const w1 = ctx.measureText(head).width;
+    ctx.font = font(700, 12); const wr = ctx.measureText(lr).width;
     ctx.font = font(500, 11); const w2 = ctx.measureText(l1).width;
-    const pad = 8 * k, w = Math.max(w1, w2) + pad * 2, h = 38 * k;
+    ctx.font = font(700, 11); const w3 = ctx.measureText(l2).width;
+    const pad = 8 * k, w = Math.max(w1, wr, w2, w3) + pad * 2, h = 70 * k;
     let bx = x + 14 * k, by = y - h - 8 * k;
     if (bx + w > window.innerWidth - 4) bx = x - 14 * k - w;
+    if (bx < 4) bx = 4;
     if (by < 4) by = y + 12 * k;
     ctx.fillStyle = 'rgba(8,13,26,.92)'; ctx.strokeStyle = 'rgba(125,211,252,.45)'; ctx.lineWidth = 1;
     ctx.beginPath();
@@ -284,8 +349,12 @@
     ctx.fill(); ctx.stroke();
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.font = font(800, 12); ctx.fillStyle = '#f8fafc'; ctx.fillText(head, bx + pad, by + 13 * k);
-    ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8'; ctx.fillText(l1, bx + pad, by + 28 * k);
+    ctx.font = font(700, 12); ctx.fillStyle = rt && rt !== 'loading' ? '#fde68a' : '#64748b'; ctx.fillText(lr, bx + pad, by + 29 * k);
+    ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8'; ctx.fillText(l1, bx + pad, by + 44 * k);
+    ctx.font = font(700, 11); ctx.fillStyle = '#7dd3fc'; ctx.fillText(l2, bx + pad, by + 59 * k);
+    ctx.fillRect(bx + pad, by + 65 * k, w3, Math.max(1, 0.8 * k));   // underline: it's a link
+    return { x: bx, y: by, w, h };
   }
 
-  window.Flights = { get on() { return on; }, draw, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2) }) };
+  window.Flights = { get on() { return on; }, draw, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2), hot: hot && { cs: hot.p.cs, x: hot.x, y: hot.y, rect: hot.rect } }) };
 })();
