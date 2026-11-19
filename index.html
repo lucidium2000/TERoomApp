@@ -28,7 +28,7 @@
   <link rel="manifest" href="site.webmanifest">
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=187">
+  <link rel="stylesheet" href="css/app.css?v=188">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -72,6 +72,7 @@
     <p class="radar-time power-time" id="powerTime" hidden><span>MassOutage &middot; US power</span><b><i></i><em></em></b></p>
     <button id="powerBtn" class="radar-btn power-btn" aria-pressed="false" aria-label="Power outages" title="US power outages: tap to show or hide on the globe"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg><span id="powerBtnLabel">Power: off</span></button>
     <button id="placesBtn" class="radar-btn power-btn places-btn" aria-pressed="false" aria-label="Place names" title="Country, state and province names: tap to show or hide"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg><span>Place names: off</span></button>
+    <button id="holidayBtn" class="radar-btn power-btn places-btn holiday-btn" aria-pressed="false" aria-label="Holiday mode" title="Holiday mode: Santa, the North Star and snow"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9.5 3.5 12 6l2.5-2.5M9.5 20.5 12 18l2.5 2.5"/></svg><span>Holiday: off</span></button>
     <p class="map-key" id="mapKey">
       <span class="mk mk-wx"><i></i>Weather</span>
       <span class="mk mk-pwr"><i></i>Power</span>
@@ -311,7 +312,8 @@
   <script src="js/glass.js?v=88"></script>
   <script src="js/logos.js?v=1"></script>
   <script src="js/fx.js?v=8"></script>
-  <script src="js/app.js?v=245"></script>
+  <script src="js/santa.js?v=5"></script>
+  <script src="js/app.js?v=246"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

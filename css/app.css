@@ -1256,3 +1256,17 @@ body.power-on .map-key { display: flex; }
 .wxbar .cable-btn[aria-pressed="true"] { color: #bae6fd; background: rgba(14, 165, 233, .16); border-color: rgba(14, 165, 233, .55); }
 .wxbar .places-btn { margin-top: .3em; }
 .wxbar .places-btn[aria-pressed="true"] { color: #e2e8f0; background: rgba(148, 163, 184, .18); border-color: rgba(203, 213, 225, .5); }
+
+/* Holiday mode (Holiday button / ?santa=1) */
+.wxbar .holiday-btn[aria-pressed="true"] { color: #fde68a; background: rgba(220, 38, 38, .2); border-color: rgba(250, 204, 21, .55); }
+.holiday-banner {
+  position: fixed; left: 50%; top: var(--gutter, 16px); transform: translateX(-50%); z-index: 25; pointer-events: none;
+  display: flex; align-items: center; gap: .7em; max-width: min(36em, calc(100vw - 32px)); padding: .55em 1.1em .55em .8em;
+  border-radius: 14px; background: linear-gradient(135deg, rgba(127, 29, 29, .55), rgba(15, 23, 42, .7) 55%, rgba(20, 83, 45, .5));
+  border: 1px solid rgba(250, 204, 21, .45); box-shadow: 0 6px 24px rgba(0, 0, 0, .35), 0 0 18px rgba(250, 204, 21, .12);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.holiday-banner[hidden] { display: none; }
+.holiday-banner svg { flex: none; width: 1.6em; height: 1.6em; fill: #fde68a; filter: drop-shadow(0 0 6px rgba(253, 230, 138, .8)); }
+.holiday-banner p { margin: 0; font-size: 13px; line-height: 1.4; color: #e2e8f0; }
+.holiday-banner b { color: #fde68a; font-weight: 700; }

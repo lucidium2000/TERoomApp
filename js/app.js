@@ -479,6 +479,7 @@
       drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
       drawQuakeTag(Math.max(0.7, Math.min(1.6, R / 430)));
       drawSpace(Math.max(0.7, Math.min(1.6, R / 430)));
+      if (window.Santa && window.Santa.on) window.Santa.draw(ctx, cam, proj3, Math.max(0.7, Math.min(1.6, R / 430)), S.w, S.h);   // Holiday button
       perfMark('markers');
       return;
     }
