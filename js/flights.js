@@ -180,7 +180,7 @@
     }
     const hist = histFor !== snap.t ? buildHist() : null;
     histFor = snap.t;
-    const px = Math.max(4.5, Math.min(20, R * 0.017)) * dpr;   // dots when the whole globe shows, aircraft when zoomed in
+    const px = Math.max(3.5, Math.min(13, R * 0.011)) * dpr;   // dots when the whole globe shows, aircraft when zoomed in
     return gl.setFlights(arr, n, hist, { now: dt, hist: snap.hist || 3600, px });
   }
 
