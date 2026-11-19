@@ -1,9 +1,10 @@
 // Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
-/* Flights (demo): a SIMULATED picture of US air traffic, a mock-up of what a
- * live flight layer could look like. Planes fly great-circle routes between
- * real major airports, with traffic weighted by hub size and time sped up.
- * Nothing here is real flight data. Toggle: the "Flights (demo)" button or
- * ?flights=1. Remove: this file, the button in index.html, one call in app.js. */
+/* Flights button: live aircraft over and around the US from the OpenSky
+ * Network. A GitHub Action (.github/workflows/flights.yml) publishes a
+ * snapshot to the `flights` branch every 15 minutes (3 with an OpenSky API
+ * client); between snapshots each plane is moved along its own reported track
+ * and speed, so the picture keeps flowing. Hover or tap a plane for its
+ * callsign, altitude and speed. Toggle: the Flights button, or ?flights=1. */
 (function () {
   'use strict';
   const qs = new URLSearchParams(location.search);
@@ -12,73 +13,72 @@
   try { on = localStorage.getItem('te-flights') === '1'; } catch (_) { /* private mode */ }
   if (qs.has('flights')) on = qs.get('flights') !== '0';
 
-  // [code, lat, lon, weight] - weight is roughly relative hub traffic
-  const AIRPORTS = [
-    ['ATL', 33.64, -84.43, 10], ['DFW', 32.90, -97.04, 9], ['DEN', 39.86, -104.67, 9], ['ORD', 41.97, -87.91, 9],
-    ['LAX', 33.94, -118.41, 8], ['JFK', 40.64, -73.78, 7], ['LAS', 36.08, -115.15, 6], ['MCO', 28.43, -81.31, 6],
-    ['MIA', 25.80, -80.29, 5], ['CLT', 35.21, -80.94, 7], ['SEA', 47.45, -122.31, 6], ['PHX', 33.43, -112.01, 6],
-    ['EWR', 40.69, -74.17, 6], ['SFO', 37.62, -122.38, 6], ['IAH', 29.99, -95.34, 6], ['BOS', 42.36, -71.01, 5],
-    ['MSP', 44.88, -93.22, 5], ['DTW', 42.21, -83.35, 5], ['FLL', 26.07, -80.15, 4], ['PHL', 39.87, -75.24, 4],
-    ['LGA', 40.78, -73.87, 5], ['BWI', 39.18, -76.67, 4], ['SLC', 40.79, -111.98, 4], ['DCA', 38.85, -77.04, 4],
-    ['IAD', 38.95, -77.46, 3], ['SAN', 32.73, -117.19, 3], ['TPA', 27.98, -82.53, 3], ['BNA', 36.12, -86.68, 4],
-    ['AUS', 30.19, -97.67, 3], ['MDW', 41.79, -87.75, 3], ['PDX', 45.59, -122.60, 3], ['STL', 38.75, -90.37, 2],
-    ['RDU', 35.88, -78.79, 3], ['HNL', 21.32, -157.92, 3], ['MSY', 29.99, -90.26, 2], ['SJC', 37.36, -121.93, 2],
-    ['SMF', 38.70, -121.59, 2], ['SAT', 29.53, -98.47, 2], ['MCI', 39.30, -94.71, 2], ['CLE', 41.41, -81.85, 2],
-    ['PIT', 40.49, -80.23, 2], ['IND', 39.72, -86.29, 2], ['CMH', 39.99, -82.89, 2], ['ANC', 61.17, -149.99, 2],
-    ['SJU', 18.44, -66.00, 2], ['ABQ', 35.04, -106.61, 1], ['BOI', 43.56, -116.22, 1], ['OMA', 41.30, -95.89, 1],
-  ];
-  const RAD = Math.PI / 180;
-  const unit = (lat, lon) => { const p = lat * RAD, l = lon * RAD, c = Math.cos(p); return [c * Math.cos(l), c * Math.sin(l), Math.sin(p)]; };
-  const AP = AIRPORTS.map(([code, lat, lon, w]) => ({ code, lat, lon, w, v: unit(lat, lon) }));
-  const TOTAL_W = AP.reduce((a, b) => a + b.w, 0);
-  const pickAP = () => { let r = Math.random() * TOTAL_W; for (const a of AP) { r -= a.w; if (r <= 0) return a; } return AP[0]; };
+  const RAD = Math.PI / 180, RE = 6371000;
+  const MAX_AGE = 30 * 60;   // s: older than this, the snapshot is too stale to project
+  const MAX_PROJECT = 20 * 60;   // s: never move a plane further than this past its fix
 
-  const N = 160;   // planes in the air at once
-  const SPEED = 900 / 3600 * 40;   // km per real second: ~900 km/h, time sped up 40x
-  const flights = [];
-  function spawn(f, now, anyProgress) {
-    let a, b, d;
-    do { a = pickAP(); b = pickAP(); d = Math.acos(Math.max(-1, Math.min(1, a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]))); }
-    while (a === b || d * 6371 < 350);
-    const dur = (d * 6371 / SPEED) * 1000;
-    f.a = a; f.b = b; f.ang = d; f.sin = Math.sin(d); f.dur = dur;
-    f.t0 = now - (anyProgress ? Math.random() * dur : 0);
-    f.lane = (Math.random() - 0.5) * 0.004;   // a little sideways spread so routes don't sit on one line
-    return f;
+  // ── Data ────────────────────────────────────────────────────────────────
+  function sourceUrl() {
+    if (qs.get('flightsurl')) return qs.get('flightsurl');
+    const h = location.hostname, repo = location.pathname.split('/').filter(Boolean)[0];
+    if (/\.github\.io$/.test(h) && repo) return `https://raw.githubusercontent.com/${h.split('.')[0]}/${repo}/flights/flights.json`;
+    return 'https://raw.githubusercontent.com/lucidium2000/TERoomApp/flights/flights.json';   // local testing
   }
-  /** Great-circle position at progress u (0-1), as a unit vector. */
-  function pos(f, u) {
-    const A = Math.sin((1 - u) * f.ang) / f.sin, B = Math.sin(u * f.ang) / f.sin;
-    const v = [A * f.a.v[0] + B * f.b.v[0], A * f.a.v[1] + B * f.b.v[1], A * f.a.v[2] + B * f.b.v[2] + f.lane * Math.sin(u * Math.PI)];
-    const n = Math.hypot(v[0], v[1], v[2]);
-    return [v[0] / n, v[1] / n, v[2] / n];
-  }
-  const llOf = (v) => [Math.atan2(v[1], v[0]) / RAD, Math.asin(v[2]) / RAD];
-
-  // One small plane sprite, drawn once.
-  let plane = null;
-  function planeSprite() {
-    const S = 48, c = document.createElement('canvas'); c.width = c.height = S;
-    const g = c.getContext('2d'); g.translate(S / 2, S / 2); g.scale(S / 24, S / 24);
-    g.fillStyle = '#f8fafc';
-    g.beginPath();   // pointing right (+x)
-    g.moveTo(10, 0); g.quadraticCurveTo(9, -1.3, 6, -1.3); g.lineTo(1.5, -1.3); g.lineTo(-3, -8.5); g.lineTo(-5, -8.5); g.lineTo(-2.2, -1.3);
-    g.lineTo(-7, -1.3); g.lineTo(-9, -4); g.lineTo(-10.3, -4); g.lineTo(-9.2, 0);
-    g.lineTo(-10.3, 4); g.lineTo(-9, 4); g.lineTo(-7, 1.3); g.lineTo(-2.2, 1.3); g.lineTo(-5, 8.5); g.lineTo(-3, 8.5); g.lineTo(1.5, 1.3);
-    g.lineTo(6, 1.3); g.quadraticCurveTo(9, 1.3, 10, 0); g.closePath(); g.fill();
-    return c;
+  let snap = null, planes = [], loading = false, lastLoad = 0, err = '';
+  async function load() {
+    if (loading) return;
+    loading = true; lastLoad = Date.now();
+    try {
+      const r = await fetch(sourceUrl(), { cache: 'no-cache' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      if (!snap || j.t !== snap.t) {
+        snap = j;
+        planes = j.f.map(([id, cs, lon, lat, alt, spd, trk, vr]) => ({
+          id, cs, alt, spd, trk, vr,
+          lo: lon * RAD, sb: Math.sin(trk * RAD), cb: Math.cos(trk * RAD),
+          sla: Math.sin(lat * RAD), cla: Math.cos(lat * RAD),
+        }));
+      }
+      err = '';
+    } catch (e) {
+      err = 'flight data unavailable';
+      console.warn('[flights]', e);
+    }
+    loading = false;
+    showTag();
   }
 
-  // ── Button and the "simulated" tag ──────────────────────────────────────
+  /** Where a plane is `dt` seconds after its fix (great circle along its track). */
+  function at(p, dt, out) {
+    const d = (p.spd * dt) / RE, sd = Math.sin(d), cd = Math.cos(d);
+    const sla = p.sla * cd + p.cla * sd * p.cb;
+    const la = Math.asin(sla);
+    const lo = p.lo + Math.atan2(p.sb * sd * p.cla, cd - p.sla * sla);
+    const c = Math.cos(la);
+    out[0] = c * Math.cos(lo); out[1] = c * Math.sin(lo); out[2] = sla;
+    out[3] = lo / RAD; out[4] = la / RAD;
+    return out;
+  }
+
+  // ── Button and the source tag ───────────────────────────────────────────
   const tag = document.createElement('div');
   tag.className = 'flights-tag'; tag.hidden = true;
-  tag.innerHTML = '<b>Simulated flights</b> &middot; mock-up, not live data';
   document.body.appendChild(tag);
-  function show() {
+  function showTag() {
     tag.hidden = !on;
+    if (!on) return;
+    if (err && !snap) { tag.innerHTML = `<b>Live flights</b> &middot; ${err}`; return; }
+    if (!snap) { tag.innerHTML = '<b>Live flights</b> &middot; loading&hellip;'; return; }
+    const age = Math.max(0, Date.now() / 1000 - snap.t), min = Math.round(age / 60);
+    const when = age > MAX_AGE ? 'data delayed' : min < 1 ? 'positions just now' : `positions from ${min} min ago, projected forward`;
+    tag.innerHTML = `<b>Live flights</b> &middot; ${snap.n.toLocaleString()} aircraft &middot; ${when} &middot; OpenSky Network`;
+  }
+  function show() {
+    showTag();
     if (!btn) return;
     btn.setAttribute('aria-pressed', String(on));
-    btn.querySelector('span').textContent = on ? 'Flights (demo): on' : 'Flights (demo): off';
+    btn.querySelector('span').textContent = on ? 'Flights: on' : 'Flights: off';
   }
   if (btn) {
     btn.addEventListener('click', (e) => {
@@ -86,63 +86,139 @@
       on = !on;
       try { localStorage.setItem('te-flights', on ? '1' : '0'); } catch (_) { /* */ }
       try { if (window.Sfx) window.Sfx.play('tap'); } catch (_) { /* */ }
+      if (on && Date.now() - lastLoad > 60000) load();
+      if (!on) hide();
       show();
     });
   }
   show();
+  if (on) load();
+  setInterval(() => { if (on) { if (Date.now() - lastLoad > 3 * 60000) load(); else showTag(); } }, 20000);
 
-  // ── Drawing (called by app.js with its overlay projection) ─────────────
-  function draw(ctx, proj, k, now) {
-    if (!plane) plane = planeSprite();
-    if (!flights.length) for (let i = 0; i < N; i++) flights.push(spawn({}, now, true));
-    const ps = 11 * Math.min(1.3, k);   // plane size, px
-    ctx.save();
-    // airports: small soft dots
-    ctx.fillStyle = 'rgba(125,211,252,.55)';
-    ctx.beginPath();
-    for (const a of AP) {
-      const p = proj.point(a.lon, a.lat, a.v);
-      if (p) { ctx.moveTo(p[0] + 1.8 * k, p[1]); ctx.arc(p[0], p[1], 1.8 * k, 0, Math.PI * 2); }
-    }
-    ctx.fill();
-    // contrails, then planes
-    ctx.lineCap = 'round';
-    const drawn = [], trails = [];
-    for (const f of flights) {
-      let u = (now - f.t0) / f.dur;
-      if (u >= 1) { spawn(f, now, false); u = 0; }
-      const v = pos(f, u);
-      const [lon, lat] = llOf(v);
-      const p = proj.point(lon, lat, v);
-      if (!p) continue;
-      const v2 = pos(f, Math.min(1, u + 0.01)), ll2 = llOf(v2);
-      const p2 = proj.point(ll2[0], ll2[1], v2);
-      // contrail: the last stretch of the route (all batched into one stroke below)
-      let prev = p;
-      for (let j = 1; j <= 4; j++) {
-        const uu = u - j * 0.03;
-        if (uu < 0) break;
-        const w = pos(f, uu), ll = llOf(w), q = proj.point(ll[0], ll[1], w);
-        if (!q) break;
-        trails.push(prev[0], prev[1], q[0], q[1]);
-        prev = q;
-      }
-      drawn.push([p, p2 ? Math.atan2(p2[1] - p[1], p2[0] - p[0]) : 0, u]);
-    }
-    ctx.strokeStyle = 'rgba(226,232,240,.16)'; ctx.lineWidth = 1.1 * k;
-    ctx.beginPath();
-    for (let i = 0; i < trails.length; i += 4) { ctx.moveTo(trails[i], trails[i + 1]); ctx.lineTo(trails[i + 2], trails[i + 3]); }
-    ctx.stroke();
-    for (const [p, ang, u] of drawn) {
-      const fade = Math.min(1, u * 12, (1 - u) * 12);   // take-off / landing fade
-      ctx.save();
-      ctx.globalAlpha = 0.35 + 0.6 * fade;
-      ctx.translate(p[0], p[1]); ctx.rotate(ang);
-      ctx.drawImage(plane, -ps / 2, -ps / 2, ps, ps);
-      ctx.restore();
-    }
-    ctx.restore();
+  // Pointer, for the hover / tap card.
+  let ptr = null;
+  const setPtr = (e) => { ptr = { x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType === 'touch' }; };
+  window.addEventListener('pointermove', setPtr, { passive: true, capture: true });
+  window.addEventListener('pointerdown', setPtr, { passive: true, capture: true });
+
+  // A small plane icon, drawn once (pointing right).
+  let icon = null;
+  function planeIcon() {
+    const S = 48, c = document.createElement('canvas'); c.width = c.height = S;
+    const g = c.getContext('2d'); g.translate(S / 2, S / 2); g.scale(S / 24, S / 24);
+    g.fillStyle = '#f8fafc';
+    g.beginPath();
+    g.moveTo(10, 0); g.quadraticCurveTo(9, -1.3, 6, -1.3); g.lineTo(1.5, -1.3); g.lineTo(-3, -8.5); g.lineTo(-5, -8.5); g.lineTo(-2.2, -1.3);
+    g.lineTo(-7, -1.3); g.lineTo(-9, -4); g.lineTo(-10.3, -4); g.lineTo(-9.2, 0);
+    g.lineTo(-10.3, 4); g.lineTo(-9, 4); g.lineTo(-7, 1.3); g.lineTo(-2.2, 1.3); g.lineTo(-5, 8.5); g.lineTo(-3, 8.5); g.lineTo(1.5, 1.3);
+    g.lineTo(6, 1.3); g.quadraticCurveTo(9, 1.3, 10, 0); g.closePath(); g.fill();
+    return c;
   }
 
-  window.Flights = { get on() { return on; }, draw };
+    // ── Drawing (called by app.js with its overlay projection) ─────────────
+  // Thousands of planes are drawn by the WebGL globe (one buffer, refreshed
+  // once a second); the 2D overlay only adds plane icons when zoomed in far
+  // enough that few are in view, and the hover / tap card.
+  const A = [0, 0, 0, 0, 0], B = [0, 0, 0, 0, 0];
+  const TAIL_S = 180;   // tail length, seconds of flight behind the plane
+  let gl = null, built = 0, builtFor = 0, vis = [], visXY = [], visAt = 0;
+  const colour = (alt) => (alt < 3000 ? [0.18, 0.83, 0.75] : alt < 8000 ? [0.49, 0.83, 0.99] : [0.95, 0.96, 0.98]);
+
+  function build(dt) {
+    const n = planes.length, arr = new Float32Array(n * 3 * 8);
+    for (let i = 0; i < n; i++) {
+      const p = planes[i], [r, g, b] = colour(p.alt);
+      at(p, dt, A); at(p, dt - TAIL_S, B);
+      let o = i * 8;
+      arr[o] = A[0]; arr[o + 1] = A[1]; arr[o + 2] = A[2]; arr[o + 3] = r; arr[o + 4] = g; arr[o + 5] = b; arr[o + 6] = 0.95; arr[o + 7] = 4.2 * (window.devicePixelRatio || 1);
+      o = (n + i * 2) * 8;
+      arr[o] = A[0]; arr[o + 1] = A[1]; arr[o + 2] = A[2]; arr[o + 3] = r; arr[o + 4] = g; arr[o + 5] = b; arr[o + 6] = 0.45; arr[o + 7] = 1;
+      o += 8;
+      arr[o] = B[0]; arr[o + 1] = B[1]; arr[o + 2] = B[2]; arr[o + 3] = r; arr[o + 4] = g; arr[o + 5] = b; arr[o + 6] = 0; arr[o + 7] = 1;
+    }
+    gl.setFlights(arr, n);
+  }
+
+  function draw(ctx, proj, k, now, glr) {
+    gl = glr && glr.fx && glr.fx.available && glr.fx.setFlights ? glr.fx : null;
+    const age = snap ? Date.now() / 1000 - snap.t : Infinity;
+    if (!snap || !planes.length || age > MAX_AGE) { if (gl) gl.setFlights(null); return; }
+    const dt = Math.min(Math.max(0, age), MAX_PROJECT), t = performance.now();
+    if (gl && (t - built > 1000 || builtFor !== snap.t)) { build(dt); built = t; builtFor = snap.t; }
+    // Twice a second: which planes are on screen (for icons and the hover card).
+    const live = ptr && t - ptr.t < (ptr.touch ? 6000 : 3000);
+    if (t - visAt > 500) {
+      visAt = t; vis = []; visXY = [];
+      const W = window.innerWidth, H = window.innerHeight;
+      for (let i = 0; i < planes.length; i++) {
+        at(planes[i], dt, A);
+        const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
+        if (s && s[0] > -20 && s[1] > -20 && s[0] < W + 20 && s[1] < H + 20) { vis.push(i); visXY.push(s[0], s[1]); }
+      }
+    }
+    ctx.save();
+    if (!gl) {
+      // No WebGL extras: plain dots on the 2D overlay.
+      ctx.fillStyle = 'rgba(226,232,240,.8)';
+      ctx.beginPath();
+      for (const i of vis) { at(planes[i], dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]); if (s) ctx.rect(s[0] - 1, s[1] - 1, 2.2, 2.2); }
+      ctx.fill();
+    }
+    const icons = vis.length <= 300;
+    let hit = -1, hx = 0, hy = 0, best = (ptr && ptr.touch ? 22 : 12) ** 2;
+    if (live && !icons) {
+      // Many in view: find the nearest from the twice-a-second positions, then place it exactly.
+      let bi = -1;
+      for (let j = 0; j < vis.length; j++) { const d = (visXY[2 * j] - ptr.x) ** 2 + (visXY[2 * j + 1] - ptr.y) ** 2; if (d < best) { best = d; bi = vis[j]; } }
+      if (bi >= 0) { at(planes[bi], dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]); if (s) { hit = bi; hx = s[0]; hy = s[1]; } }
+    }
+    if (icons) {
+      if (!icon) icon = planeIcon();
+      const ps = 13 * Math.min(1.3, k);
+      for (const i of vis) {
+        const p = planes[i];
+        at(p, dt, A);
+        const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
+        if (!s) continue;
+        {
+          at(p, dt + 90, B);
+          const s2 = proj.point(B[3], B[4], [B[0], B[1], B[2]]);
+          ctx.save();
+          ctx.globalAlpha = p.alt < 3000 ? 0.75 : 0.95;
+          ctx.translate(s[0], s[1]); ctx.rotate(s2 ? Math.atan2(s2[1] - s[1], s2[0] - s[0]) : 0);
+          ctx.drawImage(icon, -ps / 2, -ps / 2, ps, ps);
+          ctx.restore();
+        }
+        if (live) { const d = (s[0] - ptr.x) ** 2 + (s[1] - ptr.y) ** 2; if (d < best) { best = d; hit = i; hx = s[0]; hy = s[1]; } }
+      }
+    }
+    if (hit >= 0) card(ctx, hx, hy, planes[hit], k);
+    ctx.restore();
+  }
+  function hide() { if (gl) gl.setFlights(null); }
+
+  function card(ctx, x, y, p, k) {
+    const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const ft = Math.round(p.alt * 3.281 / 100) * 100, kt = Math.round(p.spd * 1.944);
+    const climb = p.vr > 1.5 ? ' · climbing' : p.vr < -1.5 ? ' · descending' : '';
+    const head = p.cs || p.id.toUpperCase();
+    const l1 = `${ft.toLocaleString()} ft · ${kt} kt · heading ${Math.round(p.trk)}°${climb}`;
+    ctx.strokeStyle = 'rgba(253,224,71,.95)'; ctx.lineWidth = 1.6 * k;
+    ctx.beginPath(); ctx.arc(x, y, 8 * k, 0, Math.PI * 2); ctx.stroke();
+    ctx.font = font(800, 12); const w1 = ctx.measureText(head).width;
+    ctx.font = font(500, 11); const w2 = ctx.measureText(l1).width;
+    const pad = 8 * k, w = Math.max(w1, w2) + pad * 2, h = 38 * k;
+    let bx = x + 14 * k, by = y - h - 8 * k;
+    if (bx + w > window.innerWidth - 4) bx = x - 14 * k - w;
+    if (by < 4) by = y + 12 * k;
+    ctx.fillStyle = 'rgba(8,13,26,.92)'; ctx.strokeStyle = 'rgba(125,211,252,.45)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, w, h, 8 * k); else ctx.rect(bx, by, w, h);
+    ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = font(800, 12); ctx.fillStyle = '#f8fafc'; ctx.fillText(head, bx + pad, by + 13 * k);
+    ctx.font = font(500, 11); ctx.fillStyle = '#94a3b8'; ctx.fillText(l1, bx + pad, by + 28 * k);
+  }
+
+  window.Flights = { get on() { return on; }, draw, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2) }) };
 })();

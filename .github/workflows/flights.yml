@@ -1,0 +1,68 @@
+name: Refresh flight data
+
+# Live aircraft over the US from the OpenSky Network, for the globe's Flights
+# button. OpenSky allows other websites no CORS, so this publishes a trimmed
+# snapshot (scripts/fetch-flights.mjs) to the `flights` branch, which the
+# globe reads from raw.githubusercontent.com. Between snapshots the globe moves
+# each plane along its own reported track and speed.
+#
+# Anonymous OpenSky use is 400 credits a day and a US-wide request costs 4, so
+# without an API client it refreshes every 15 minutes. Add repository secrets
+# OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET (a free OpenSky account > API
+# client) and it refreshes every 3 minutes instead.
+#
+# Like the outage job, each run keeps going for nearly the 6-hour limit and the
+# next scheduled start takes over. Its own branch, force-pushed as one commit.
+
+on:
+  schedule:
+    - cron: '7-59/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flight-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    env:
+      PUSH_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+      OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
+      OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
+      RUN_MIN: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Refresh flights
+        run: |
+          OUT="$RUNNER_TEMP/flights"; mkdir -p "$OUT"
+          if [ -n "$OPENSKY_CLIENT_ID" ]; then EVERY=3; else EVERY=15; fi
+          echo "refreshing every $EVERY minutes"
+          push() {
+            ( cd "$OUT"
+              [ -d .git ] || { git init -q -b flights; git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"; }
+              git add -A
+              git commit -q --amend -m "$1" 2>/dev/null || git commit -q -m "$1"
+              for i in 1 2 3 4; do git push -q --force "$PUSH_URL" flights:flights && return 0; echo "push failed ($i), retrying"; sleep $((i * 10)); done
+              return 1 )
+          }
+          end=$(( $(date +%s) + RUN_MIN * 60 )); round=0
+          while :; do
+            round=$((round + 1)); start=$(date +%s)
+            if node scripts/fetch-flights.mjs "$OUT/flights.json"; then
+              push "Flights $(date -u +%Y-%m-%dT%H:%MZ)" || echo "::warning::flights push failed"
+            else
+              echo "::warning::flight fetch failed; trying again next round"
+            fi
+            now=$(date +%s)
+            [ $(( now + EVERY * 60 )) -gt "$end" ] && break
+            wait=$(( EVERY * 60 - (now - start) )); [ "$wait" -gt 0 ] && sleep "$wait"
+          done
+          echo "Done after $round rounds; the next scheduled run takes over."

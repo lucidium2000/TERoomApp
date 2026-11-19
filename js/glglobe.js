@@ -636,7 +636,7 @@ void main() {
       cableBuf: null, cableHotBuf: null, cableCount: 0, cableOf: null, cableN: 0,
       satBuf: null, satCount: 0, satRef: 0,
       quakes: [], comets: [],
-      dynBuf: null,
+      dynBuf: null, flBuf: null, flN: 0,
     };
     const C = {}, Pt = {}, Sa = {};
     if (fxProgs) {
@@ -738,6 +738,15 @@ void main() {
       },
       /** Earthquakes: [{ lon, lat, mag, time }]. */
       setQuakes(list) { fx.quakes = list || []; },
+      /** Flights: interleaved [x, y, z, r, g, b, a, size] - `n` plane points, then 2n vertices of tail lines. null hides them. */
+      setFlights(data, n) {
+        if (!fxProgs) return;
+        if (!data) { fx.flN = 0; return; }
+        fx.flBuf = fx.flBuf || gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.flBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+        fx.flN = n;
+      },
       /** A streak from space onto a point (a new outage), then a flash. */
       _state: fx,
       _dbg: () => ({ Pt: Object.fromEntries(Object.entries(Pt).map(([k, v]) => [k, v === null ? null : typeof v === 'number' ? v : 'loc'])), Sa: Object.fromEntries(Object.entries(Sa).map(([k, v]) => [k, v === null ? null : typeof v === 'number' ? v : 'loc'])) }),
@@ -783,6 +792,20 @@ void main() {
         gl.enableVertexAttribArray(C.aH); gl.vertexAttribPointer(C.aH, 1, gl.FLOAT, false, 0, 0);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.drawArrays(gl.LINES, 0, fx.cableCount);
+      }
+      // Flights: a fading tail behind each plane, then the plane as a dot.
+      if (fx.flN && fx.flBuf) {
+        gl.useProgram(fxProgs.pt);
+        setCommon(Pt, rot, p);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.bindBuffer(gl.ARRAY_BUFFER, fx.flBuf);
+        gl.enableVertexAttribArray(Pt.aP); gl.vertexAttribPointer(Pt.aP, 3, gl.FLOAT, false, 32, 0);
+        gl.enableVertexAttribArray(Pt.aC); gl.vertexAttribPointer(Pt.aC, 4, gl.FLOAT, false, 32, 12);
+        gl.enableVertexAttribArray(Pt.aS); gl.vertexAttribPointer(Pt.aS, 1, gl.FLOAT, false, 32, 28);
+        gl.uniform1f(Pt.uMode, 2);
+        gl.drawArrays(gl.LINES, fx.flN, fx.flN * 2);
+        gl.uniform1f(Pt.uMode, 0);
+        gl.drawArrays(gl.POINTS, 0, fx.flN);
       }
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);   // glows add up
       // Earthquakes: a dot, and rings that ripple out every few seconds (fainter with age).
