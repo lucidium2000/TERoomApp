@@ -2150,7 +2150,9 @@
     const net = all.filter((o) => o.kind === 'network');
     const app = all.filter((o) => o.kind === 'application');
     const locs = new Set(all.flatMap((o) => o.locations.filter(locInRegion).map((l) => l.name)));
-    el.statActive.textContent = all.filter((o) => o.active).length;
+    const nActive = all.filter((o) => o.active).length;
+    el.statActive.textContent = nActive;
+    el.statActive.parentElement.classList.toggle('has-active', nActive > 0);   // red number and label while anything is active
     el.statNet.textContent = net.length;
     el.statApp.textContent = app.length;
     el.statLoc.textContent = locs.size;
