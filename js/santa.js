@@ -259,12 +259,13 @@
       sparks.push({ x: ex + (Math.random() - 0.5) * 8 * k, y: ey + (Math.random() - 0.5) * 6 * k, t: now, c: COLS[(Math.random() * COLS.length) | 0], star: Math.random() < 0.12, vy: 4 + Math.random() * 14 });
     }
     if (sparks.length > 260) sparks.splice(0, sparks.length - 260);
-    // "Ho ho ho!" once a lap, while he's out in front
-    const u = (t % PERIOD) / PERIOD, say = orbit ? u > 0.17 && u < 0.3 : u > 0.2 && u < 0.33;
+    // "Ho ho ho!" and a saying, once a lap, while he's out in front (a new saying each lap)
+    const u = (t % PERIOD) / PERIOD, from = orbit ? 0.15 : 0.18, say = u > from && u < from + 0.2;
     if (say) {
-      const age = (u - (orbit ? 0.17 : 0.2)) * PERIOD, pop = Math.min(1, age / 220);
-      const [hx, hy] = toScreen(2, -52);
-      hoHoHo(ctx, hx, hy, k * (0.6 + 0.4 * pop) * (pop < 1 ? 1 + 0.15 * Math.sin(pop * Math.PI) : 1), Math.min(1, (0.13 * PERIOD - age) / 300));
+      const age = (u - from) * PERIOD, pop = Math.min(1, age / 220);
+      const [hx, hy] = toScreen(2, -52), [, by] = toScreen(2, 40);
+      const line = SAYINGS[ORDER[Math.floor(t / PERIOD) % ORDER.length]];
+      hoHoHo(ctx, hx, hy, k * (0.6 + 0.4 * pop) * (pop < 1 ? 1 + 0.15 * Math.sin(pop * Math.PI) : 1), Math.min(1, (0.2 * PERIOD - age) / 400), line, w, by);
     }
   }
 
@@ -297,20 +298,70 @@
     ctx.restore();
   }
 
-  function hoHoHo(ctx, x, y, k, alpha) {
+  // What Santa says, one per lap after his "Ho ho ho!" (shuffled once per page load).
+  const SAYINGS = [
+    'More endpoint agents for everyone!',
+    'Units in every stocking this year!',
+    "I've checked my list, and every path twice.",
+    'Naughty or nice? The path visualization never lies.',
+    "It's not the chimney. It's the ISP.",
+    "Rudolph's nose? Just a really bright Cloud Agent.",
+    'All I want for Christmas is end-to-end visibility.',
+    'Delivered on time: I traced every hop.',
+    'BGP hijack? Not on my route, Grinch!',
+    'Enterprise Agents: the gift that keeps on testing.',
+    'Dear elves: please stop blaming the network.',
+    'May your latency be low and your uptime high!',
+    'Mrs. Claus approved the extra units.',
+    'Who needs a naughty list when you have alerts?',
+    "Zero packet loss over the North Pole. I'd know.",
+    'Elves on call, dashboards green. Merry Christmas!',
+  ];
+  const ORDER = SAYINGS.map((_, i) => i);
+  for (let i = ORDER.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ORDER[i], ORDER[j]] = [ORDER[j], ORDER[i]]; }
+
+  /** A speech bubble: "Ho ho ho!" in bold, then the saying wrapped to a few short lines. */
+  let bannerEl = null;
+  function hoHoHo(ctx, x, y, k, alpha, line, W, yBelow) {
     if (alpha <= 0) return;
-    const txt = 'Ho ho ho!';
+    const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
     ctx.save();
-    ctx.globalAlpha = Math.max(0, alpha);
-    ctx.font = `800 ${Math.round(13 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    const w = ctx.measureText(txt).width + 16 * k, h = 22 * k;
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    const head = 'Ho ho ho!', bold = `800 ${Math.round(13 * k)}px ${FONT}`, body = `600 ${Math.round(11.5 * k)}px ${FONT}`;
+    // Wrap the saying to about 190px lines.
+    ctx.font = body;
+    const lines = [], maxW = 190 * k;
+    let cur = '';
+    for (const word of (line || '').split(' ')) {
+      const next = cur ? cur + ' ' + word : word;
+      if (cur && ctx.measureText(next).width > maxW) { lines.push(cur); cur = word; } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    let tw = 0;
+    for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
+    ctx.font = bold; tw = Math.max(tw, ctx.measureText(head).width);
+    const pad = 9 * k, lh = 15 * k, w = tw + pad * 2, h = 24 * k + lines.length * lh;
+    // No room above Santa (the screen top or the tagline banner)? Then below the sleigh, pointing up.
+    bannerEl = bannerEl || document.querySelector('.holiday-banner');
+    const r = bannerEl && !bannerEl.hidden ? bannerEl.getBoundingClientRect() : null;
+    const top = Math.max(6, r && r.height ? r.bottom + 4 : 0);
+    const flip = yBelow != null && y - h - 4 < top;
+    const bt = flip ? yBelow + 7 * k : y - h;          // bubble top
+    const tipY = flip ? yBelow : y, baseY = flip ? bt : y;   // pointer: tip at Santa, base on the bubble
+    // Keep the bubble on screen; the pointer stays on Santa.
+    let bx = x - w / 2;
+    if (W) bx = Math.max(6, Math.min(W - w - 6, bx));
+    const px = Math.max(bx + 12 * k, Math.min(bx + w - 12 * k, x));
     ctx.fillStyle = '#fffbeb'; ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 1.5 * k;
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h, w, h, 10 * k); else ctx.rect(x - w / 2, y - h, w, h);
-    ctx.moveTo(x - 4 * k, y); ctx.lineTo(x + 1 * k, y + 7 * k); ctx.lineTo(x + 5 * k, y);
+    if (ctx.roundRect) ctx.roundRect(bx, bt, w, h, 10 * k); else ctx.rect(bx, bt, w, h);
+    ctx.moveTo(px - 4 * k, baseY); ctx.lineTo(px + 1 * k, tipY + (flip ? 0 : 7 * k)); ctx.lineTo(px + 5 * k, baseY);
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#b91c1c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(txt, x, y - h / 2 + 0.5 * k);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const cx = bx + w / 2;
+    ctx.fillStyle = '#b91c1c'; ctx.font = bold; ctx.fillText(head, cx, bt + 13 * k);
+    ctx.fillStyle = '#7f1d1d'; ctx.font = body;
+    lines.forEach((l, n) => ctx.fillText(l, cx, bt + 13 * k + (n + 1) * lh));
     ctx.restore();
   }
 
