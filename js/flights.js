@@ -29,7 +29,8 @@
     for (const p of list) { const k = key(p); count.set(k, (count.get(k) || 0) + 1); }
     return list.filter((p) => hash01(p[0]) < PER_CELL / count.get(key(p)));
   }
-  const MAX_PROJECT = 20 * 60;   // s: never move a plane further than this past its fix
+  const MAX_PROJECT = 45 * 60;   // s: keep flying a plane along its track until the next update, up to this
+  const GLIDE_MS = 6000;   // a new update: each plane glides from where it was shown to its new position
 
   // ── Data ────────────────────────────────────────────────────────────────
   function sourceUrl() {
@@ -38,7 +39,8 @@
     if (/\.github\.io$/.test(h) && repo) return `https://raw.githubusercontent.com/${h.split('.')[0]}/${repo}/flights/flights.json`;
     return 'https://raw.githubusercontent.com/lucidium2000/TERoomApp/flights/flights.json';   // local testing
   }
-  let snap = null, planes = [], loading = false, lastLoad = 0, err = '', histFor = 0;
+  let snap = null, planes = [], loading = false, lastLoad = 0, err = '', histFor = 0, glideUntil = 0;
+  const A = [0, 0, 0, 0, 0], B = [0, 0, 0, 0, 0], X = [0, 0, 0];
   async function load() {
     if (loading) return;
     loading = true; lastLoad = Date.now();
@@ -47,6 +49,12 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       if (!snap || j.t !== snap.t) {
+        // Where each plane is on screen now, so it can glide to its new position instead of jumping.
+        const was = new Map();
+        if (snap) {
+          const odt = Math.min(Math.max(0, Date.now() / 1000 - snap.t), MAX_PROJECT);
+          for (const p of planes) { pos(p, odt, A); was.set(p.id, [A[3], A[4]]); }
+        }
         snap = j;
         // The data is already major airlines at cruise; thin out crowded skies (?flights=all keeps all).
         const list = ALL ? j.f : thin(j.f);
@@ -56,6 +64,17 @@
           sla: Math.sin(lat * RAD), cla: Math.cos(lat * RAD),
         }));
         histFor = 0;   // rebuild the paths
+        const ndt = Math.min(Math.max(0, Date.now() / 1000 - snap.t), MAX_PROJECT), t0 = performance.now();
+        for (const p of planes) {
+          const w = was.get(p.id);
+          if (!w) continue;
+          at(p, ndt, A);
+          let dlo = w[0] - A[3];
+          if (dlo > 180) dlo -= 360; else if (dlo < -180) dlo += 360;
+          const dla = w[1] - A[4];
+          if (Math.abs(dlo) < 4 && Math.abs(dla) < 4) p.glide = { dlo, dla, t0 };   // a bigger gap: a different flight, no glide
+        }
+        glideUntil = t0 + GLIDE_MS;
       }
       err = '';
     } catch (e) {
@@ -81,6 +100,21 @@
     const lo = p.lo + Math.atan2(p.sb * sd * p.cla, cd - p.sla * sla);
     const c = Math.cos(la);
     out[0] = c * Math.cos(lo); out[1] = c * Math.sin(lo); out[2] = sla;
+    out[3] = lo / RAD; out[4] = la / RAD;
+    return out;
+  }
+
+  /** Where a plane is shown `dt` seconds after its fix: along its track, plus what's left of
+   *  its glide from where it was shown before the latest update. */
+  function pos(p, dt, out) {
+    at(p, dt, out);
+    const g = p.glide;
+    if (!g) return out;
+    const u = (performance.now() - g.t0) / GLIDE_MS;
+    if (u >= 1) { p.glide = null; return out; }
+    const f = 1 - u * u * (3 - 2 * u);   // ease in and out
+    const lo = (out[3] + g.dlo * f) * RAD, la = (out[4] + g.dla * f) * RAD, c = Math.cos(la);
+    out[0] = c * Math.cos(lo); out[1] = c * Math.sin(lo); out[2] = Math.sin(la);
     out[3] = lo / RAD; out[4] = la / RAD;
     return out;
   }
@@ -154,11 +188,36 @@
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         const fr = j && j.response && j.response.flightroute;
-        const ap = (a) => a && { code: a.iata_code || a.icao_code, city: a.municipality || a.name || '' };
+        const ap = (a) => a && { code: a.iata_code || a.icao_code, city: a.municipality || a.name || '', lon: a.longitude, lat: a.latitude };
         routes.set(cs, fr && fr.origin && fr.destination ? { from: ap(fr.origin), to: ap(fr.destination), airline: (fr.airline && fr.airline.name) || '' } : null);
       })
       .catch(() => routes.set(cs, null));
     return 'loading';
+  }
+
+  // The database gives a flight number's usual route, which is often another leg of the same
+  // number (or the return leg). Only show it when it fits the plane: roughly on the line
+  // between the two airports and heading for the destination. Flying the other way along
+  // it: the return leg, so swap. Anything else: not shown.
+  const gcDist = (lo1, la1, lo2, la2) => {
+    const h = Math.sin((la2 - la1) * RAD / 2) ** 2 + Math.cos(la1 * RAD) * Math.cos(la2 * RAD) * Math.sin((lo2 - lo1) * RAD / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+  };
+  const bearing = (lo1, la1, lo2, la2) => {
+    const y = Math.sin((lo2 - lo1) * RAD) * Math.cos(la2 * RAD);
+    const x = Math.cos(la1 * RAD) * Math.sin(la2 * RAD) - Math.sin(la1 * RAD) * Math.cos(la2 * RAD) * Math.cos((lo2 - lo1) * RAD);
+    return (Math.atan2(y, x) / RAD + 360) % 360;
+  };
+  function fitRoute(rt, p) {
+    const { from: o, to: d } = rt;
+    if (o.lat == null || d.lat == null) return null;
+    const len = gcDist(o.lon, o.lat, d.lon, d.lat);
+    const detour = gcDist(o.lon, o.lat, p.lon, p.lat) + gcDist(p.lon, p.lat, d.lon, d.lat) - len;
+    if (detour > Math.max(250, 0.25 * len)) return null;   // not on this route at all
+    const off = (to) => { const a = Math.abs(bearing(p.lon, p.lat, to.lon, to.lat) - p.trk); return a > 180 ? 360 - a : a; };
+    if (off(d) < 70) return rt;
+    if (off(o) < 70) return { from: d, to: o, airline: rt.airline };   // the return leg
+    return null;
   }
 
   // The plane under the pointer and its card, from the last frame: a click on either opens the tracker.
@@ -193,7 +252,6 @@
   // snapshot) and the planes with the line from each fix to where the plane
   // is now (refreshed once a second). The 2D overlay only adds the hover /
   // tap card, and plain dots if WebGL extras aren't available.
-  const A = [0, 0, 0, 0, 0], B = [0, 0, 0, 0, 0], X = [0, 0, 0];
   const TAIL_S = 180;   // no known path yet: a short tail along the track
   let gl = null, glOk = true, built = 0, builtFor = 0, vis = [], visXY = [], visAt = 0;
   const colour = (alt) => (alt < 3000 ? [0.18, 0.83, 0.75] : alt < 8000 ? [0.49, 0.83, 0.99] : [0.95, 0.96, 0.98]);
@@ -234,7 +292,7 @@
     const n = planes.length, arr = new Float32Array(n * 3 * 11), dpr = window.devicePixelRatio || 1;
     for (let i = 0; i < n; i++) {
       const p = planes[i], c = colour(p.alt);
-      at(p, dt, A); at(p, dt + 120, B);
+      pos(p, dt, A); pos(p, dt + 120, B);
       put(arr, i * 11, A, B[0], B[1], B[2], c, p.alt < 3000 ? 0.85 : 1, 1);
       const o = (n + i * 2) * 11;
       put(arr, o, xyz(p.lon, p.lat, X), phase(i), 0, 0, c, 0.75, 0);
@@ -252,14 +310,17 @@
     if (!snap || !planes.length || age > HIDE_AGE) { if (gl) gl.setFlights(null); return; }
     const dt = Math.min(Math.max(0, age), MAX_PROJECT), t = performance.now();
     R = R || 430 * k;
-    if (gl && (t - built > 1000 || builtFor !== snap.t)) { if (!build(dt, R)) gl = null, glOk = false; built = t; builtFor = snap.t; }
+    // Move the planes once a second (a jet covers ~250 m, under a pixel zoomed out); more often
+    // zoomed in, where that would be a visible step, and while they glide after an update.
+    const every = t < glideUntil ? 50 : R > 2500 ? 100 : R > 1000 ? 250 : 1000;
+    if (gl && (t - built > every || builtFor !== snap.t)) { if (!build(dt, R)) gl = null, glOk = false; built = t; builtFor = snap.t; }
     // Twice a second: which planes are on screen (for the hover card).
     const live = ptr && t - ptr.t < (ptr.touch ? 6000 : 3000);
     if (t - visAt > 500) {
       visAt = t; vis = []; visXY = [];
       const W = window.innerWidth, H = window.innerHeight;
       for (let i = 0; i < planes.length; i++) {
-        at(planes[i], dt, A);
+        pos(planes[i], dt, A);
         const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
         if (s && s[0] > -20 && s[1] > -20 && s[0] < W + 20 && s[1] < H + 20) { vis.push(i); visXY.push(s[0], s[1]); }
       }
@@ -273,10 +334,10 @@
       ctx.beginPath();
       for (const i of vis) {
         const p = planes[i];
-        at(p, dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
+        pos(p, dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
         if (!s) continue;
         if (!icons) { ctx.rect(s[0] - 1, s[1] - 1, 2.2, 2.2); continue; }
-        at(p, dt + 90, B); const s2 = proj.point(B[3], B[4], [B[0], B[1], B[2]]);
+        pos(p, dt + 90, B); const s2 = proj.point(B[3], B[4], [B[0], B[1], B[2]]);
         const ps = 13 * Math.min(1.3, k);
         ctx.save(); ctx.translate(s[0], s[1]); ctx.rotate(s2 ? Math.atan2(s2[1] - s[1], s2[0] - s[0]) : 0);
         ctx.drawImage(icon, -ps / 2, -ps / 2, ps, ps); ctx.restore();
@@ -287,12 +348,12 @@
     if (live) {
       let bi = -1;
       for (let j = 0; j < vis.length; j++) { const d = (visXY[2 * j] - ptr.x) ** 2 + (visXY[2 * j + 1] - ptr.y) ** 2; if (d < best) { best = d; bi = vis[j]; } }
-      if (bi >= 0) { at(planes[bi], dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]); if (s) { hit = bi; hx = s[0]; hy = s[1]; } }
+      if (bi >= 0) { pos(planes[bi], dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]); if (s) { hit = bi; hx = s[0]; hy = s[1]; } }
     }
     // Keep the card while the pointer is on it or on its way there (other planes under it don't steal it).
     const near = hot && { x: hot.rect.x - 16, y: hot.rect.y - 16, w: hot.rect.w + 32, h: hot.rect.h + 32 };
     if (live && hot && hit !== hot.i && inRect(ptr.x, ptr.y, near) && planes[hot.i] === hot.p) {
-      at(hot.p, dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
+      pos(hot.p, dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
       if (s) { hit = hot.i; hx = s[0]; hy = s[1]; }
     }
     if (hit >= 0) {
@@ -308,7 +369,7 @@
     const pts = [];
     for (let i = 0; i < p.path.length; i += 3) pts.push([p.path[i + 1], p.path[i + 2]]);
     pts.push([p.lon, p.lat]);
-    at(p, dt, A); pts.push([A[3], A[4]]);
+    pos(p, dt, A); pts.push([A[3], A[4]]);
     ctx.strokeStyle = 'rgba(253,224,71,.9)'; ctx.lineWidth = 2 * k; ctx.lineJoin = 'round';
     ctx.beginPath();
     let pen = false;
@@ -326,10 +387,10 @@
     const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     const ft = Math.round(p.alt * 3.281 / 100) * 100, kt = Math.round(p.spd * 1.944);
     const climb = p.vr > 1.5 ? ' · climbing' : p.vr < -1.5 ? ' · descending' : '';
-    const rt = route(p.cs);
-    const head = (p.cs || p.id.toUpperCase()) + (rt && rt !== 'loading' && rt.airline ? ` · ${rt.airline}` : '');
+    const raw = route(p.cs), rt = raw && raw !== 'loading' ? fitRoute(raw, p) : raw;
+    const head = (p.cs || p.id.toUpperCase()) + (raw && raw !== 'loading' && raw.airline ? ` · ${raw.airline}` : '');
     const known = p.path.length ? ` · path: last ${Math.max(1, Math.round(p.path[0] / 60))} min` : '';
-    const lr = rt === 'loading' ? 'Looking up route…' : rt ? `${rt.from.code} ${rt.from.city}  →  ${rt.to.code} ${rt.to.city}` : 'Route not known';
+    const lr = rt === 'loading' ? 'Looking up route…' : rt ? `${rt.from.code} ${rt.from.city}  →  ${rt.to.code} ${rt.to.city}` : raw ? 'Route not confirmed – see tracker' : 'Route not known';
     const l1 = `${ft.toLocaleString()} ft · ${kt} kt · heading ${Math.round(p.trk)}°${climb}${known}`;
     const l2 = `Track ${flightNo(p.cs) || p.cs || p.id} on Google ↗`;
     ctx.strokeStyle = 'rgba(253,224,71,.95)'; ctx.lineWidth = 1.6 * k;
@@ -356,5 +417,5 @@
     return { x: bx, y: by, w, h };
   }
 
-  window.Flights = { get on() { return on; }, draw, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2), hot: hot && { cs: hot.p.cs, x: hot.x, y: hot.y, rect: hot.rect } }) };
+  window.Flights = { get on() { return on; }, draw, _reload: () => { lastLoad = 0; return load(); }, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2), hot: hot && { cs: hot.p.cs, x: hot.x, y: hot.y, rect: hot.rect } }) };
 })();
