@@ -45,6 +45,8 @@ jobs:
           OUT="$RUNNER_TEMP/flights"; mkdir -p "$OUT"
           if [ -n "$OPENSKY_CLIENT_ID" ]; then EVERY=3; else EVERY=15; fi
           echo "refreshing every $EVERY minutes"
+          # Start from the published snapshot, so each plane keeps its known path across runs.
+          git fetch -q --depth=1 origin flights 2>/dev/null && git show FETCH_HEAD:flights.json > "$OUT/flights.json" 2>/dev/null || rm -f "$OUT/flights.json"
           push() {
             ( cd "$OUT"
               [ -d .git ] || { git init -q -b flights; git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"; }

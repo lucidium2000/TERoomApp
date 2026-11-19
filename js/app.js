@@ -475,7 +475,7 @@
       ctx.clearRect(0, 0, S.w, S.h);
       perfMark('gl');
       drawPlaces(Math.max(0.7, Math.min(1.6, R / 430)));
-      if (window.Flights && window.Flights.on) window.Flights.draw(ctx, proj, Math.max(0.7, Math.min(1.6, R / 430)), performance.now(), glr);   // Flights (demo) button
+      if (window.Flights && window.Flights.on) window.Flights.draw(ctx, proj, Math.max(0.7, Math.min(1.6, R / 430)), performance.now(), glr, R);   // Flights button: live aircraft
       drawOutages(now, R);
       drawRoom(now, Math.max(0.7, Math.min(1.6, R / 430)));
       drawQuakeTag(Math.max(0.7, Math.min(1.6, R / 430)));

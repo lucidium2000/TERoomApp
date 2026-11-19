@@ -351,6 +351,67 @@ void main() {
   gl_FragColor = vec4(vC.rgb, a);
 }`;
 
+  // Flights: planes as little aircraft silhouettes turned to their heading
+  // (mode 0, points), and each plane's known path as lines that fade with age,
+  // with a pulse of light running along it towards the plane (mode 1).
+  // Vertex: aP position, aT a point ahead on the track (planes) or [phase] (paths),
+  // aC colour, aS size multiplier (planes) or time in seconds relative to the snapshot (paths).
+  const FL_VS = `
+attribute vec3 aP;
+attribute vec3 aT;
+attribute vec4 aC;
+attribute float aS;
+uniform mediump float uMode;   // same precision as the fragment shader's, or linking fails
+uniform float uPx;
+${FX_PLACE}
+varying vec4 vC;
+varying vec2 vDir;
+varying float vTm, vPh;
+void main() {
+  float vis;
+  gl_Position = place(aP, vis);
+  vC = vec4(aC.rgb, aC.a * vis);
+  vDir = vec2(1.0, 0.0); vTm = aS; vPh = aT.x;
+  if (uMode < 0.5) {
+    float v2;
+    vec4 q = place(aT, v2);
+    vec2 d = (q.xy - gl_Position.xy) * uRes;
+    float l = length(d);
+    vDir = l > 1e-5 ? d / l : vec2(1.0, 0.0);
+    vDir.y = -vDir.y;   // point sprites run top to bottom
+    gl_PointSize = uPx * aS;
+  }
+}`;
+  const FL_FS = `
+precision mediump float;
+uniform float uMode, uNow, uT, uHist;
+varying vec4 vC;
+varying vec2 vDir;
+varying float vTm, vPh;
+void main() {
+  if (vC.a <= 0.003) discard;
+  if (uMode < 0.5) {
+    vec2 q = (gl_PointCoord - 0.5) * 2.0;
+    float x = dot(q, vDir), y = abs(dot(q, vec2(-vDir.y, vDir.x)));
+    bool body = y < 0.12 && x > -0.8 && x < 0.95 - 7.0 * y * y;
+    bool wing = y < 0.9 && x < 0.26 - 0.62 * y && x > -0.1 - 0.36 * y;
+    bool tail = y < 0.38 && x < -0.5 - 0.3 * y && x > -0.8 - 0.05 * y;
+    if (body || wing || tail) { gl_FragColor = vec4(vC.rgb, vC.a); return; }
+    float g = max(0.0, 1.0 - length(q) * 1.15);
+    float a = vC.a * 0.28 * g * g;
+    if (a < 0.01) discard;
+    gl_FragColor = vec4(vC.rgb, a);
+    return;
+  }
+  float age = uNow - vTm;
+  if (age > uHist) discard;
+  float f = clamp(1.0 - age / uHist, 0.0, 1.0);
+  float head = uHist * (1.0 - fract(uT / 7000.0 + vPh));
+  float pulse = exp(-pow((age - head) / (uHist * 0.035), 2.0));
+  float a = vC.a * (0.12 + 0.6 * f * f) + vC.a * pulse * 0.85;
+  gl_FragColor = vec4(mix(vC.rgb, vec3(1.0), pulse * 0.6), a);
+}`;
+
   // Satellites flown on the GPU from their orbital elements (circular orbits
   // with the Earth's-oblateness drift of the node), lit only in sunlight.
   const SAT_VS = `
@@ -416,6 +477,7 @@ void main() {
       if (FX) {
         try { fxProgs = { cable: program(gl, CABLE_VS, CABLE_FS), pt: program(gl, PT_VS, PT_FS), sat: program(gl, SAT_VS, PT_FS) }; }
         catch (e) { console.warn('[globe] FX shaders failed', e); fxProgs = null; }
+        if (fxProgs) { try { fxProgs.fl = program(gl, FL_VS, FL_FS); } catch (e) { console.warn('[globe] flight shader failed', e); } }
       }
     } catch (e) {
       console.warn('[globe] WebGL shader failed, using 2D', e);
@@ -636,9 +698,13 @@ void main() {
       cableBuf: null, cableHotBuf: null, cableCount: 0, cableOf: null, cableN: 0,
       satBuf: null, satCount: 0, satRef: 0,
       quakes: [], comets: [],
-      dynBuf: null, flBuf: null, flN: 0,
+      dynBuf: null, flBuf: null, flN: 0, flHBuf: null, flHN: 0, flNow: 0, flHist: 3600, flPx: 12,
     };
-    const C = {}, Pt = {}, Sa = {};
+    const C = {}, Pt = {}, Sa = {}, Fl = {};
+    if (fxProgs && fxProgs.fl) {
+      for (const n of ['aP', 'aT', 'aC', 'aS']) Fl[n] = gl.getAttribLocation(fxProgs.fl, n);
+      for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uMode', 'uPx', 'uNow', 'uT', 'uHist']) Fl[n] = gl.getUniformLocation(fxProgs.fl, n);
+    }
     if (fxProgs) {
       C.aP = gl.getAttribLocation(fxProgs.cable, 'aP'); C.aD = gl.getAttribLocation(fxProgs.cable, 'aD'); C.aH = gl.getAttribLocation(fxProgs.cable, 'aH');
       for (const n of ['uRot', 'uRes', 'uEye', 'uCtr', 'uRw', 'uT']) C[n] = gl.getUniformLocation(fxProgs.cable, n);
@@ -738,14 +804,25 @@ void main() {
       },
       /** Earthquakes: [{ lon, lat, mag, time }]. */
       setQuakes(list) { fx.quakes = list || []; },
-      /** Flights: interleaved [x, y, z, r, g, b, a, size] - `n` plane points, then 2n vertices of tail lines. null hides them. */
-      setFlights(data, n) {
-        if (!fxProgs) return;
-        if (!data) { fx.flN = 0; return; }
+      /** Flights. `data`: n planes (as points), then 2n vertices of the lines from each fix
+       *  to where the plane is now; `hist` (optional, kept until replaced): the known paths
+       *  as line vertices. Vertex: [x, y, z, tx, ty, tz, r, g, b, a, s] (see FL_VS).
+       *  `opt`: { now: seconds since the snapshot, hist: seconds of path shown, px: plane size }. null hides them. */
+      setFlights(data, n, hist, opt) {
+        if (!fxProgs || !fxProgs.fl) return false;
+        if (!data) { fx.flN = 0; fx.flHN = 0; return true; }
         fx.flBuf = fx.flBuf || gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, fx.flBuf);
         gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
         fx.flN = n;
+        if (hist) {
+          fx.flHBuf = fx.flHBuf || gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, fx.flHBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, hist, gl.STATIC_DRAW);
+          fx.flHN = hist.length / 11;
+        }
+        if (opt) { fx.flNow = opt.now; fx.flHist = opt.hist; fx.flPx = opt.px; }
+        return true;
       },
       /** A streak from space onto a point (a new outage), then a flash. */
       _state: fx,
@@ -793,18 +870,25 @@ void main() {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.drawArrays(gl.LINES, 0, fx.cableCount);
       }
-      // Flights: a fading tail behind each plane, then the plane as a dot.
-      if (fx.flN && fx.flBuf) {
-        gl.useProgram(fxProgs.pt);
-        setCommon(Pt, rot, p);
+      // Flights: each plane's known path (fading with age, a pulse running along it), then the planes.
+      if (fx.flN && fx.flBuf && fxProgs.fl) {
+        gl.useProgram(fxProgs.fl);
+        setCommon(Fl, rot, p);
+        gl.uniform1f(Fl.uT, performance.now() % 7e6);
+        gl.uniform1f(Fl.uNow, fx.flNow); gl.uniform1f(Fl.uHist, fx.flHist); gl.uniform1f(Fl.uPx, fx.flPx);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-        gl.bindBuffer(gl.ARRAY_BUFFER, fx.flBuf);
-        gl.enableVertexAttribArray(Pt.aP); gl.vertexAttribPointer(Pt.aP, 3, gl.FLOAT, false, 32, 0);
-        gl.enableVertexAttribArray(Pt.aC); gl.vertexAttribPointer(Pt.aC, 4, gl.FLOAT, false, 32, 12);
-        gl.enableVertexAttribArray(Pt.aS); gl.vertexAttribPointer(Pt.aS, 1, gl.FLOAT, false, 32, 28);
-        gl.uniform1f(Pt.uMode, 2);
+        const attrs = (buf) => {
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.enableVertexAttribArray(Fl.aP); gl.vertexAttribPointer(Fl.aP, 3, gl.FLOAT, false, 44, 0);
+          gl.enableVertexAttribArray(Fl.aT); gl.vertexAttribPointer(Fl.aT, 3, gl.FLOAT, false, 44, 12);
+          gl.enableVertexAttribArray(Fl.aC); gl.vertexAttribPointer(Fl.aC, 4, gl.FLOAT, false, 44, 24);
+          gl.enableVertexAttribArray(Fl.aS); gl.vertexAttribPointer(Fl.aS, 1, gl.FLOAT, false, 44, 40);
+        };
+        gl.uniform1f(Fl.uMode, 1);
+        if (fx.flHN && fx.flHBuf) { attrs(fx.flHBuf); gl.drawArrays(gl.LINES, 0, fx.flHN); }
+        attrs(fx.flBuf);
         gl.drawArrays(gl.LINES, fx.flN, fx.flN * 2);
-        gl.uniform1f(Pt.uMode, 0);
+        gl.uniform1f(Fl.uMode, 0);
         gl.drawArrays(gl.POINTS, 0, fx.flN);
       }
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);   // glows add up
