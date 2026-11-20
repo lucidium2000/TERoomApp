@@ -3773,6 +3773,7 @@
       try { localStorage.setItem('te-radar-mode2', mode); } catch (_) { /* private mode */ }
       applyRadar();
     };
+    window.TERadar = { set: S.setRadarMode, get: () => mode };   // for the Layers panel
     applyRadar();
   } else {
     radarBtn.hidden = true;
