@@ -995,10 +995,10 @@
     ctx.restore();
   }
 
-  // ── Place names (the Place names button): countries, then states and
-  // provinces as you zoom in, from Natural Earth's label points and ranks ──
+  // ── Place names: countries, then states and provinces as you zoom in, from
+  // Natural Earth's label points and ranks. No button of their own: they follow
+  // the weather radar (shown while it's live or playing the past hour). ──
   S.places = { on: false, data: null };
-  try { S.places.on = localStorage.getItem('te-places') === '1'; } catch (_) { /* off */ }
   function loadPlaces() {
     if (S.places.data || S.places.loading) return;
     S.places.loading = true;
@@ -1043,22 +1043,10 @@
     put(P.data.states, 130, { font: font(500, 9.5), h: 12 * k, color: 'rgba(148,163,184,0.85)', spacing: 0, bias: stBias });
     ctx.restore();
   }
-  const placesBtn = document.getElementById('placesBtn');
-  function showPlacesBtn() {
-    if (!placesBtn) return;
-    placesBtn.setAttribute('aria-pressed', String(S.places.on));
-    placesBtn.querySelector('span').textContent = S.places.on ? 'Place names: on' : 'Place names: off';
-  }
-  if (placesBtn) {
-    showPlacesBtn();
+  /** Place names on or off (the radar calls this as it turns on and off). */
+  function setPlaces(on) {
+    S.places.on = !!on;
     if (S.places.on) loadPlaces();
-    placesBtn.addEventListener('click', (e) => {
-      e.stopPropagation(); userInput(); sfx('tap');
-      S.places.on = !S.places.on;
-      try { localStorage.setItem('te-places', S.places.on ? '1' : '0'); } catch (_) { /* private mode */ }
-      if (S.places.on) loadPlaces();
-      showPlacesBtn();
-    });
   }
 
   // ── US power outages on the globe (merged from a contributor's version) ──
@@ -3741,6 +3729,7 @@
       radarBtn.setAttribute('aria-pressed', String(mode !== 'off'));
       radarBtn.dataset.mode = mode;
       document.getElementById('radarBtnLabel').textContent = { loop: 'Radar: past hour', live: 'Radar: live', off: 'Radar: off' }[mode];
+      setPlaces(mode !== 'off');   // place names go with the weather
       if (mode === 'off') {
         window.Radar.stop();
         if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; }
