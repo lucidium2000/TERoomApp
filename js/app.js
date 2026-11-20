@@ -471,6 +471,7 @@
       projection.translate([L.cx, L.cy]).scale(R).rotate([-cLon, -cLat]);
       viewVec = unitVec(cLon, cLat);
     }
+    drawPlaceTag();   // a place picked in search: its tag follows the globe
     if (glr) {
       ctx.clearRect(0, 0, S.w, S.h);
       perfMark('gl');
@@ -4325,6 +4326,7 @@
           select(o);
           S.locPick = o.locations.find((l) => l.name === g.name) || null;
           zoomTo(Math.max(view.zoom, 2.4), [g.lon, g.lat]);
+          showPlaceTag({ lat: g.lat, lon: g.lon, name: g.name });
         } });
       }
       // Countries and US states
@@ -4332,7 +4334,7 @@
       if (P) {
         const pl = [...P.countries.map((c) => ({ ...c, z: 1.5, kind: 'Country' })), ...P.states.map((c) => ({ ...c, z: 2.1, kind: 'State / province' }))]
           .filter((c) => norm(c.n).startsWith(ql)).slice(0, 4);
-        for (const c of pl) out.push({ g: 'Places', icon: 'pin', title: c.n.charAt(0) + c.n.slice(1).toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()), sub: c.kind, go: () => zoomTo(Math.max(view.zoom, c.z), [c.lon, c.lat]) });
+        for (const c of pl) out.push({ g: 'Places', icon: 'pin', title: c.n.charAt(0) + c.n.slice(1).toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()), sub: c.kind, go: () => { zoomTo(Math.max(view.zoom, c.z), [c.lon, c.lat]); showPlaceTag({ lat: c.lat, lon: c.lon, name: c.n.charAt(0) + c.n.slice(1).toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()) }); } });
       }
       return out;
     }
@@ -4365,7 +4367,7 @@
       const seen = new Set(local.map((h) => norm(h.title)));
       const more = cities.slice(0, 5).filter((c) => !seen.has(norm(c.name))).map((c) => ({
         g: 'Cities', icon: 'city', title: c.name, sub: [c.admin1, c.country].filter(Boolean).join(', '),
-        go: () => zoomTo(Math.max(view.zoom, 2.6), [c.longitude, c.latitude]),
+        go: () => { zoomTo(Math.max(view.zoom, 2.6), [c.longitude, c.latitude]); showPlaceTag({ lat: c.latitude, lon: c.longitude, name: [c.name, c.admin1 || c.country].filter(Boolean).join(', ') }); },
       }));
       render(local.concat(more));
     }
@@ -4396,6 +4398,48 @@
     sHits.addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) { e.stopPropagation(); pick(hits[+b.dataset.i]); } });
     sPanel.addEventListener('pointerdown', (e) => { e.stopPropagation(); userInput(); });
     sPanel.addEventListener('wheel', (e) => e.stopPropagation());
+  }
+
+  // ── A searched place's tag: pinned on the globe with its current weather ──
+  // Name, temperature and conditions (Open-Meteo, as the weather card), and a
+  // Forecast button that opens the full weather card for the place. It stays
+  // until closed or another place is picked.
+  let placeTag = null;
+  const tagEl = document.createElement('div');
+  tagEl.className = 'place-tag'; tagEl.hidden = true;
+  tagEl.innerHTML = '<div class="pt-box"><canvas class="pt-ico" width="32" height="32"></canvas><div class="pt-txt"><b class="pt-name"></b><span class="pt-wx">Getting the weather…</span></div>'
+    + '<button type="button" class="pt-fc">Forecast<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>'
+    + '<button type="button" class="pt-x" aria-label="Remove this place">&times;</button></div><i class="pt-pin"></i>';
+  document.body.appendChild(tagEl);
+  ['pointerdown', 'wheel'].forEach((t) => tagEl.addEventListener(t, (e) => { e.stopPropagation(); userInput(); }, { passive: true }));
+  tagEl.querySelector('.pt-fc').addEventListener('click', (e) => { e.stopPropagation(); if (placeTag) openWxCard(placeTag.pl); });
+  tagEl.querySelector('.pt-x').addEventListener('click', (e) => { e.stopPropagation(); sfx('close'); hidePlaceTag(); });
+  function showPlaceTag(pl) {
+    if (!pl || !isFinite(pl.lat) || !isFinite(pl.lon)) return;
+    placeTag = { pl, v: unitVec(pl.lon, pl.lat), shown: '' };
+    tagEl.querySelector('.pt-name').textContent = pl.name;
+    tagEl.querySelector('.pt-wx').textContent = 'Getting the weather…';
+    tagEl.querySelector('.pt-ico').style.visibility = 'hidden';
+    placeWx(pl);   // start fetching now
+  }
+  function hidePlaceTag() { placeTag = null; tagEl.hidden = true; }
+  function drawPlaceTag() {
+    if (!placeTag) return;
+    const s = proj.point(placeTag.pl.lon, placeTag.pl.lat, placeTag.v);
+    tagEl.hidden = !s;
+    if (!s) return;
+    tagEl.style.transform = `translate(${s[0].toFixed(1)}px, ${s[1].toFixed(1)}px)`;
+    // Fill in the weather once it's here (placeWx caches it for 10 minutes).
+    const rec = placeWx(placeTag.pl), c = rec.now && rec.now.current;
+    const key = c ? `${c.temperature_2m}|${c.weather_code}` : rec.loading ? 'loading' : 'none';
+    if (key === placeTag.shown) return;
+    placeTag.shown = key;
+    const WMO = (window.WxBrief && window.WxBrief.WMO) || {};
+    const ico = tagEl.querySelector('.pt-ico');
+    if (c) {
+      tagEl.querySelector('.pt-wx').textContent = `${Math.round(c.temperature_2m)}°${WX_C ? 'C' : 'F'} · ${(WMO[c.weather_code] || '').replace(/^./, (x) => x.toUpperCase())}`;
+      wxIcon(ico, c.weather_code, c.is_day === 1, 32); ico.style.visibility = '';
+    } else tagEl.querySelector('.pt-wx').textContent = rec.loading ? 'Getting the weather…' : 'No weather for here right now';
   }
   if (!window.Tts) document.getElementById('wxcSpeak').hidden = true;
   if (!(window.Radar && window.Radar.enabled && glr)) document.getElementById('wxcRadar').hidden = true;
