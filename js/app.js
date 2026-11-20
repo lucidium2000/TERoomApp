@@ -3149,28 +3149,6 @@
   }, { passive: false });
 
   // Reset view (zoom is by pinch, double-tap, wheel, or leaning in with Glass mode).
-  // Full screen toggle (where the browser allows it; hidden where it can't).
-  const fsBtn = document.getElementById('fsBtn');
-  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
-  const fsOk = document.fullscreenEnabled || document.webkitFullscreenEnabled;
-  if (!fsOk) fsBtn.hidden = true;
-  const fsSync = () => {
-    const on = !!fsEl();
-    fsBtn.setAttribute('aria-pressed', String(on));
-    fsBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
-    fsBtn.title = on ? 'Exit full screen' : 'Full screen';
-  };
-  document.addEventListener('fullscreenchange', fsSync);
-  document.addEventListener('webkitfullscreenchange', fsSync);
-  fsBtn.addEventListener('click', () => {
-    userInput();
-    const root = document.documentElement;
-    try {
-      if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-      else (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
-      sfx('on');
-    } catch (_) { toast('Full screen isn\u2019t available here', 'info'); }
-  });
   // Stop the browser itself from zooming the page on a pinch (Safari/WebKit gesture events).
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 
@@ -4304,6 +4282,121 @@
   wxCard.addEventListener('pointerdown', (e) => e.stopPropagation());
   document.addEventListener('pointerdown', (e) => { if (!wxCard.hidden && !e.target.closest('.wx-card, .wxbar .local')) closeWxCard(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWxCard(); });
+
+  // ── Search: flights, places and vendor outages ──────────────────────────
+  // One box: flight numbers / callsigns / airlines (live flights), vendors with
+  // outages in the current data, outage locations, countries and US states,
+  // then any city (the same geocoder as the weather card).
+  {
+    const sBtn = document.getElementById('searchBtn'), sPanel = document.getElementById('searchPanel');
+    const sForm = document.getElementById('searchForm'), sQ = document.getElementById('searchQ');
+    const sHits = document.getElementById('searchHits');
+    let hits = [], qn = 0, qt = 0;
+    const ago = (o) => { const m = Math.max(0, Math.round((Date.now() - o.start) / 60000)); return m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
+    const norm = (x) => String(x || '').toLowerCase();
+    function localHits(q) {
+      const ql = norm(q).trim(), out = [];
+      if (ql.length < 2) return out;
+      // Flights
+      const F = window.Flights;
+      if (F && F.find) for (const f of F.find(q, 6)) {
+        out.push({ g: 'Flights', icon: 'plane', title: f.flight ? `${f.flight} · ${f.cs}` : f.cs, sub: [f.airline, (Math.round(f.alt * 3.281 / 100) * 100).toLocaleString() + ' ft'].filter(Boolean).join(' · '), go: () => {
+          F.turnOn();
+          const at = F.focus(f.id);
+          if (at) zoomTo(Math.max(view.zoom, 2.6), at);
+        } });
+      }
+      // Vendor outages (active first, then newest)
+      const outs = S.outages.filter((o) => norm(o.name).includes(ql))
+        .sort((a, b) => (b.active - a.active) || (b.start - a.start)).slice(0, 6);
+      for (const o of outs) {
+        out.push({ g: 'Outages', icon: o.kind, title: o.name, sub: `${o.kind === 'network' ? 'Network' : 'Application'} outage · ${o.active ? 'ACTIVE' : 'cleared'} · ${ago(o)} · ${o.locations.length} location${o.locations.length === 1 ? '' : 's'}`, active: o.active, go: () => select(o) });
+      }
+      // Outage locations
+      const locs = new Map();
+      for (const o of S.outages) for (const l of o.locations) {
+        if (!norm(l.name).includes(ql)) continue;
+        const g = locs.get(l.name) || { name: l.name, lon: l.lon, lat: l.lat, outs: [] };
+        g.outs.push(o); locs.set(l.name, g);
+      }
+      for (const g of [...locs.values()].sort((a, b) => b.outs.length - a.outs.length).slice(0, 5)) {
+        out.push({ g: 'Places', icon: 'pin', title: g.name, sub: `${g.outs.length} outage${g.outs.length === 1 ? '' : 's'} here`, go: () => {
+          const o = g.outs.slice().sort((a, b) => (b.active - a.active) || (b.start - a.start))[0];
+          select(o);
+          S.locPick = o.locations.find((l) => l.name === g.name) || null;
+          zoomTo(Math.max(view.zoom, 2.4), [g.lon, g.lat]);
+        } });
+      }
+      // Countries and US states
+      const P = S.places && S.places.data;
+      if (P) {
+        const pl = [...P.countries.map((c) => ({ ...c, z: 1.5, kind: 'Country' })), ...P.states.map((c) => ({ ...c, z: 2.1, kind: 'State / province' }))]
+          .filter((c) => norm(c.n).startsWith(ql)).slice(0, 4);
+        for (const c of pl) out.push({ g: 'Places', icon: 'pin', title: c.n.charAt(0) + c.n.slice(1).toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()), sub: c.kind, go: () => zoomTo(Math.max(view.zoom, c.z), [c.lon, c.lat]) });
+      }
+      return out;
+    }
+    const ICONS = {
+      plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
+      network: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+      application: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/>',
+      pin: '<path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>',
+      city: '<path d="M4 21V9l5-3v15M9 21V4l7 3v14M16 21v-9l4 2v7M3 21h18"/>',
+    };
+    function render(list, busy) {
+      hits = list;
+      if (!list.length) { sHits.innerHTML = sQ.value.trim().length < 2 ? '<p class="search-tip">Try a flight (DL802), an airline, a city, a country, or a vendor like Microsoft.</p>' : busy ? '<p class="search-tip">Searching…</p>' : '<p class="search-tip">No matches.</p>'; return; }
+      let html = '', grp = '';
+      list.forEach((h, i) => {
+        if (h.g !== grp) { grp = h.g; html += `<h4>${esc(grp)}</h4>`; }
+        html += `<button type="button" class="search-hit${h.active ? ' active' : ''}" data-i="${i}"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[h.icon] || ICONS.pin}</svg><span><b>${esc(h.title)}</b><small>${esc(h.sub)}</small></span></button>`;
+      });
+      if (busy) html += '<p class="search-tip">Looking up cities…</p>';
+      sHits.innerHTML = html;
+    }
+    async function run() {
+      const q = sQ.value.trim(), n = ++qn;
+      const local = localHits(q);
+      if (q.length < 3 || /\d/.test(q)) { render(local); return; }
+      render(local, true);
+      let cities = [];
+      try { cities = await geoFetch(q); } catch (_) { /* offline: local hits only */ }
+      if (n !== qn) return;
+      const seen = new Set(local.map((h) => norm(h.title)));
+      const more = cities.slice(0, 5).filter((c) => !seen.has(norm(c.name))).map((c) => ({
+        g: 'Cities', icon: 'city', title: c.name, sub: [c.admin1, c.country].filter(Boolean).join(', '),
+        go: () => zoomTo(Math.max(view.zoom, 2.6), [c.longitude, c.latitude]),
+      }));
+      render(local.concat(more));
+    }
+    function open() {
+      userInput(); sfx('on');
+      if (window.Flights && window.Flights.prefetch) window.Flights.prefetch();
+      loadPlaces();
+      sPanel.hidden = false; sBtn.setAttribute('aria-expanded', 'true');
+      render([]);
+      sQ.focus();   // in the tap itself, so touch keyboards open
+      setTimeout(() => { if (document.activeElement !== sQ) sQ.focus(); }, 60);
+    }
+    function close() {
+      sPanel.hidden = true; sBtn.setAttribute('aria-expanded', 'false');
+      sQ.value = ''; sHits.innerHTML = ''; sQ.blur();
+    }
+    function pick(h) {
+      if (!h) return;
+      userInput(); sfx('select');
+      close();
+      try { h.go(); } catch (e) { console.warn('[search]', e); }
+    }
+    sBtn.addEventListener('click', (e) => { e.stopPropagation(); if (sPanel.hidden) open(); else { sfx('close'); close(); } });
+    document.getElementById('searchX').addEventListener('click', (e) => { e.stopPropagation(); sfx('close'); close(); });
+    sQ.addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(run, 180); });
+    sQ.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
+    sForm.addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(qt); if (!hits.length) run().then(() => pick(hits[0])); else pick(hits[0]); });
+    sHits.addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) { e.stopPropagation(); pick(hits[+b.dataset.i]); } });
+    sPanel.addEventListener('pointerdown', (e) => { e.stopPropagation(); userInput(); });
+    sPanel.addEventListener('wheel', (e) => e.stopPropagation());
+  }
   if (!window.Tts) document.getElementById('wxcSpeak').hidden = true;
   if (!(window.Radar && window.Radar.enabled && glr)) document.getElementById('wxcRadar').hidden = true;
 

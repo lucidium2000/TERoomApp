@@ -220,6 +220,50 @@
     return null;
   }
 
+  let pin = null;   // { id, t }: a plane picked in search
+  window.addEventListener('pointerdown', (e) => { if (pin && !(hot && inRect(e.clientX, e.clientY, hot.rect))) pin = null; }, { passive: true, capture: true });
+
+  // ── Search (used by the globe's search panel) ───────────────────────────
+  const NAMES = {
+    AAL: 'American Airlines', DAL: 'Delta Air Lines', UAL: 'United Airlines', ASA: 'Alaska Airlines', JBU: 'JetBlue',
+    ACA: 'Air Canada', WJA: 'WestJet', AMX: 'Aeromexico', BAW: 'British Airways', VIR: 'Virgin Atlantic', EIN: 'Aer Lingus',
+    AFR: 'Air France', KLM: 'KLM', DLH: 'Lufthansa', SWR: 'Swiss', AUA: 'Austrian', SAS: 'SAS', FIN: 'Finnair', IBE: 'Iberia',
+    TAP: 'TAP Air Portugal', ITY: 'ITA Airways', THY: 'Turkish Airlines', UAE: 'Emirates', QTR: 'Qatar Airways', ETD: 'Etihad',
+    SVA: 'Saudia', ETH: 'Ethiopian Airlines', SAA: 'South African Airways', SIA: 'Singapore Airlines', CPA: 'Cathay Pacific',
+    QFA: 'Qantas', ANZ: 'Air New Zealand', VOZ: 'Virgin Australia', ANA: 'ANA', JAL: 'Japan Airlines', KAL: 'Korean Air',
+    AAR: 'Asiana', CCA: 'Air China', CES: 'China Eastern', CSN: 'China Southern', CAL: 'China Airlines', EVA: 'EVA Air',
+    THA: 'Thai Airways', MAS: 'Malaysia Airlines', GIA: 'Garuda Indonesia', AIC: 'Air India', TAM: 'LATAM', LAN: 'LATAM',
+    AVA: 'Avianca', CMP: 'Copa Airlines',
+  };
+  /** Flights matching a callsign (DAL802), flight number (DL802) or airline name (delta). */
+  function find(q, max = 8) {
+    const Q = String(q || '').toUpperCase().replace(/\s+/g, '');
+    if (Q.length < 2 || !planes.length) return [];
+    const words = String(q).toLowerCase().trim();
+    const out = [];
+    for (const p of planes) {
+      const fn = flightNo(p.cs), code = (p.cs || '').slice(0, 3), name = NAMES[code] || '';
+      let score = 0;
+      if (p.cs === Q || fn === Q) score = 3;
+      else if ((p.cs || '').startsWith(Q) || (fn && fn.startsWith(Q))) score = 2;
+      else if (words.length >= 3 && name.toLowerCase().startsWith(words)) score = 1;
+      if (score) out.push({ score, id: p.id, cs: p.cs, flight: fn, airline: name, lon: p.lon, lat: p.lat, alt: p.alt });
+    }
+    out.sort((a, b) => b.score - a.score || (a.cs < b.cs ? -1 : 1));
+    return out.slice(0, max);
+  }
+  /** Show a plane's card (it stays until the screen is touched elsewhere); returns where it is now. */
+  function focus(id) {
+    const p = planes.find((x) => x.id === id);
+    if (!p) return null;
+    pin = { id, t: performance.now() };
+    const dt = snap ? Math.min(Math.max(0, Date.now() / 1000 - snap.t), MAX_PROJECT) : 0;
+    pos(p, dt, A);
+    return [A[3], A[4]];
+  }
+  /** Turn the Flights layer on (as the button would). */
+  function turnOn() { if (!on && btn) btn.click(); }
+
   // The plane under the pointer and its card, from the last frame: a click on either opens the tracker.
   let hot = null;
   const inRect = (x, y, r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -356,6 +400,11 @@
       pos(hot.p, dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]);
       if (s) { hit = hot.i; hx = s[0]; hy = s[1]; }
     }
+    // A plane picked in search: its card stays up until the screen is touched elsewhere (or 30 s).
+    if (hit < 0 && pin && t - pin.t < 30000) {
+      const i = planes.findIndex((p) => p.id === pin.id);
+      if (i >= 0) { pos(planes[i], dt, A); const s = proj.point(A[3], A[4], [A[0], A[1], A[2]]); if (s) { hit = i; hx = s[0]; hy = s[1]; } }
+    }
     if (hit >= 0) {
       trace(ctx, proj, planes[hit], dt, k);
       hot = { i: hit, p: planes[hit], x: hx, y: hy, rect: card(ctx, hx, hy, planes[hit], k) };
@@ -401,8 +450,9 @@
     ctx.font = font(700, 11); const w3 = ctx.measureText(l2).width;
     const pad = 8 * k, w = Math.max(w1, wr, w2, w3) + pad * 2, h = 70 * k;
     let bx = x + 14 * k, by = y - h - 8 * k;
+    const LEFT = 76;   // clear of the globe controls down the left edge
     if (bx + w > window.innerWidth - 4) bx = x - 14 * k - w;
-    if (bx < 4) bx = 4;
+    if (bx < LEFT) bx = Math.max(Math.min(LEFT, window.innerWidth - w - 4), Math.min(window.innerWidth - w - 4, x - w / 2));
     if (by < 4) by = y + 12 * k;
     ctx.fillStyle = 'rgba(8,13,26,.92)'; ctx.strokeStyle = 'rgba(125,211,252,.45)'; ctx.lineWidth = 1;
     ctx.beginPath();
@@ -417,5 +467,5 @@
     return { x: bx, y: by, w, h };
   }
 
-  window.Flights = { get on() { return on; }, draw, _reload: () => { lastLoad = 0; return load(); }, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2), hot: hot && { cs: hot.p.cs, x: hot.x, y: hot.y, rect: hot.rect } }) };
+  window.Flights = { get on() { return on; }, draw, find, focus, turnOn, prefetch: () => { if (!snap) load(); }, _reload: () => { lastLoad = 0; return load(); }, _state: () => ({ snap: snap && { t: snap.t, n: snap.n }, err, inView: vis.length, firstXY: visXY.slice(0, 2), hot: hot && { cs: hot.p.cs, x: hot.x, y: hot.y, rect: hot.rect } }) };
 })();

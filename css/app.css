@@ -211,8 +211,7 @@ body.signage .zoomctl { display: none; }
   .muted-tip { left: auto; right: calc(100% + 10px); }
   .muted-tip::before { left: auto; right: -5px; transform: translateY(-50%) rotate(225deg); }
 }
-.zoomctl .fs-btn .fs-out, .zoomctl .fs-btn[aria-pressed="true"] .fs-in { display: none; }
-.zoomctl .fs-btn[aria-pressed="true"] .fs-out { display: block; }
+.zoomctl .search-btn[aria-expanded="true"] { background: rgba(125, 211, 252, .18); color: #e0f2fe; }
 
 /* ── Focus card ────────────────────────────────────── */
 .card {
@@ -1291,3 +1290,29 @@ body.power-on .map-key { display: flex; }
 
 /* Flights: pointer over a plane or its card (a link to Google's flight tracker) */
 html.flight-hot, html.flight-hot * { cursor: pointer !important; }
+
+/* Search panel: flights, places and vendor outages */
+.search-panel {
+  position: fixed; z-index: 40; top: calc(var(--gutter, 16px) + 4px); left: 50%; transform: translateX(-50%);
+  width: min(30em, calc(100vw - 32px)); max-height: min(70vh, 34em); display: flex; flex-direction: column;
+  border-radius: 16px; background: rgba(8, 13, 26, .94); border: 1px solid rgba(125, 211, 252, .35);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  color: #e2e8f0; font-size: 15px; overflow: hidden;
+}
+.search-panel[hidden] { display: none; }
+.search-form { display: flex; align-items: center; gap: .55em; padding: .55em .6em .55em .9em; border-bottom: 1px solid rgba(148, 163, 184, .18); color: #7dd3fc; }
+.search-form input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: #f8fafc; font: inherit; font-size: 1.05em; padding: .35em 0; }
+.search-form input::placeholder { color: #64748b; }
+.search-form input::-webkit-search-cancel-button { display: none; }
+.search-x { border: 0; background: rgba(255, 255, 255, .06); color: #cbd5e1; width: 2em; height: 2em; border-radius: 50%; font-size: 1.1em; line-height: 1; cursor: pointer; }
+.search-hits { overflow-y: auto; padding: .3em .4em .5em; -webkit-overflow-scrolling: touch; }
+.search-hits h4 { margin: .7em .6em .3em; font-size: .7em; letter-spacing: .12em; text-transform: uppercase; color: #64748b; }
+.search-hit { display: flex; align-items: center; gap: .7em; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: .5em .6em; border-radius: 10px; cursor: pointer; }
+.search-hit:hover, .search-hit:focus-visible { background: rgba(125, 211, 252, .1); outline: 0; }
+.search-hit svg { flex: none; color: #7dd3fc; }
+.search-hit.active svg { color: #f87171; }
+.search-hit span { display: flex; flex-direction: column; min-width: 0; }
+.search-hit b { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-hit small { color: #94a3b8; font-size: .8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-hit.active small { color: #fca5a5; }
+.search-tip { margin: .8em .7em; color: #94a3b8; font-size: .85em; }
