@@ -1,0 +1,22 @@
+name: Check flight route Worker
+
+# Manual check of the AirLabs route Worker (worker/flight-route.js) from outside
+# any corporate network: asks it about a few flights as the app would.
+on:
+  workflow_dispatch:
+    inputs:
+      callsigns:
+        description: 'Callsigns to look up'
+        default: 'DAL802 UAL901 BAW117 AAL100'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Look up routes
+        env:
+          CS: ${{ inputs.callsigns }}
+        run: |
+          for cs in $CS; do
+            echo "$cs: $(curl -s -m 30 -H 'Origin: https://lucidium2000.github.io' "https://te-flight-route.lucidium2000.workers.dev/route?cs=$cs")"
+          done
