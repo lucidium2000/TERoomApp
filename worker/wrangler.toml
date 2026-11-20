@@ -1,0 +1,6 @@
+name = "te-flight-route"
+main = "flight-route.js"
+compatibility_date = "2024-11-01"
+
+# The AirLabs API key is a secret, never in this file or the page:
+#   npx wrangler secret put AIRLABS_KEY

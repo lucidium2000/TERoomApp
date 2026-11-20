@@ -179,22 +179,39 @@
     const q = flightNo(p.cs) || p.cs || p.id;
     return 'https://www.google.com/search?q=' + encodeURIComponent(q + ' flight');
   }
-  // From / to: looked up once per callsign when a plane is first hovered, from adsbdb.com
-  // (a free, open route database keyed by callsign; it's the scheduled route, so now and
-  // then out of date). Only the callsign is sent.
-  const routes = new Map();   // callsign -> { from, to, airline } | 'loading' | null
+  // From / to, looked up once per callsign when a plane's card has been up for a moment:
+  //  1. today's flight from AirLabs, through our Cloudflare Worker (worker/flight-route.js,
+  //     which holds the API key; ?routeurl= to point elsewhere, ?routeurl=0 to skip it);
+  //  2. otherwise adsbdb.com, a free database of each flight number's usual route, shown
+  //     only when it fits the plane (fitRoute below).
+  // Only the callsign is sent.
+  const ROUTE_URL = qs.get('routeurl') === '0' ? '' : qs.get('routeurl') || 'https://te-flight-route.lucidium2000.workers.dev/route';
+  const routes = new Map();   // callsign -> { from, to, airline, sure } | 'loading' | null
+  let want = '', wantT = 0;
+  const timeout = (ms) => (AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+  async function lookup(cs) {
+    if (ROUTE_URL) {
+      try {
+        const r = await fetch(ROUTE_URL + '?cs=' + encodeURIComponent(cs), { signal: timeout(8000) });
+        const j = r.ok ? await r.json() : null;
+        if (j && j.from && j.to) return { from: j.from, to: j.to, airline: j.airline || NAMES[cs.slice(0, 3)] || '', sure: true };
+      } catch (_) { /* not deployed / quota used up: the free database instead */ }
+    }
+    const r = await fetch('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(cs), { signal: timeout(8000) });
+    const j = r.ok ? await r.json() : null;
+    const fr = j && j.response && j.response.flightroute;
+    const ap = (a) => a && { code: a.iata_code || a.icao_code, city: a.municipality || a.name || '', lon: a.longitude, lat: a.latitude };
+    return fr && fr.origin && fr.destination ? { from: ap(fr.origin), to: ap(fr.destination), airline: (fr.airline && fr.airline.name) || '' } : null;
+  }
   function route(cs) {
     if (!cs) return null;
     if (routes.has(cs)) return routes.get(cs);
+    // Wait until the card has been up for half a second, so sweeping across planes costs nothing.
+    const t = performance.now();
+    if (want !== cs) { want = cs; wantT = t; return 'loading'; }
+    if (t - wantT < 500) return 'loading';
     routes.set(cs, 'loading');
-    fetch('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(cs), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        const fr = j && j.response && j.response.flightroute;
-        const ap = (a) => a && { code: a.iata_code || a.icao_code, city: a.municipality || a.name || '', lon: a.longitude, lat: a.latitude };
-        routes.set(cs, fr && fr.origin && fr.destination ? { from: ap(fr.origin), to: ap(fr.destination), airline: (fr.airline && fr.airline.name) || '' } : null);
-      })
-      .catch(() => routes.set(cs, null));
+    lookup(cs).then((v) => routes.set(cs, v)).catch(() => routes.set(cs, null));
     return 'loading';
   }
 
@@ -439,7 +456,7 @@
     const font = (wt, px) => `${wt} ${Math.round(px * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     const ft = Math.round(p.alt * 3.281 / 100) * 100, kt = Math.round(p.spd * 1.944);
     const climb = p.vr > 1.5 ? ' · climbing' : p.vr < -1.5 ? ' · descending' : '';
-    const raw = route(p.cs), rt = raw && raw !== 'loading' ? fitRoute(raw, p) : raw;
+    const raw = route(p.cs), rt = raw && raw !== 'loading' ? (raw.sure ? raw : fitRoute(raw, p)) : raw;
     const head = (p.cs || p.id.toUpperCase()) + (raw && raw !== 'loading' && raw.airline ? ` · ${raw.airline}` : '');
     const known = p.path.length ? ` · path: last ${Math.max(1, Math.round(p.path[0] / 60))} min` : '';
     const lr = rt === 'loading' ? 'Looking up route…' : rt ? `${rt.from.code} ${rt.from.city}  →  ${rt.to.code} ${rt.to.city}` : raw ? 'Route not confirmed – see tracker' : 'Route not known';
