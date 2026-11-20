@@ -155,7 +155,10 @@
 
   // Pointer, for the hover / tap card.
   let ptr = null;
-  const setPtr = (e) => { ptr = { x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType === 'touch' }; };
+  // Only the bare globe counts: over a panel, a button, the search box or any other overlay,
+  // the planes underneath don't hover or take clicks.
+  const onGlobe = (e) => !!e.target && e.target.tagName === 'CANVAS';
+  const setPtr = (e) => { ptr = onGlobe(e) ? { x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType === 'touch' } : null; };
   window.addEventListener('pointermove', setPtr, { passive: true, capture: true });
   window.addEventListener('pointerdown', setPtr, { passive: true, capture: true });
 
@@ -268,7 +271,7 @@
   let hot = null;
   const inRect = (x, y, r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   window.addEventListener('click', (e) => {
-    if (!on || !hot) return;
+    if (!on || !hot || !onGlobe(e)) return;
     const onCard = inRect(e.clientX, e.clientY, hot.rect);
     const onPlane = (e.clientX - hot.x) ** 2 + (e.clientY - hot.y) ** 2 < (e.pointerType === 'touch' ? 22 : 12) ** 2;
     // Touch: the first tap shows the card, tapping the card opens it. Mouse: the plane or the card.
