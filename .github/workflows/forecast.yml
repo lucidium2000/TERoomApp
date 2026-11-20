@@ -1,0 +1,45 @@
+name: Refresh forecast radar
+
+# Forecast weather radar (Radar: forecast) from NOAA's GFS model: hourly frames
+# from now to 8 hours ahead, built by scripts/forecast-radar.py and published
+# to the `forecast` branch, which the globe reads from raw.githubusercontent.com.
+# A new GFS run comes out every 6 hours; the frames move along every hour.
+# Its own branch, force-pushed as one commit.
+
+on:
+  schedule:
+    - cron: '20 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forecast-radar
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q eccodes numpy pillow
+      - name: Build frames
+        env:
+          FC_HOURS: '8'
+        run: python scripts/forecast-radar.py "$RUNNER_TEMP/forecast"
+      - name: Publish
+        env:
+          PUSH_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          cd "$RUNNER_TEMP/forecast"
+          git init -q -b forecast
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Forecast radar $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q --force "$PUSH_URL" forecast:forecast
