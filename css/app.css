@@ -1336,8 +1336,8 @@ html.flight-hot, html.flight-hot * { cursor: pointer !important; }
   color: #e0f2fe; font: inherit; font-size: .8em; font-weight: 700; padding: .35em .6em; border-radius: 999px; cursor: pointer; }
 .place-tag .pt-x { border: 0; background: transparent; color: #94a3b8; font-size: 1.2em; line-height: 1; padding: 0 .2em; cursor: pointer; }
 
-/* Layers panel (mock-up, ?layers=panel): one button instead of the column of options */
-body.layers-panel .wxbar .radar-btn:not(.layers-btn) { display: none; }
+/* Layers panel: one button instead of the column of options (Radar keeps its own) */
+body.layers-panel .wxbar .radar-btn:not(.layers-btn):not(#radarBtn) { display: none; }
 .layers-btn { pointer-events: auto; margin-top: .45em; display: inline-flex; align-items: center; gap: .45em; cursor: pointer;
   font: inherit; font-size: .62em; font-weight: 700; letter-spacing: .02em; color: #e0f2fe; padding: .45em .8em; border-radius: 999px;
   background: rgba(15, 23, 42, .7); border: 1px solid rgba(125, 211, 252, .45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
@@ -1369,3 +1369,11 @@ body.layers-panel .wxbar .radar-btn:not(.layers-btn) { display: none; }
 .layers-row .seg { flex: none; display: inline-flex; border-radius: 999px; background: rgba(148, 163, 184, .15); padding: .15em; }
 .layers-row .seg button { border: 0; background: transparent; color: #cbd5e1; font: inherit; font-size: .72em; font-weight: 700; padding: .35em .65em; border-radius: 999px; cursor: pointer; }
 .layers-row .seg button[aria-checked="true"] { background: #38bdf8; color: #0b1222; }
+.layers-pop .layers-note { margin: 0 .75em .2em; font-size: .72em; color: #94a3b8; line-height: 1.35; }
+.layers-pop .layers-note b { color: #cbd5e1; }
+.layers-row .keep { flex: none; display: inline-flex; align-items: center; gap: .35em; border: 0; background: transparent; color: #94a3b8;
+  font: inherit; font-size: .72em; font-weight: 700; padding: .5em .3em; cursor: pointer; }
+.layers-row .keep i { width: 1.15em; height: 1.15em; border-radius: 4px; border: 1.5px solid rgba(148, 163, 184, .7); display: grid; place-items: center; }
+.layers-row .keep[aria-checked="true"] { color: #e0f2fe; }
+.layers-row .keep[aria-checked="true"] i { background: #38bdf8; border-color: #38bdf8; }
+.layers-row .keep[aria-checked="true"] i::after { content: ''; width: .32em; height: .6em; border: solid #0b1222; border-width: 0 2px 2px 0; transform: translateY(-.08em) rotate(45deg); }

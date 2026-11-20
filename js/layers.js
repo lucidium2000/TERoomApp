@@ -1,18 +1,31 @@
 // Part of TERoomApp - created by Christopher Hunt (github.com/lucidium2000).
-/* Layers panel (MOCK-UP, only with ?layers=panel): the column of option
- * buttons at the top right (Radar, Power, Satellites, Subsea cables, Place
- * names, Holiday, Flights) folded into one "Layers" button that opens a panel
- * with an on/off switch per option. Each switch just presses the original
- * button (still in the page, hidden), so every option behaves as before. */
+/* Layers panel: the option buttons at the top right (Power, Satellites, Subsea
+ * cables, Place names, Holiday, Flights) folded into one "Layers" button that
+ * opens a panel with an on/off switch per layer. Radar keeps its own button.
+ * Each switch just presses the original button (still in the page, hidden), so
+ * every layer behaves as before.
+ *
+ * Layers start fresh (their default) on every load unless "Keep" is ticked
+ * beside the switch. This script loads before the others, so it can forget a
+ * layer's saved state before that layer reads it. */
 (function () {
   'use strict';
-  const qs = new URLSearchParams(location.search);
-  if (qs.get('layers') !== 'panel') return;
-  document.body.classList.add('layers-panel');
+  // Each layer's own saved-state key (written by its script), by button label.
+  const KEYS = {
+    Power: 'te-power-on', Satellites: 'te-sky', 'Subsea cables': 'te-cables',
+    'Place names': 'te-places', Holiday: 'te-holiday', Flights: 'te-flights',
+  };
+  const KEEP_KEY = 'te-layers-keep';
+  let keep = new Set();
+  try { keep = new Set(JSON.parse(localStorage.getItem(KEEP_KEY) || '[]')); } catch (_) { /* none */ }
+  try { for (const [name, key] of Object.entries(KEYS)) if (!keep.has(name)) localStorage.removeItem(key); } catch (_) { /* private mode */ }
+  function setKeep(name, on) {
+    if (on) keep.add(name); else keep.delete(name);
+    try { localStorage.setItem(KEEP_KEY, JSON.stringify([...keep])); } catch (_) { /* private mode */ }
+  }
 
   // Groups and short descriptions, by the original button's label.
   const INFO = {
-    Radar: ['Weather', 'Rain and snow (NOAA, RainViewer)'],
     Power: ['Weather', 'US power outages by county'],
     Satellites: ['Globe', 'Crewed stations, Starlink and aurora'],
     'Subsea cables': ['Globe', 'Undersea internet cables'],
@@ -23,13 +36,15 @@
   const ORDER = ['Weather', 'Globe', 'Fun'];
 
   const bar = document.querySelector('.wxbar');
-  const anchor = document.getElementById('radarBtn') || bar.lastElementChild;
+  if (!bar) return;
+  document.body.classList.add('layers-panel');
+  const radar = document.getElementById('radarBtn');
   const btn = document.createElement('button');
   btn.className = 'layers-btn';
   btn.setAttribute('aria-expanded', 'false');
-  btn.title = 'Map layers and options';
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/></svg><span>Layers</span><b class="layers-n"></b>';
-  anchor.before(btn);
+  btn.title = 'Map layers';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/></svg><span>Layers</span><b class="layers-n"></b>';
+  if (radar) radar.after(btn); else bar.appendChild(btn);
 
   const panel = document.createElement('section');
   panel.className = 'layers-pop'; panel.hidden = true;
@@ -38,14 +53,14 @@
 
   // The original buttons, read fresh each time (Satellites and Subsea cables are added later).
   function sources() {
-    return [...bar.querySelectorAll('.radar-btn')].filter((b) => !b.classList.contains('layers-btn') && b.style.display !== 'none' && !b.hasAttribute('data-gone'))
+    return [...bar.querySelectorAll('.radar-btn')].filter((b) => b !== radar && !b.classList.contains('layers-btn') && !b.hasAttribute('data-gone'))
       .map((b) => {
         const label = (b.querySelector('span') ? b.querySelector('span').textContent : b.textContent).trim();
         const name = label.split(':')[0].trim();
         const on = b.getAttribute('aria-pressed') === 'true';
-        return { b, name, label, on, icon: b.querySelector('svg') ? b.querySelector('svg').outerHTML : '', info: INFO[name] || ['Globe', b.title || ''] };
+        return { b, name, on, icon: b.querySelector('svg') ? b.querySelector('svg').outerHTML : '', info: INFO[name] || ['Globe', b.title || ''] };
       })
-      .filter((x) => !x.b.hidden || x.name);
+      .filter((x) => x.name);
   }
 
   function render() {
@@ -53,20 +68,16 @@
     const n = String(list.filter((x) => x.on).length || ''), badge = btn.querySelector('.layers-n');
     if (badge.textContent !== n) badge.textContent = n;
     if (panel.hidden) return;
-    let html = '<header><b>Layers</b><button type="button" class="layers-x" aria-label="Close">&times;</button></header>';
+    let html = '<header><b>Layers</b><button type="button" class="layers-x" aria-label="Close">&times;</button></header>'
+      + '<p class="layers-note">Layers reset when the page reloads. Tick <b>Keep</b> to remember one.</p>';
     for (const g of ORDER) {
       const rows = list.filter((x) => x.info[0] === g);
       if (!rows.length) continue;
       html += `<h4>${g}</h4>`;
       for (const x of rows) {
-        const i = list.indexOf(x);
-        if (x.name === 'Radar' && window.TERadar) {
-          const m = window.TERadar.get();
-          html += `<div class="layers-row${m !== 'off' ? ' on' : ''}"><span class="li">${x.icon}</span><span class="lt"><b>Radar</b><small>${x.info[1]}</small></span>`
-            + `<span class="seg" role="radiogroup" aria-label="Radar">${[['off', 'Off'], ['live', 'Live'], ['loop', 'Past hour']].map(([k, t]) => `<button type="button" role="radio" aria-checked="${m === k}" data-radar="${k}">${t}</button>`).join('')}</span></div>`;
-          continue;
-        }
+        const i = list.indexOf(x), k = KEYS[x.name] ? keep.has(x.name) : null;
         html += `<div class="layers-row${x.on ? ' on' : ''}"><span class="li">${x.icon}</span><span class="lt"><b>${x.name}</b><small>${x.info[1]}</small></span>`
+          + (k === null ? '' : `<button type="button" class="keep" role="checkbox" aria-checked="${k}" aria-label="Keep ${x.name} after reload" data-keep="${x.name}"><i></i>Keep</button>`)
           + `<button type="button" class="sw" role="switch" aria-checked="${x.on}" aria-label="${x.name}" data-i="${i}"><i></i></button></div>`;
       }
     }
@@ -87,19 +98,28 @@
   panel.addEventListener('click', (e) => {
     e.stopPropagation();
     if (e.target.closest('.layers-x')) { close(); return; }
-    const r = e.target.closest('[data-radar]');
-    if (r && window.TERadar) { window.TERadar.set(r.dataset.radar); setTimeout(render, 30); return; }
+    const kb = e.target.closest('.keep');
+    if (kb) {
+      const name = kb.dataset.keep, on = kb.getAttribute('aria-checked') !== 'true';
+      setKeep(name, on);
+      // Ticking Keep saves the layer as it is now (it may have been switched before the tick).
+      const x = panel._list && panel._list.find((y) => y.name === name);
+      if (on && x) { try { localStorage.setItem(KEYS[name], x.on ? '1' : '0'); } catch (_) { /* */ } }
+      render(); return;
+    }
     const sw = e.target.closest('.sw');
     if (sw && panel._list) { const x = panel._list[+sw.dataset.i]; if (x) x.b.click(); setTimeout(render, 30); }
   });
   document.addEventListener('pointerdown', (e) => { if (!panel.hidden && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
-  // Keep the count (and an open panel) in step when options change elsewhere.
-  // (Only the buttons' pressed state and buttons being added - never this script's own badge.)
+  // Keep the count (and an open panel) in step when layers change elsewhere
+  // (only the buttons' pressed state and buttons being added - never the badge).
   let pending = 0;
   new MutationObserver(() => { if (!pending) pending = requestAnimationFrame(() => { pending = 0; render(); }); })
     .observe(bar, { subtree: true, attributes: true, attributeFilter: ['aria-pressed'] });
   new MutationObserver(() => render()).observe(bar, { childList: true });
   addEventListener('resize', () => { if (!panel.hidden) place(); });
-  render();
+  // Once every script has added its button, show the starting count.
+  addEventListener('load', render);
+  setTimeout(render, 0);
 })();

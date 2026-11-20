@@ -2,3 +2,4 @@
 .claude/
 data/speech/
 node_modules/
+worker/.wrangler/
