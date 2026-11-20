@@ -28,7 +28,7 @@
   <link rel="manifest" href="site.webmanifest">
   <meta name="description" content="Live global Internet outages from ThousandEyes Internet Insights, on a globe. Built for Cisco RoomOS and Desk Pro displays.">
   <meta name="theme-color" content="#05070d">
-  <link rel="stylesheet" href="css/app.css?v=198">
+  <link rel="stylesheet" href="css/app.css?v=199">
 </head>
 <body>
   <canvas id="gl" aria-hidden="true"></canvas>
@@ -68,7 +68,7 @@
     <p class="clock" id="localClock"></p>
     <p class="local" role="button" tabindex="0" title="Local forecast" aria-label="Local weather: tap for the forecast"><canvas id="localWx" width="28" height="28" hidden></canvas><span id="localTemp"></span> <span id="localCity"></span><span class="wx-more" aria-hidden="true">Forecast<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span></p>
     <p class="radar-time" id="radarTime" hidden><span>NOAA &middot; RainViewer Radar</span><b><i></i><em></em></b></p>
-    <button id="radarBtn" class="radar-btn" aria-pressed="false" aria-label="Weather radar" title="Weather radar: tap for live, past hour, off"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15.5h10a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 15.5Z"/><path d="M9 18.5l-.8 2M13 18.5l-.8 2M17 18.5l-.8 2"/></svg><span id="radarBtnLabel">Radar</span></button>
+    <button id="radarBtn" class="radar-btn" aria-pressed="false" aria-label="Weather radar" title="Weather radar: tap for live, past hour, forecast, off"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15.5h10a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 15.5Z"/><path d="M9 18.5l-.8 2M13 18.5l-.8 2M17 18.5l-.8 2"/></svg><span id="radarBtnLabel">Radar</span></button>
     <p class="radar-time power-time" id="powerTime" hidden><span>MassOutage &middot; US power</span><b><i></i><em></em></b></p>
     <button id="powerBtn" class="radar-btn power-btn" aria-pressed="false" aria-label="Power outages" title="US power outages: tap to show or hide on the globe"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg><span id="powerBtnLabel">Power: off</span></button>
     <button id="placesBtn" class="radar-btn power-btn places-btn" aria-pressed="false" aria-label="Place names" title="Country, state and province names: tap to show or hide"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></svg><span>Place names: off</span></button>
@@ -309,7 +309,7 @@
   <script src="js/tts.js?v=10"></script>
   <script src="js/roomnet.js?v=17"></script>
   <script src="js/pathtrace.js?v=7"></script>
-  <script src="js/radar.js?v=12"></script>
+  <script src="js/radar.js?v=13"></script>
   <script src="js/power.js?v=3"></script>
   <script src="js/glglobe.js?v=40"></script>
   <script src="js/glass.js?v=88"></script>
@@ -318,7 +318,7 @@
   <script src="js/fx.js?v=8"></script>
   <script src="js/santa.js?v=10"></script>
   <script src="js/flights.js?v=22"></script>
-  <script src="js/app.js?v=257"></script>
+  <script src="js/app.js?v=258"></script>
   <script src="js/devlab.js?v=78"></script>
 </body>
 </html>

@@ -3700,14 +3700,19 @@
     window.Radar.setMaxTex(glr.info.maxTex || 4096);
     const RADAR_A = Math.max(0.1, Math.min(1, num('radaralpha', 0.75)));
     const STEP_MS = 700, FADE = 0.35, HOLD_MS = 1600;   // per frame; crossfade share; pause on the latest
-    const MODES = ['live', 'loop', 'off'];
+    const MODES = ['live', 'loop', 'forecast', 'off'];
     let mode = 'loop';
     try { mode = localStorage.getItem('te-radar-mode2') || 'loop'; } catch (_) { /* default */ }
     if (!MODES.includes(mode)) mode = 'live';
     let frames = { n: 0, times: [] }, loopRaf = 0, loopT0 = 0, shownIdx = -1;
+    const radarSrc = radarTime.querySelector('span'), radarSrcText = radarSrc.textContent;
     const label = (i) => {
       const t = frames.times[i];
-      radarWhen.textContent = t && frames.n > 1 ? 'past hour \u00B7 ' : '';
+      if (mode === 'forecast') {
+        // Frames are on the hour: the one covering now reads "now", then +1h, +2h ...
+        const ahead = t ? Math.max(0, Math.floor((t - Date.now()) / 3600e3) + 1) : 0;
+        radarWhen.textContent = t ? (ahead ? `forecast +${ahead}h \u00B7 ` : 'forecast now \u00B7 ') : '';
+      } else radarWhen.textContent = t && frames.n > 1 ? 'past hour \u00B7 ' : '';
       radarClock.textContent = t ? fmtTime(t) : '';
     };
     function loop(t) {
@@ -3740,7 +3745,8 @@
     const applyRadar = () => {
       radarBtn.setAttribute('aria-pressed', String(mode !== 'off'));
       radarBtn.dataset.mode = mode;
-      document.getElementById('radarBtnLabel').textContent = { loop: 'Radar: past hour', live: 'Radar: live', off: 'Radar: off' }[mode];
+      document.getElementById('radarBtnLabel').textContent = { loop: 'Radar: past hour', live: 'Radar: live', forecast: 'Radar: forecast', off: 'Radar: off' }[mode];
+      radarSrc.textContent = mode === 'forecast' ? 'NOAA GFS \u00B7 Forecast radar' : radarSrcText;
       if (mode === 'off') {
         window.Radar.stop();
         if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; }
@@ -3750,6 +3756,7 @@
         syncMapKey();
         return;
       }
+      window.Radar.setForecast(mode === 'forecast');
       window.Radar.setAnimate(mode === 'loop');
       window.Radar.start(onFrames);
       loadStates();
@@ -3763,7 +3770,7 @@
       mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
       try { localStorage.setItem('te-radar-mode2', mode); } catch (_) { /* private mode */ }
       sfx(mode === 'off' ? 'off' : 'on');
-      toast({ live: 'Weather radar: live', loop: 'Weather radar: past hour', off: 'Weather radar off' }[mode], 'info');
+      toast({ live: 'Weather radar: live', loop: 'Weather radar: past hour', forecast: 'Weather radar: forecast, next 6 hours', off: 'Weather radar off' }[mode], 'info');
       applyRadar();
     });
     /** Set the radar to a mode from elsewhere (the forecast card). */

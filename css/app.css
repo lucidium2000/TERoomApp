@@ -1151,7 +1151,7 @@ body.power-on .map-key { display: flex; }
 .wxbar .clock { margin: 0; color: var(--ink-2); font-size: 1.62em; line-height: 1.15; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wxbar .radar-time span::before { content: ''; display: inline-block; width: .55em; height: .55em; margin-right: .4em; border-radius: 50%; background: #34d399; vertical-align: .05em; }
 /* Past-hour loop: the button's glow pulses. */
-.wxbar .radar-btn[data-mode="loop"] { animation: radar-loop 1.8s ease-in-out infinite; }
+.wxbar .radar-btn[data-mode="loop"], .wxbar .radar-btn[data-mode="forecast"] { animation: radar-loop 1.8s ease-in-out infinite; }
 @keyframes radar-loop { 50% { box-shadow: 0 0 12px rgba(52, 211, 153, .55); } }
 /* Forecast card: find another place. */
 .wxc-loc { display: flex; align-items: center; gap: .45em; margin: -.35em 0 .7em; font-size: .74em; color: var(--ink-3); }

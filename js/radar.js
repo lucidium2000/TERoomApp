@@ -17,6 +17,10 @@
  * as they arrive; built frames are cached, so after the first load only the
  * newest frame is fetched each update. Requests are paced (token bucket).
  *
+ * Forecast (the next 6 hours): hourly frames of NOAA's GFS model forecast
+ * radar, built by an Action (scripts/forecast-radar.py) and read from the
+ * `forecast` branch; ?fcurl=<base> reads them from elsewhere.
+ *
  * URL: radar=0 hides it entirely; radarcolor=<0-8> RainViewer colour scheme
  * (default 6, NEXRAD Level III); radarus=0 skips the NOAA layer; radarz=<1-4> live tile zoom (default 3);
  * radarloopz=<1-3> past-hour zoom (default 2); radarsoft=<px> smoothing blur
@@ -60,7 +64,54 @@
     } finally { if (!low) worldWaiting--; }
   }
 
-  let lite = false, full = null;
+  // Forecast frames (the `forecast` branch, published by .github/workflows/forecast.yml).
+  const FC_BASE = qs.get('fcurl') || (() => {
+    const h = location.hostname, repo = location.pathname.split('/').filter(Boolean)[0];
+    if (/\.github\.io$/.test(h) && repo) return `https://raw.githubusercontent.com/${h.split('.')[0]}/${repo}/forecast/`;
+    return 'https://raw.githubusercontent.com/lucidium2000/TERoomApp/forecast/';   // local testing
+  })();
+  const FC_FRAMES = 7;   // now, then +1h ... +6h
+  const fcBuilt = new Map();   // file -> softened canvas
+  const loadFc = (file) => {
+    if (fcBuilt.has(file)) return Promise.resolve(fcBuilt.get(file));
+    return new Promise((resolve) => {
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => {
+        // The frames have hard palette edges (small files): soften them here.
+        const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+        const g = c.getContext('2d');
+        g.filter = `blur(${(1.4 * im.width / 2048).toFixed(2)}px)`;
+        g.drawImage(im, 0, 0);
+        fcBuilt.set(file, c);
+        if (fcBuilt.size > 12) { const k = fcBuilt.keys().next().value; fcBuilt.get(k).width = 0; fcBuilt.delete(k); }
+        resolve(c);
+      };
+      im.onerror = () => resolve(null);
+      im.src = FC_BASE + file;
+    });
+  };
+  async function updateForecast(mine, force) {
+    const idx = await (await fetch(FC_BASE + 'forecast.json', { cache: 'no-store' })).json();
+    const now = Date.now();
+    const frames = (idx.frames || []).filter((f) => f.t > now - 3600e3).slice(0, FC_FRAMES);
+    if (!frames.length) throw new Error('no forecast frames for now');
+    const key = 'fc|' + frames.map((f) => f.f).join(',');
+    if (key === lastKey && !force) return;
+    const imgs = [], times = [];
+    for (const f of frames) {
+      const im = await loadFc(f.f);
+      if (!running || mine !== gen) return;
+      if (!im) continue;
+      imgs.push(im); times.push(f.t);
+      frameTime = times[0];
+      const none = imgs.map(() => null);
+      onFrames(imgs.slice(), times.slice(), none, none, none);
+    }
+    lastKey = key;
+  }
+
+  let lite = false, full = null, forecast = false;
   let timer = 0, lastKey = '', onFrames = () => {}, frameTime = 0, running = false, animate = false, gen = 0;
   const built = new Map();   // "path|z" -> canvas, a few dozen at most
 
@@ -268,6 +319,7 @@
     if (document.hidden) return;
     const mine = ++gen;   // a newer update (e.g. after toggling animation) wins
     try {
+      if (forecast) { await updateForecast(mine, force); return; }
       const idx = await (await fetch(INDEX, { cache: 'no-store' })).json();
       const all = (idx.radar && idx.radar.past) || [];
       const frames = animate ? all.slice(-LOOP_FRAMES) : all.slice(-1);
@@ -348,6 +400,9 @@
     /** Loop the past hour (true) or show the latest frame (false). */
     setAnimate(on) { if (animate === on) return; animate = on; lastKey = ''; if (running) update(true); },
     get animate() { return animate; },
+    /** Show the forecast (the next 6 hours) instead of observed radar. */
+    setForecast(on) { if (forecast === !!on) return; forecast = !!on; lastKey = ''; if (running) update(true); },
+    get forecast() { return forecast; },
     stop() { running = false; clearInterval(timer); timer = 0; },
     get time() { return frameTime; },
     /** The regional layer's bounds: [west, south, east, north]. */
